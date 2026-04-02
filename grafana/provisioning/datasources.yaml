@@ -11,12 +11,12 @@ datasources:
       username: siem
       defaultDatabase: siem
       protocol: http
-      tlsSkipVerify: false
+      tlsSkipVerify: true
       logs:
         defaultTable: events
         otelEnabled: false
     secureJsonData:
-      password: "${CLICKHOUSE_PASSWORD}"
+      password: "ClickHousePass123!"
 
   - name: Prometheus
     type: prometheus

@@ -150,14 +150,16 @@ receivers:
   - name: 'email-security'
     email_configs:
       - to: 'security-team@example.com'
-        subject: '[SIEM] {{ template "siem.title" . }}'
+        headers:
+          Subject: '[SIEM] {{ template "siem.title" . }}'
         html: '{{ template "siem.email.html" . }}'
         send_resolved: true
 
   - name: 'email-digest'
     email_configs:
       - to: 'security-digest@example.com'
-        subject: '[SIEM Daily] Security Events Summary'
+        headers:
+          Subject: '[SIEM Daily] Security Events Summary'
         html: '{{ template "siem.email.digest" . }}'
         send_resolved: false
 

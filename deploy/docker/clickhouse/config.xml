@@ -70,7 +70,7 @@
             <profile>siem_grafana</profile>
             <quota>default</quota>
             <networks>
-                <ip>172.20.0.0/24</ip>
+                <ip>172.28.0.0/24</ip>
             </networks>
         </grafana_ro>
     </users>

@@ -41,6 +41,12 @@ scrape_configs:
     static_configs:
       - targets: ['alertmanager:9093']
 
+  - job_name: detection-engine
+    static_configs:
+      - targets: ['detection-engine:9110']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']

@@ -398,3 +398,7 @@ mod tests {
         assert!(matches!(result, Err(ParserError::EventTooLarge { .. })));
     }
 }
+
+#[cfg(test)]
+#[path = "parser_tests.rs"]
+mod extended_tests;

@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS siem.events
     action            Nullable(String)           COMMENT 'HTTP method / SQL command / Redis cmd',
     status_code       Nullable(UInt16)           COMMENT 'HTTP status or response code',
     url_path          Nullable(String)           COMMENT 'URL path (no query string)',
-    http_method       Nullable(LowCardinality(String)) COMMENT 'GET|POST|PUT|DELETE|PATCH',
+    http_method       Nullable(String)           COMMENT 'GET|POST|PUT|DELETE|PATCH',
     duration_ms       Nullable(Float32)          COMMENT 'Request duration in milliseconds',
 
     -- GeoIP обогащение
@@ -66,11 +66,9 @@ PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (source_type, timestamp, event_id)
 -- Первичный ключ (подмножество sort key) — используется для sparse index
 PRIMARY KEY (source_type, timestamp)
--- TTL: горячие данные 7 дней, затем перемещение на холодный диск
-TTL
-    timestamp + INTERVAL 7 DAY TO VOLUME 'warm',
-    timestamp + INTERVAL 30 DAY TO VOLUME 'cold',
-    timestamp + INTERVAL 365 DAY DELETE
+-- TTL: хранить 365 дней, затем удалять
+-- (tiered storage TO VOLUME требует storage policy в config.xml — для локального запуска упрощено)
+TTL toDateTime(timestamp) + INTERVAL 365 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     -- Дедупликация через ReplacingMergeTree: 100ms окно для схлопывания дубликатов
@@ -182,7 +180,7 @@ CREATE TABLE IF NOT EXISTS siem.alerts
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(triggered_at)
 ORDER BY (triggered_at, severity, rule_id)
-TTL triggered_at + INTERVAL 365 DAY DELETE
+TTL toDateTime(triggered_at) + INTERVAL 365 DAY DELETE
 SETTINGS index_granularity = 1024;
 
 -- ══════════════════════════════════════════════════════════════════════════════

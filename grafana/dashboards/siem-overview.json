@@ -1,128 +1,311 @@
 {
-  "__inputs": [
-    {
-      "name": "DS_CLICKHOUSE",
-      "label": "ClickHouse",
-      "description": "",
-      "type": "datasource",
-      "pluginId": "grafana-clickhouse-datasource",
-      "pluginName": "ClickHouse"
-    }
-  ],
   "title": "SIEM-Lite Overview",
   "uid": "siem-overview",
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
+  "schemaVersion": 38,
   "time": { "from": "now-24h", "to": "now" },
+  "tags": ["siem", "security", "overview"],
   "panels": [
     {
       "id": 1,
-      "title": "Events per Second (EPS)",
+      "title": "Events per Minute",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 0, "w": 16, "h": 8 },
-      "datasource": { "uid": "${DS_CLICKHOUSE}" },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
       "targets": [
         {
-          "rawSql": "SELECT toStartOfMinute(timestamp) AS t, count() / 60 AS eps FROM siem.events WHERE $__timeFilter(timestamp) GROUP BY t ORDER BY t",
-          "format": "time_series"
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT toStartOfMinute(timestamp) AS t, count() AS events FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY t ORDER BY t",
+          "format": 0
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
-          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "gradientMode": "opacity" },
           "color": { "mode": "palette-classic" }
         }
-      }
+      },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
     },
     {
       "id": 2,
       "title": "Events by Severity",
       "type": "piechart",
       "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
-      "datasource": { "uid": "${DS_CLICKHOUSE}" },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
       "targets": [
         {
-          "rawSql": "SELECT severity, count() AS cnt FROM siem.events WHERE $__timeFilter(timestamp) GROUP BY severity ORDER BY cnt DESC",
-          "format": "table"
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT severity, count() AS cnt FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY severity ORDER BY cnt DESC",
+          "format": 1
         }
-      ]
+      ],
+      "options": { "pieType": "donut", "displayLabels": ["name", "percent"] },
+      "fieldConfig": {
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "critical" }, "properties": [{ "id": "color", "value": { "fixedColor": "#E02F44", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "error" },    "properties": [{ "id": "color", "value": { "fixedColor": "#FA6400", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "warning" },  "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "info" },     "properties": [{ "id": "color", "value": { "fixedColor": "#3274D9", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "debug" },    "properties": [{ "id": "color", "value": { "fixedColor": "#8E8E8E", "mode": "fixed" } }] }
+        ]
+      }
     },
     {
       "id": 3,
-      "title": "Top Source IPs",
+      "title": "Top Source IPs (24h)",
       "type": "table",
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
-      "datasource": { "uid": "${DS_CLICKHOUSE}" },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
       "targets": [
         {
-          "rawSql": "SELECT source_ip, geo_country_iso AS country, count() AS events, countIf(severity IN ('error','critical')) AS errors FROM siem.events WHERE $__timeFilter(timestamp) AND source_ip IS NOT NULL GROUP BY source_ip, geo_country_iso ORDER BY events DESC LIMIT 20",
-          "format": "table"
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT toString(source_ip) AS IP, count() AS Events, countIf(severity IN ('error','critical')) AS Threats, countIf(severity = 'critical') AS Critical FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND source_ip IS NOT NULL GROUP BY source_ip ORDER BY Threats DESC, Events DESC LIMIT 20",
+          "format": 1
         }
-      ]
+      ],
+      "fieldConfig": {
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Threats" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 20 }] } }, { "id": "color", "value": { "mode": "thresholds" } }] },
+          { "matcher": { "id": "byName", "options": "Critical" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "thresholds", "value": { "steps": [{ "color": "transparent", "value": null }, { "color": "red", "value": 1 }] } }, { "id": "color", "value": { "mode": "thresholds" } }] }
+        ]
+      },
+      "options": { "sortBy": [{ "displayName": "Threats", "desc": true }] }
     },
     {
       "id": 4,
-      "title": "Active Alerts",
+      "title": "Recent Security Events",
       "type": "table",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
-      "datasource": { "uid": "${DS_CLICKHOUSE}" },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
       "targets": [
         {
-          "rawSql": "SELECT triggered_at, rule_title, severity, source_ip, status FROM siem.alerts WHERE triggered_at > now() - INTERVAL 24 HOUR ORDER BY triggered_at DESC LIMIT 50",
-          "format": "table"
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT formatDateTime(timestamp, '%H:%M:%S') AS Time, source_type AS Source, severity AS Severity, left(message, 55) AS Message, toString(source_ip) AS IP FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND severity IN ('error','critical','warning') ORDER BY timestamp DESC LIMIT 50",
+          "format": 1
+        }
+      ],
+      "fieldConfig": {
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Severity" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "mappings", "value": [{ "type": "value", "options": { "critical": { "color": "red", "index": 0 }, "error": { "color": "orange", "index": 1 }, "warning": { "color": "yellow", "index": 2 } } }] }, { "id": "color", "value": { "mode": "thresholds" } }] }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "title": "Total Events (24h)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 16, "w": 4, "h": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT count() AS Total FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR",
+          "format": 1
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "text": {} }
+    },
+    {
+      "id": 6,
+      "title": "Critical Events (24h)",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 16, "w": 4, "h": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT count() AS Critical FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND severity = 'critical'",
+          "format": 1
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 8,
+      "title": "Error Rate (24h)",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 16, "w": 4, "h": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT round(countIf(severity IN ('error','critical')) / count() * 100, 1) AS error_pct FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR",
+          "format": 1
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 15 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 7,
+      "title": "Events by Source",
+      "type": "bargauge",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT source_type AS Source, count() AS Events FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY source_type ORDER BY Events DESC",
+          "format": 1
+        }
+      ],
+      "options": { "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "displayMode": "gradient" }
+    },
+    {
+      "id": 9,
+      "title": "Threat Trends by Severity (1h buckets)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT toStartOfHour(timestamp) AS t, countIf(severity = 'critical') AS critical, countIf(severity = 'error') AS error, countIf(severity = 'warning') AS warning FROM siem.events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY t ORDER BY t",
+          "format": 0
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "critical" }, "properties": [{ "id": "color", "value": { "fixedColor": "#E02F44", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "error" },    "properties": [{ "id": "color", "value": { "fixedColor": "#FA6400", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "warning" },  "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max"] } }
+    },
+    {
+      "id": 10,
+      "title": "HTTP Status Code Distribution",
+      "type": "barchart",
+      "gridPos": { "x": 0, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT toString(status_code) AS Code, count() AS Events FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND status_code IS NOT NULL GROUP BY status_code ORDER BY Events DESC LIMIT 15",
+          "format": 1
+        }
+      ],
+      "options": { "orientation": "vertical", "xTickLabelRotation": 0 }
+    },
+    {
+      "id": 11,
+      "title": "Events by Country (GeoIP)",
+      "type": "table",
+      "gridPos": { "x": 8, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT geo_country_name AS Country, toString(geo_country_iso) AS Code, count() AS Events, countIf(severity IN ('error','critical')) AS Threats FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND geo_country_name IS NOT NULL GROUP BY geo_country_name, geo_country_iso ORDER BY Threats DESC LIMIT 20",
+          "format": 1
         }
       ]
     },
     {
-      "id": 5,
-      "title": "Parse Latency (p99)",
-      "type": "stat",
-      "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "id": 12,
+      "title": "Avg Response Time (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, rate(siem_parser_parse_duration_seconds_bucket[5m])) * 1000",
-          "legendFormat": "p99 ms"
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT toStartOfMinute(timestamp) AS t, round(avg(duration_ms), 2) AS avg_ms, round(quantile(0.95)(duration_ms), 2) AS p95_ms FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND duration_ms IS NOT NULL GROUP BY t ORDER BY t",
+          "format": 0
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "thresholds": {
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 3 },
-              { "color": "red", "value": 5 }
-            ]
-          }
-        }
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "p95_ms" }, "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 5], "fill": "dash" } }, { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+        ]
       }
     },
     {
-      "id": 6,
-      "title": "Kafka Consumer Lag",
-      "type": "stat",
-      "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "id": 13,
+      "title": "Recent Alerts",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
       "targets": [
         {
-          "expr": "kafka_consumer_group_lag{topic=\"siem.events\"}",
-          "legendFormat": "lag"
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "rawSql": "SELECT formatDateTime(triggered_at, '%Y-%m-%d %H:%M:%S') AS Time, rule_title AS Rule, severity AS Severity, toString(source_ip) AS SourceIP, left(description, 80) AS Description, status AS Status FROM siem.alerts ORDER BY triggered_at DESC LIMIT 50",
+          "format": 1
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 10000 },
-              { "color": "red", "value": 100000 }
-            ]
-          }
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Severity" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "mappings", "value": [{ "type": "value", "options": { "critical": { "color": "red", "index": 0 }, "high": { "color": "orange", "index": 1 }, "medium": { "color": "yellow", "index": 2 }, "low": { "color": "green", "index": 3 } } }] }, { "id": "color", "value": { "mode": "thresholds" } }] },
+          { "matcher": { "id": "byName", "options": "Status" },   "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "mappings", "value": [{ "type": "value", "options": { "new": { "color": "red", "index": 0 }, "acknowledged": { "color": "yellow", "index": 1 }, "resolved": { "color": "green", "index": 2 } } }] }, { "id": "color", "value": { "mode": "thresholds" } }] }
+        ]
+      },
+      "options": { "sortBy": [{ "displayName": "Time", "desc": true }] }
+    },
+    {
+      "id": 14,
+      "title": "Ingestion Lag (Prometheus)",
+      "description": "Время от события до записи в SIEM (p99 latency)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 44, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "histogram_quantile(0.99, rate(siem_parse_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p99 latency (ms)"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "histogram_quantile(0.50, rate(siem_parse_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p50 latency (ms)"
         }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "p99 latency (ms)" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
       }
+    },
+    {
+      "id": 15,
+      "title": "Parser Throughput (EPS)",
+      "description": "Событий в секунду через siem-parser",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 44, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(siem_events_parsed_total[1m])",
+          "legendFormat": "events/sec"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 20 } } }
     }
   ]
 }

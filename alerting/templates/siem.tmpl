@@ -17,8 +17,8 @@
 {{ define "siem.text" }}
 *Rule:* `{{ (index .Alerts 0).Labels.rule_id }}`
 *Severity:* `{{ (index .Alerts 0).Labels.severity | toUpper }}`
-*Source IP:* `{{ (index .Alerts 0).Labels.source_ip | default "N/A" }}`
-*User:* `{{ (index .Alerts 0).Labels.user_id | default "anonymous" }}`
+*Source IP:* `{{ if (index .Alerts 0).Labels.source_ip }}{{ (index .Alerts 0).Labels.source_ip }}{{ else }}N/A{{ end }}`
+*User:* `{{ if (index .Alerts 0).Labels.user_id }}{{ (index .Alerts 0).Labels.user_id }}{{ else }}anonymous{{ end }}`
 *MITRE:* `{{ (index .Alerts 0).Labels.mitre_tags }}`
 *Fired at:* {{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 UTC" }}
 *Events count:* {{ len .Alerts }}
@@ -36,9 +36,9 @@
 *Rule ID:* `{{ (index .Alerts 0).Labels.rule_id }}`
 *Rule Title:* {{ (index .Alerts 0).Annotations.summary }}
 *Severity:* `{{ (index .Alerts 0).Labels.severity | toUpper }}`
-*Source IP:* `{{ (index .Alerts 0).Labels.source_ip | default "N/A" }}`
-*Country:* `{{ (index .Alerts 0).Labels.geo_country | default "Unknown" }}`
-*User ID:* `{{ (index .Alerts 0).Labels.user_id | default "anonymous" }}`
+*Source IP:* `{{ if (index .Alerts 0).Labels.source_ip }}{{ (index .Alerts 0).Labels.source_ip }}{{ else }}N/A{{ end }}`
+*Country:* `{{ if (index .Alerts 0).Labels.geo_country }}{{ (index .Alerts 0).Labels.geo_country }}{{ else }}Unknown{{ end }}`
+*User ID:* `{{ if (index .Alerts 0).Labels.user_id }}{{ (index .Alerts 0).Labels.user_id }}{{ else }}anonymous{{ end }}`
 *MITRE ATT&CK:* `{{ (index .Alerts 0).Labels.mitre_tags }}`
 
 *Description:*
@@ -64,8 +64,8 @@
   <table style="width: 100%; border-collapse: collapse;">
     <tr><td style="padding: 4px; color: #888;">Rule ID</td><td style="padding: 4px;"><code>{{ (index .Alerts 0).Labels.rule_id }}</code></td></tr>
     <tr><td style="padding: 4px; color: #888;">Severity</td><td style="padding: 4px; color: #ff6600; font-weight: bold;">{{ (index .Alerts 0).Labels.severity | toUpper }}</td></tr>
-    <tr><td style="padding: 4px; color: #888;">Source IP</td><td style="padding: 4px;"><code>{{ (index .Alerts 0).Labels.source_ip | default "N/A" }}</code></td></tr>
-    <tr><td style="padding: 4px; color: #888;">User</td><td style="padding: 4px;">{{ (index .Alerts 0).Labels.user_id | default "anonymous" }}</td></tr>
+    <tr><td style="padding: 4px; color: #888;">Source IP</td><td style="padding: 4px;"><code>{{ if (index .Alerts 0).Labels.source_ip }}{{ (index .Alerts 0).Labels.source_ip }}{{ else }}N/A{{ end }}</code></td></tr>
+    <tr><td style="padding: 4px; color: #888;">User</td><td style="padding: 4px;">{{ if (index .Alerts 0).Labels.user_id }}{{ (index .Alerts 0).Labels.user_id }}{{ else }}anonymous{{ end }}</td></tr>
     <tr><td style="padding: 4px; color: #888;">Fired At</td><td style="padding: 4px;">{{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 UTC" }}</td></tr>
     <tr><td style="padding: 4px; color: #888;">MITRE</td><td style="padding: 4px;"><code>{{ (index .Alerts 0).Labels.mitre_tags }}</code></td></tr>
   </table>
@@ -92,7 +92,7 @@
   <tr>
     <td><code>{{ .Labels.rule_id }}</code></td>
     <td>{{ .Labels.severity }}</td>
-    <td>{{ .Labels.source_ip | default "N/A" }}</td>
+    <td>{{ if .Labels.source_ip }}{{ .Labels.source_ip }}{{ else }}N/A{{ end }}</td>
     <td>{{ .StartsAt.Format "15:04:05" }}</td>
   </tr>
   {{ end }}
