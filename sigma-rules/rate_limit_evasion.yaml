@@ -1,0 +1,81 @@
+title: Rate Limit Evasion — Anomalous Request Volume from Single IP
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+status: stable
+description: |
+  Обнаруживает аномально высокий объём HTTP-запросов с одного IP-адреса,
+  превышающий нормальный паттерн в 5 раз (baseline из скользящего среднего
+  за 24 часа). Типичные сценарии: парсинг, DDoS, enumeration эндпоинтов,
+  обход rate-limiting через Tor/VPN ротацию.
+author: SIEM-Lite Team
+date: 2024-01-15
+modified: 2024-01-15
+
+logsource:
+  product: dotnet
+  service: api
+  definition: |
+    Требует: поля source_ip, url_path, @timestamp.
+    Baseline хранится в Redis: key="ratelimit:baseline:{ip}", TTL=86400s.
+
+detection:
+  selection_all_requests:
+    source_type: 'dotnet'
+    event_type: 'application'
+
+  # Фильтр легитимных crawler'ов (по User-Agent из metadata)
+  filter_known_bots:
+    metadata.UserAgent|contains:
+      - 'Googlebot'
+      - 'Bingbot'
+      - 'health-check'
+      - 'uptime-robot'
+      - 'pingdom'
+  
+  condition: selection_all_requests and not filter_known_bots
+
+  # Агрегирование в correlator (Redis sliding window):
+  timeframe: 1m
+  aggregate:
+    field: source_ip
+    condition: count >= 500  # >500 RPS с одного IP за 1 минуту
+
+  # Второй порог: резкий рост (spike detection в correlator)
+  # current_rate > baseline_avg * 5 AND current_rate > 100 RPS
+
+fields:
+  - source_ip
+  - "@timestamp"
+  - geo.country_iso
+  - geo.org
+  - metadata.UserAgent
+  - url_path
+
+level: medium
+
+tags:
+  - attack.discovery
+  - attack.t1046   # Network Service Discovery
+  - attack.t1595   # Active Scanning
+  - attack.t1595.002  # Vulnerability Scanning
+
+falsepositives:
+  - Легитимные маркетинговые инструменты (HubSpot, Mailchimp) с опросом API
+  - CI/CD интеграционные тесты в прод-среде (должны запускаться из внутренних IP)
+  - Мобильные приложения с retry storm (exponential backoff не настроен)
+  - CDN pre-warming после деплоя
+
+tuning_notes: |
+  1. Порог 500 req/min подходит для API с ≤1000 активных пользователей.
+     При росте аудитории пересчитывать как: P99_normal_ip_rps * 10.
+  2. Разделить на authenticated и unauthenticated запросы:
+     - authenticated: порог выше (1000 req/min), алерт severity: medium
+     - unauthenticated: порог ниже (200 req/min), алерт severity: high
+  3. Добавить IP whitelist из CDN провайдеров (Cloudflare, Fastly ranges).
+  4. Коррелировать с geo: запросы из нетипичных стран (для B2B SaaS) —
+     повышать severity до high автоматически.
+  5. При обнаружении паттерна /api/users/1, /api/users/2... — escalate
+     до IDOR/enumeration правила (отдельный Sigma-файл).
+
+references:
+  - https://attack.mitre.org/techniques/T1595/
+  - https://owasp.org/www-project-api-security/

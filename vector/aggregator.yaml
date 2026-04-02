@@ -1,0 +1,272 @@
+# Vector Aggregator — stateless, 2+ реплик
+# Принимает от агентов, запускает VRL-нормализацию, отправляет в Redpanda
+# Документация: https://vector.dev/docs/reference/configuration/
+
+data_dir: /var/lib/vector
+
+api:
+  enabled: true
+  address: "0.0.0.0:8686"
+
+# ── SOURCES ──────────────────────────────────────────────────────────────────
+
+sources:
+  from_agents:
+    type: vector
+    address: "0.0.0.0:6000"
+    tls:
+      enabled: true
+      ca_file: "/etc/vector/certs/ca.crt"
+      crt_file: "/etc/vector/certs/aggregator.crt"
+      key_file: "/etc/vector/certs/aggregator.key"
+      verify_certificate: true
+
+  internal_metrics_source:
+    type: internal_metrics
+    scrape_interval_secs: 15
+
+# ── TRANSFORMS ───────────────────────────────────────────────────────────────
+
+transforms:
+  # Первичная маршрутизация по полю source_hint
+  route_events:
+    type: route
+    inputs:
+      - from_agents
+    route:
+      dotnet_json: '.source_hint == "docker" && exists(.message)'
+      postgres_csv: 'exists(.file) && match(string!(.file), r"audit")'
+      redis_event: '.source_hint == "redis"'
+      syslog: '.source_hint == "syslog"'
+      default: 'true'
+
+  # ── Нормализация .NET JSON логов ──
+  parse_dotnet:
+    type: remap
+    inputs:
+      - route_events.dotnet_json
+    source: |
+      # Парсим JSON-сообщение из .NET Serilog/structured logging
+      parsed, err = parse_json(.message)
+      if err != null {
+        # Не JSON — оставляем как plain text событие
+        .event_type = "raw"
+        .normalized = false
+      } else {
+        . = merge(., parsed)
+        .event_type = "application"
+        .normalized = true
+      }
+
+      # Маппинг полей Serilog → ECS
+      if exists(.Level) {
+        .severity = downcase(string!(.Level))
+        del(.Level)
+      }
+      if exists(.MessageTemplate) {
+        .event_template = .MessageTemplate
+        del(.MessageTemplate)
+      }
+      if exists(.Properties) {
+        .metadata = .Properties
+        del(.Properties)
+      }
+
+      # Нормализация severity
+      .severity = if .severity == "fatal" { "critical" } else if .severity == "error" { "error" } else if .severity == "warning" || .severity == "warn" { "warning" } else if .severity == "information" || .severity == "info" { "info" } else { "debug" }
+
+  # ── Нормализация PostgreSQL audit CSV ──
+  parse_postgres:
+    type: remap
+    inputs:
+      - route_events.postgres_csv
+    source: |
+      parsed, err = parse_csv(.message)
+      if err == null && length(parsed) >= 14 {
+        .timestamp_str = parsed[0]
+        .pg_user = parsed[1]
+        .pg_database = parsed[2]
+        .pg_pid = parsed[3]
+        .pg_connection_from = parsed[4]
+        .pg_session_id = parsed[5]
+        .pg_session_line_num = parsed[6]
+        .pg_command_tag = parsed[7]
+        .pg_session_start_time = parsed[8]
+        .pg_virtual_transaction_id = parsed[9]
+        .pg_transaction_id = parsed[10]
+        .pg_error_severity = parsed[11]
+        .pg_sql_state = parsed[12]
+        .pg_message = parsed[13]
+        .event_type = "database"
+        .source_type = "postgresql"
+        .severity = if downcase(string!(.pg_error_severity)) == "error" { "error" } else if downcase(string!(.pg_error_severity)) == "fatal" { "critical" } else { "info" }
+        .action = .pg_command_tag
+        .user_id = .pg_user
+      } else {
+        .event_type = "raw"
+        .source_type = "postgresql"
+        .severity = "info"
+        .normalized = false
+      }
+
+  # ── Нормализация Redis ──
+  parse_redis:
+    type: remap
+    inputs:
+      - route_events.redis_event
+    source: |
+      .event_type = "cache"
+      .source_type = "redis"
+      .severity = "info"
+      if exists(.message) {
+        # Slowlog entry format: "<id> <timestamp> <duration_us> <command> [args...]"
+        parts = split(string!(.message), " ", limit: 4)
+        if length(parts) >= 4 {
+          .redis_cmd_id = parts[0]
+          .redis_duration_us = to_int(parts[2]) ?? null
+          .action = parts[3]
+          if .redis_duration_us != null && .redis_duration_us > 10000 {
+            .severity = "warning"
+          }
+        }
+      }
+
+  # ── Общая ECS-нормализация (все источники) ──
+  normalize_ecs:
+    type: remap
+    inputs:
+      - parse_dotnet
+      - parse_postgres
+      - parse_redis
+      - route_events.syslog
+      - route_events.default
+    source: |
+      # ── Обязательные поля ECS ──
+      if !exists(.event_id) {
+        .event_id = uuid_v4()
+      }
+      if !exists(.source_type) {
+        .source_type = .source_hint ?? "unknown"
+      }
+      if !exists(.severity) {
+        .severity = "info"
+      }
+      if !exists(.event_type) {
+        .event_type = "generic"
+      }
+
+      # Нормализация @timestamp
+      ts_val = .timestamp ?? .ingest_ts ?? now()
+      parsed_ts, err = to_timestamp(ts_val)
+      .timestamp = if err == null { parsed_ts } else { now() }
+
+      # IP нормализация
+      if exists(.client_ip) && !exists(.source_ip) {
+        .source_ip = .client_ip
+      }
+      if exists(."x-forwarded-for") && !exists(.source_ip) {
+        .source_ip = split(string!(."x-forwarded-for"), ",")[0] ?? null
+      }
+
+      # ── PII МАСКИРОВАНИЕ (выполняется до записи) ──
+      # Email
+      if exists(.message) {
+        .message = replace(string!(.message), r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}', "***@***.***")
+      }
+      # Телефон (E.164 и локальные форматы)
+      if exists(.message) {
+        .message = replace(string!(.message), r'\+?[0-9]{1,3}[\s\-]?\(?[0-9]{3}\)?[\s\-]?[0-9]{3}[\s\-]?[0-9]{4,}', "[PHONE]")
+      }
+      # Bearer токены и JWT
+      if exists(.message) {
+        .message = replace(string!(.message), r'(?i)(bearer\s+|token[=:\s]+|authorization[=:\s]+)[A-Za-z0-9\-_\.]+', "Bearer [REDACTED]")
+      }
+      # Маскирование в metadata полях
+      if exists(.metadata) {
+        if exists(.metadata.password) { .metadata.password = "[REDACTED]" }
+        if exists(.metadata.token) { .metadata.token = "[REDACTED]" }
+        if exists(.metadata.secret) { .metadata.secret = "[REDACTED]" }
+        if exists(.metadata.api_key) { .metadata.api_key = "[REDACTED]" }
+        if exists(.metadata.credit_card) { .metadata.credit_card = "[REDACTED]" }
+      }
+
+      # ── Итоговая структура ──
+      . = {
+        "@timestamp": .timestamp,
+        "event_id": .event_id,
+        "source_type": .source_type,
+        "event_type": .event_type,
+        "severity": .severity,
+        "message": .message ?? "",
+        "host": .agent_host ?? "unknown",
+        "source_ip": .source_ip ?? null,
+        "user_id": .user_id ?? null,
+        "action": .action ?? null,
+        "status_code": .status_code ?? .StatusCode ?? null,
+        "url_path": .url_path ?? .RequestPath ?? null,
+        "http_method": .http_method ?? .RequestMethod ?? null,
+        "duration_ms": .duration_ms ?? .ElapsedMilliseconds ?? null,
+        "metadata": .metadata ?? {},
+        "agent_version": .agent_version ?? "0.43.0",
+        "ingest_ts": .ingest_ts ?? now(),
+        # Оставляем исходные специфичные поля в metadata
+        "_raw_source": .source_hint
+      }
+
+  # Фильтруем дубликаты по event_id в скользящем окне
+  deduplicate:
+    type: dedupe
+    inputs:
+      - normalize_ecs
+    fields:
+      match:
+        - event_id
+    cache:
+      num_events: 50000
+
+# ── SINKS ────────────────────────────────────────────────────────────────────
+
+sinks:
+  to_redpanda:
+    type: kafka
+    inputs:
+      - deduplicate
+    bootstrap_servers: "redpanda:9092"
+    topic: "siem.events"
+    compression: snappy
+    encoding:
+      codec: json
+    batch:
+      max_bytes: 5242880   # 5MB
+      timeout_secs: 1
+    librdkafka_options:
+      enable.idempotence: "true"
+      acks: "all"
+      retries: "2147483647"
+      max.in.flight.requests.per.connection: "5"
+      delivery.timeout.ms: "30000"
+      linger.ms: "5"
+      batch.size: "1048576"
+    # Ключ партиционирования по source_ip для локальности данных
+    key_field: source_ip
+    tls:
+      enabled: false  # TLS на уровне сети (VPC/overlay)
+
+  # Dead letter queue для событий с ошибками
+  to_redpanda_dlq:
+    type: kafka
+    inputs:
+      - normalize_ecs  # события до дедупликации с ошибками трансформаций
+    bootstrap_servers: "redpanda:9092"
+    topic: "siem.events.dlq"
+    encoding:
+      codec: json
+    condition:
+      type: vrl
+      source: 'exists(.errors)'
+
+  internal_metrics_sink:
+    type: prometheus_exporter
+    inputs:
+      - internal_metrics_source
+    address: "0.0.0.0:9598"

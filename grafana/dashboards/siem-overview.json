@@ -1,0 +1,128 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_CLICKHOUSE",
+      "label": "ClickHouse",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "grafana-clickhouse-datasource",
+      "pluginName": "ClickHouse"
+    }
+  ],
+  "title": "SIEM-Lite Overview",
+  "uid": "siem-overview",
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Events per Second (EPS)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 16, "h": 8 },
+      "datasource": { "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "rawSql": "SELECT toStartOfMinute(timestamp) AS t, count() / 60 AS eps FROM siem.events WHERE $__timeFilter(timestamp) GROUP BY t ORDER BY t",
+          "format": "time_series"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Events by Severity",
+      "type": "piechart",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+      "datasource": { "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "rawSql": "SELECT severity, count() AS cnt FROM siem.events WHERE $__timeFilter(timestamp) GROUP BY severity ORDER BY cnt DESC",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Top Source IPs",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "rawSql": "SELECT source_ip, geo_country_iso AS country, count() AS events, countIf(severity IN ('error','critical')) AS errors FROM siem.events WHERE $__timeFilter(timestamp) AND source_ip IS NOT NULL GROUP BY source_ip, geo_country_iso ORDER BY events DESC LIMIT 20",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Active Alerts",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "uid": "${DS_CLICKHOUSE}" },
+      "targets": [
+        {
+          "rawSql": "SELECT triggered_at, rule_title, severity, source_ip, status FROM siem.alerts WHERE triggered_at > now() - INTERVAL 24 HOUR ORDER BY triggered_at DESC LIMIT 50",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Parse Latency (p99)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, rate(siem_parser_parse_duration_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p99 ms"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 3 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Kafka Consumer Lag",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "expr": "kafka_consumer_group_lag{topic=\"siem.events\"}",
+          "legendFormat": "lag"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10000 },
+              { "color": "red", "value": 100000 }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{{ define "siem.title" }}
+  {{- if gt (len .Alerts.Firing) 0 -}}
+    [{{ (index .Alerts.Firing 0).Labels.rule_id }}] {{ (index .Alerts.Firing 0).Annotations.summary }}
+  {{- else -}}
+    [RESOLVED] {{ (index .Alerts.Resolved 0).Annotations.summary }}
+  {{- end -}}
+{{ end }}
+
+{{ define "siem.color" }}
+  {{- $severity := (index .Alerts 0).Labels.severity -}}
+  {{- if eq $severity "critical" }}#FF0000
+  {{- else if eq $severity "high" }}#FF6600
+  {{- else if eq $severity "medium" }}#FFAA00
+  {{- else }}#00AA00{{ end -}}
+{{ end }}
+
+{{ define "siem.text" }}
+*Rule:* `{{ (index .Alerts 0).Labels.rule_id }}`
+*Severity:* `{{ (index .Alerts 0).Labels.severity | toUpper }}`
+*Source IP:* `{{ (index .Alerts 0).Labels.source_ip | default "N/A" }}`
+*User:* `{{ (index .Alerts 0).Labels.user_id | default "anonymous" }}`
+*MITRE:* `{{ (index .Alerts 0).Labels.mitre_tags }}`
+*Fired at:* {{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+*Events count:* {{ len .Alerts }}
+
+{{ (index .Alerts 0).Annotations.description }}
+{{ end }}
+
+{{ define "siem.text.brief" }}
+`{{ (index .Alerts 0).Labels.rule_id }}` | IP: `{{ (index .Alerts 0).Labels.source_ip }}` | {{ (index .Alerts 0).Annotations.summary }}
+{{ end }}
+
+{{ define "siem.text.detailed" }}
+*🚨 SECURITY INCIDENT — IMMEDIATE ACTION REQUIRED*
+
+*Rule ID:* `{{ (index .Alerts 0).Labels.rule_id }}`
+*Rule Title:* {{ (index .Alerts 0).Annotations.summary }}
+*Severity:* `{{ (index .Alerts 0).Labels.severity | toUpper }}`
+*Source IP:* `{{ (index .Alerts 0).Labels.source_ip | default "N/A" }}`
+*Country:* `{{ (index .Alerts 0).Labels.geo_country | default "Unknown" }}`
+*User ID:* `{{ (index .Alerts 0).Labels.user_id | default "anonymous" }}`
+*MITRE ATT&CK:* `{{ (index .Alerts 0).Labels.mitre_tags }}`
+
+*Description:*
+{{ (index .Alerts 0).Annotations.description }}
+
+*Alert fired at:* {{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+*Total correlated events:* {{ len .Alerts }}
+
+*Runbook:* {{ (index .Alerts 0).Annotations.runbook_url }}
+
+*Actions:*
+• <http://grafana:3000/d/siem-events|View in Grafana>
+• <http://grafana:3000/d/siem-ip-detail?var-ip={{ (index .Alerts 0).Labels.source_ip }}|IP Investigation>
+{{ end }}
+
+{{ define "siem.email.html" }}
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>SIEM Alert</title></head>
+<body style="font-family: monospace; background: #1a1a1a; color: #e0e0e0; padding: 20px;">
+<div style="max-width: 700px; margin: 0 auto; border: 2px solid #ff6600; padding: 20px; border-radius: 8px;">
+  <h2 style="color: #ff6600;">⚠️ SIEM Security Alert</h2>
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr><td style="padding: 4px; color: #888;">Rule ID</td><td style="padding: 4px;"><code>{{ (index .Alerts 0).Labels.rule_id }}</code></td></tr>
+    <tr><td style="padding: 4px; color: #888;">Severity</td><td style="padding: 4px; color: #ff6600; font-weight: bold;">{{ (index .Alerts 0).Labels.severity | toUpper }}</td></tr>
+    <tr><td style="padding: 4px; color: #888;">Source IP</td><td style="padding: 4px;"><code>{{ (index .Alerts 0).Labels.source_ip | default "N/A" }}</code></td></tr>
+    <tr><td style="padding: 4px; color: #888;">User</td><td style="padding: 4px;">{{ (index .Alerts 0).Labels.user_id | default "anonymous" }}</td></tr>
+    <tr><td style="padding: 4px; color: #888;">Fired At</td><td style="padding: 4px;">{{ (index .Alerts 0).StartsAt.Format "2006-01-02 15:04:05 UTC" }}</td></tr>
+    <tr><td style="padding: 4px; color: #888;">MITRE</td><td style="padding: 4px;"><code>{{ (index .Alerts 0).Labels.mitre_tags }}</code></td></tr>
+  </table>
+  <hr style="border-color: #444; margin: 16px 0;">
+  <p>{{ (index .Alerts 0).Annotations.description }}</p>
+  <div style="margin-top: 16px;">
+    <a href="http://grafana:3000/d/siem-events" style="background: #0099cc; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px;">View in Grafana</a>
+  </div>
+</div>
+</body>
+</html>
+{{ end }}
+
+{{ define "siem.email.digest" }}
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>SIEM Daily Digest</title></head>
+<body style="font-family: sans-serif;">
+<h2>SIEM Daily Security Digest</h2>
+<p>{{ len .Alerts }} alert(s) since last report:</p>
+<table border="1" cellpadding="6" style="border-collapse: collapse; width: 100%;">
+  <tr style="background: #f0f0f0;"><th>Rule</th><th>Severity</th><th>Source IP</th><th>Time</th></tr>
+  {{ range .Alerts }}
+  <tr>
+    <td><code>{{ .Labels.rule_id }}</code></td>
+    <td>{{ .Labels.severity }}</td>
+    <td>{{ .Labels.source_ip | default "N/A" }}</td>
+    <td>{{ .StartsAt.Format "15:04:05" }}</td>
+  </tr>
+  {{ end }}
+</table>
+</body>
+</html>
+{{ end }}

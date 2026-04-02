@@ -1,0 +1,25 @@
+# Rust
+rust-parser/target/
+rust-parser/Cargo.lock
+
+# Secrets — никогда не коммитим
+deploy/docker/secrets/*.txt
+deploy/docker/certs/
+!deploy/docker/secrets/README.md
+
+# GeoIP базы данных
+*.mmdb
+
+# Локальные конфиги с паролями
+*.local.yaml
+*.local.env
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp

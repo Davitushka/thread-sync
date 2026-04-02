@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- Максимальное использование памяти: 75% от доступной -->
+    <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Сжатие по умолчанию -->
+    <compression>
+        <case>
+            <min_part_size>10000000000</min_part_size>
+            <min_part_size_ratio>0.01</min_part_size_ratio>
+            <method>zstd</method>
+            <level>3</level>
+        </case>
+    </compression>
+
+    <!-- Prometheus метрики ClickHouse -->
+    <prometheus>
+        <endpoint>/metrics</endpoint>
+        <port>9363</port>
+        <metrics>true</metrics>
+        <events>true</events>
+        <asynchronous_metrics>true</asynchronous_metrics>
+    </prometheus>
+
+    <!-- Логирование -->
+    <logger>
+        <level>warning</level>
+        <log>/var/log/clickhouse-server/clickhouse-server.log</log>
+        <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
+        <size>100M</size>
+        <count>5</count>
+    </logger>
+
+    <!-- Ограничения на запросы -->
+    <max_concurrent_queries>100</max_concurrent_queries>
+    <max_connections>1000</max_connections>
+    <keep_alive_timeout>10</keep_alive_timeout>
+
+    <!-- Профили -->
+    <profiles>
+        <default>
+            <max_memory_usage>2000000000</max_memory_usage>
+            <max_execution_time>60</max_execution_time>
+            <max_rows_to_read>100000000</max_rows_to_read>
+        </default>
+        <siem_grafana>
+            <!-- Профиль для Grafana дашбордов — менее строгие лимиты -->
+            <max_memory_usage>4000000000</max_memory_usage>
+            <max_execution_time>120</max_execution_time>
+            <readonly>1</readonly>
+        </siem_grafana>
+    </profiles>
+
+    <!-- RBAC пользователи (prod: переключить на LDAP/Kerberos) -->
+    <users>
+        <siem>
+            <password_sha256_hex from_env="CLICKHOUSE_PASSWORD_SHA256"/>
+            <profile>default</profile>
+            <quota>default</quota>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <databases>
+                <siem/>
+            </databases>
+        </siem>
+        <grafana_ro>
+            <!-- Read-only пользователь для Grafana -->
+            <password_sha256_hex from_env="CLICKHOUSE_GRAFANA_PASSWORD_SHA256"/>
+            <profile>siem_grafana</profile>
+            <quota>default</quota>
+            <networks>
+                <ip>172.20.0.0/24</ip>
+            </networks>
+        </grafana_ro>
+    </users>
+</clickhouse>

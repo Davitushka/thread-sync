@@ -1,0 +1,154 @@
+title: Privilege Escalation or Unauthorized Admin Endpoint Access
+id: d4e5f6a7-b8c9-0123-def0-234567890123
+status: stable
+description: |
+  Обнаруживает попытки доступа к административным эндпоинтам от пользователей
+  без роли admin/superuser, а также подозрительные паттерны эскалации привилегий:
+  1. HTTP 403 на admin endpoints — попытка без прав
+  2. Успешный доступ к /admin/* от пользователя без роли admin в claim
+  3. JWT token manipulation: попытка изменить role claim
+  4. IDOR: последовательный перебор /api/users/{id} с другим userId чем в token
+author: SIEM-Lite Team
+date: 2024-01-15
+modified: 2024-01-15
+
+logsource:
+  product: dotnet
+  service: api
+  definition: |
+    Требует: поля url_path, user_id, status_code, metadata.UserRoles (из JWT claims).
+    ASP.NET Core: добавить в middleware логирование claims при AuthorizationFailure.
+
+detection:
+  # Вариант 1: Отказ в доступе к admin endpoint
+  selection_admin_403:
+    source_type: 'dotnet'
+    status_code: 403
+    url_path|contains:
+      - '/admin'
+      - '/api/admin'
+      - '/management'
+      - '/actuator'
+      - '/api/internal'
+      - '/api/system'
+      - '/_admin'
+
+  # Вариант 2: Успешный доступ к admin endpoint без admin роли
+  selection_admin_200_no_role:
+    source_type: 'dotnet'
+    status_code:
+      - 200
+      - 201
+      - 204
+    url_path|contains:
+      - '/admin'
+      - '/api/admin'
+      - '/management'
+      - '/api/users/roles'
+      - '/api/permissions'
+    metadata.UserRoles|not_contains:
+      - 'admin'
+      - 'superuser'
+      - 'Administrator'
+      - 'SystemAdmin'
+  
+  # Вариант 3: Попытка изменить собственные права
+  selection_role_modification:
+    source_type: 'dotnet'
+    url_path|contains:
+      - '/api/users/roles'
+      - '/api/permissions/grant'
+      - '/api/account/elevate'
+    http_method:
+      - 'POST'
+      - 'PUT'
+      - 'PATCH'
+  
+  # Вариант 4: Массовый IDOR перебор (перебор user IDs)
+  selection_idor_pattern:
+    source_type: 'dotnet'
+    url_path|re: '/api/(users|accounts|profiles)/\d+'
+    # Агрегирование: разные user IDs в url != user_id из token
+    # Реализуется в correlator через regex capture + сравнение с metadata.AuthenticatedUserId
+
+  # Исключаем служебные аккаунты мониторинга
+  filter_service_accounts:
+    user_id|startswith:
+      - 'svc-'
+      - 'monitor-'
+      - 'health-'
+    source_ip|startswith:
+      - '10.'
+
+  condition: >
+    (
+      selection_admin_403
+      or selection_admin_200_no_role
+      or selection_role_modification
+      or selection_idor_pattern
+    )
+    and not filter_service_accounts
+
+  # Для IDOR: агрегирование в correlator
+  # COUNT(DISTINCT url_path_user_id) >= 5 WHERE url_path_user_id != metadata.AuthenticatedUserId
+  # за WINDOW(5 минуты) GROUP BY user_id, source_ip
+
+fields:
+  - source_ip
+  - user_id
+  - url_path
+  - status_code
+  - http_method
+  - "@timestamp"
+  - metadata.UserRoles
+  - metadata.AuthenticatedUserId
+
+level: critical
+
+tags:
+  - attack.privilege_escalation
+  - attack.t1068    # Exploitation for Privilege Escalation
+  - attack.t1078    # Valid Accounts
+  - attack.t1078.003  # Valid Accounts: Local Accounts
+  - attack.discovery
+  - attack.t1087    # Account Discovery
+  - attack.lateral_movement
+  - attack.t1550    # Use Alternate Authentication Material
+
+falsepositives:
+  - Администраторы использующие личные (не сервисные) аккаунты (процессная проблема)
+  - Новые сотрудники с неполно настроенными ролями в first login
+  - Автоматические интеграции без корректного service account (нужен аудит)
+  - Тестирование authorization middleware в staging без mock claims
+
+tuning_notes: |
+  1. ПРИОРИТЕТ: Это правило требует корректной настройки логирования claims в ASP.NET Core.
+     Добавить в Program.cs:
+     ```csharp
+     app.Use(async (context, next) => {
+         if (context.User.Identity?.IsAuthenticated == true) {
+             var roles = context.User.Claims
+                 .Where(c => c.Type == ClaimTypes.Role)
+                 .Select(c => c.Value);
+             using var scope = logger.BeginScope(new {
+                 UserRoles = string.Join(",", roles),
+                 AuthenticatedUserId = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+             });
+             await next();
+         } else { await next(); }
+     });
+     ```
+  2. Вариант selection_admin_200_no_role может давать FP если роли хранятся
+     в кастомном claim (не standard ClaimTypes.Role). Адаптировать имя поля.
+  3. Для SignalR: проверить что middleware авторизации применяется к Hub методам,
+     а не только к HTTP эндпоинтам. Использовать [Authorize(Roles = "admin")] атрибут.
+  4. IDOR detection требует корреляции в Go correlator — реализовать отдельную
+     sliding window с сохранением Set<accessed_user_ids> в Redis per auth_user.
+  5. Escalate immediately: при status_code=200 на /api/admin/* без роли —
+     критический алерт с немедленным уведомлением + автоматический session revoke.
+
+references:
+  - https://attack.mitre.org/techniques/T1068/
+  - https://attack.mitre.org/techniques/T1078/
+  - https://owasp.org/www-project-api-security/
+  - https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html

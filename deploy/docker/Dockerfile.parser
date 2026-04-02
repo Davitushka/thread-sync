@@ -1,0 +1,81 @@
+# Multi-stage Dockerfile для siem-parser (Rust)
+# Build: docker build -f deploy/docker/Dockerfile.parser -t siem-parser:latest ./rust-parser
+# Документация cargo: https://doc.rust-lang.org/cargo/
+
+# ── Стадия 1: Зависимости (кешируется отдельно от исходников) ─────────────────
+FROM rust:1.82-slim-bookworm AS deps
+
+WORKDIR /build
+
+# Устанавливаем системные зависимости для rdkafka (libsasl2, openssl)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake \
+    libssl-dev \
+    pkg-config \
+    libsasl2-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем только манифесты для кешинга зависимостей
+COPY Cargo.toml Cargo.lock ./
+# Создаём заглушки чтобы cargo мог разрешить граф зависимостей
+RUN mkdir src && echo "fn main() {}" > src/main.rs && echo "" > src/lib.rs
+RUN mkdir -p benches && echo "fn main() {}" > benches/parse_benchmark.rs
+
+# Компилируем зависимости (этот слой кешируется если Cargo.toml не изменился)
+RUN cargo build --release --locked 2>&1
+RUN rm -rf src benches
+
+# ── Стадия 2: Компиляция исходников ───────────────────────────────────────────
+FROM deps AS builder
+
+COPY src/ ./src/
+COPY benches/ ./benches/
+
+# touch чтобы cargo перекомпилировал наши исходники (не зависимости)
+RUN touch src/main.rs src/lib.rs
+
+# Компиляция в release: LTO + codegen-units=1 (настроены в Cargo.toml [profile.release])
+RUN cargo build --release --locked --bin siem-parser 2>&1
+
+# Проверка что бинарник валиден
+RUN ./target/release/siem-parser --help 2>/dev/null || true
+
+# Strip debug symbols (уже включён через strip=true в Cargo.toml)
+RUN ls -la target/release/siem-parser
+
+# ── Стадия 3: Runtime — минимальный образ ──────────────────────────────────────
+FROM debian:bookworm-slim AS runtime
+
+# Устанавливаем только runtime зависимости
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 \
+    libsasl2-2 \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создаём непривилегированного пользователя
+RUN groupadd --system --gid 1001 siem && \
+    useradd --system --uid 1001 --gid siem --no-create-home siem
+
+WORKDIR /app
+
+# Копируем бинарник из builder стадии
+COPY --from=builder --chown=siem:siem /build/target/release/siem-parser ./siem-parser
+
+# Директория для конфигурации (монтируется через volume/ConfigMap)
+RUN mkdir -p /etc/siem-parser /etc/geoip && chown -R siem:siem /etc/siem-parser /etc/geoip
+
+USER siem
+
+EXPOSE 7000 9100
+
+# Healthcheck встроен в образ
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:7000/health || exit 1
+
+# Graceful shutdown через SIGTERM (обрабатывается в main.rs)
+STOPSIGNAL SIGTERM
+
+ENTRYPOINT ["./siem-parser"]

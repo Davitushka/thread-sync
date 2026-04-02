@@ -1,0 +1,138 @@
+title: SQL / NoSQL Injection Attempt in Application Logs
+id: c3d4e5f6-a7b8-9012-cdef-123456789012
+status: stable
+description: |
+  Обнаруживает попытки SQL и NoSQL инъекций в полях запросов, зафиксированных
+  в структурированных логах приложения. Правило анализирует поля message,
+  url_path и metadata.query на наличие характерных паттернов инъекций.
+  Включает классические SQL-паттерны, Error-Based, Boolean-Based, Time-Based
+  и NoSQL (MongoDB operator injection, Redis KEYS *).
+author: SIEM-Lite Team
+date: 2024-01-15
+modified: 2024-01-15
+
+logsource:
+  product: dotnet
+  service: api
+  definition: |
+    Требует: поля message, url_path, metadata (с HTTP параметрами).
+    ASP.NET Core должен логировать входные параметры при ошибке валидации.
+
+detection:
+  selection_sqli_classic:
+    source_type: 'dotnet'
+    message|contains:
+      - "' OR '1'='1"
+      - "' OR 1=1"
+      - "'; DROP TABLE"
+      - "'; SELECT"
+      - "UNION SELECT"
+      - "UNION ALL SELECT"
+      - "1' AND '1'='1"
+      - "1 AND 1=1--"
+
+  selection_sqli_url:
+    source_type: 'dotnet'
+    url_path|contains:
+      - "' OR "
+      - "%27 OR "
+      - "UNION+SELECT"
+      - "UNION%20SELECT"
+      - "1=1--"
+      - "1=1%23"
+      - "/**/OR/**/"
+
+  selection_sqli_timebased:
+    source_type: 'dotnet'
+    message|contains:
+      - "SLEEP("
+      - "WAITFOR DELAY"
+      - "pg_sleep("
+      - "BENCHMARK("
+
+  selection_error_based:
+    source_type: 'dotnet'
+    message|contains:
+      - "extractvalue("
+      - "updatexml("
+      - "EXP(~("
+      - "floor(rand("
+
+  selection_nosql:
+    source_type: 'dotnet'
+    message|contains:
+      - '{"$gt": ""}'
+      - '{"$where":'
+      - '{"$regex":'
+      - '{"$ne": null}'
+      - '{"$in": [null]}'
+      - "'; return 'a'=='a"
+    
+  selection_nosql_url:
+    source_type: 'dotnet'
+    url_path|contains:
+      - '%24gt'    # $gt URL-encoded
+      - '%24where' # $where URL-encoded
+      - '%24ne'    # $ne URL-encoded
+
+  filter_legitimate_queries:
+    # Исключаем тестовые запросы из внутренней сети CI/CD
+    source_ip|startswith:
+      - '10.'
+      - '172.16.'
+      - '172.17.'
+      - '192.168.'
+
+  condition: >
+    (
+      selection_sqli_classic
+      or selection_sqli_url
+      or selection_sqli_timebased
+      or selection_error_based
+      or selection_nosql
+      or selection_nosql_url
+    )
+    and not filter_legitimate_queries
+
+fields:
+  - source_ip
+  - user_id
+  - url_path
+  - message
+  - status_code
+  - "@timestamp"
+  - geo.country_iso
+  - metadata.UserAgent
+
+level: high
+
+tags:
+  - attack.initial_access
+  - attack.t1190    # Exploit Public-Facing Application
+  - attack.t1059    # Command and Scripting Interpreter
+  - attack.credential_access
+  - attack.t1078    # Valid Accounts (post-SQLi account takeover)
+
+falsepositives:
+  - Penetration testing / security scanning (документировать в whitelist по IP)
+  - Разработчики тестирующие валидацию в dev-среде (фильтр по source_ip)
+  - WAF-логи которые уже заблокировали запрос (фильтровать по status_code=403)
+  - Поисковые запросы с символами апострофа в русском тексте (false positive
+    возможен — добавить фильтр по content-type: application/json)
+
+tuning_notes: |
+  1. КРИТИЧНО: Добавить правило в whitelist для IP пен-тестеров до запуска сканирования.
+     Команда: POST /api/siem/silence { "filter": {"source_ip": "X.X.X.X"}, "duration": "8h" }
+  2. Анализировать status_code: если 400/403 — WAF уже заблокировал, severity: low.
+     Если 200/500 — потенциально успешная инъекция, severity: critical.
+  3. Коррелировать с PostgreSQL-логами: если после HTTP-инъекции появляется
+     pg_error_severity=ERROR в течение 5 секунд — escalate to critical.
+  4. Для NoSQL (MongoDB): включить профилировщик запросов и парсить
+     system.profile коллекцию отдельным источником.
+  5. Правило требует, чтобы приложение логировало входные параметры —
+     настроить в Serilog: .Enrich.WithProperty("QueryParams", context.Request.Query).
+
+references:
+  - https://attack.mitre.org/techniques/T1190/
+  - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05-Testing_for_SQL_Injection
+  - https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html

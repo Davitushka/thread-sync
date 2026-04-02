@@ -1,0 +1,170 @@
+# Alertmanager 0.27 — конфигурация маршрутизации алертов
+# Документация: https://prometheus.io/docs/alerting/latest/configuration/
+
+global:
+  # SMTP для email нотификаций
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'siem-alerts@example.com'
+  smtp_auth_username: 'siem-alerts@example.com'
+  smtp_auth_password_file: '/run/secrets/smtp_password'
+  smtp_require_tls: true
+
+  # Slack глобальные настройки
+  slack_api_url_file: '/run/secrets/slack_webhook_url'
+
+  # Resolve timeout — сколько ждать перед отправкой "resolved"
+  resolve_timeout: 5m
+
+# Шаблоны сообщений
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# ── Основная точка входа ──────────────────────────────────────────────────────
+route:
+  receiver: 'default-slack'
+  group_by: ['alertname', 'source_ip', 'rule_id']
+  group_wait: 10s        # Ждём 10s перед первой нотификацией (группировка)
+  group_interval: 5m     # Интервал нотификаций для существующих групп
+  repeat_interval: 30m   # Повторить алерт если не resolved через 30 мин
+
+  routes:
+    # Critical — немедленно: PagerDuty + Slack #security-critical
+    - matchers:
+        - severity = "critical"
+      receiver: 'pagerduty-critical'
+      group_wait: 0s         # Без задержки для критических
+      group_interval: 1m
+      repeat_interval: 15m
+      continue: true          # Также отправить в Slack
+
+    - matchers:
+        - severity = "critical"
+      receiver: 'slack-critical'
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 15m
+
+    # High — Slack #security-alerts + Email
+    - matchers:
+        - severity = "high"
+      receiver: 'slack-high'
+      group_wait: 15s
+      repeat_interval: 30m
+      continue: true
+
+    - matchers:
+        - severity = "high"
+      receiver: 'email-security'
+      group_wait: 30s
+      repeat_interval: 1h
+
+    # Medium — Slack #security-info
+    - matchers:
+        - severity = "medium"
+      receiver: 'slack-medium'
+      group_wait: 30s
+      repeat_interval: 4h
+
+    # Low — только email digest
+    - matchers:
+        - severity = "low"
+      receiver: 'email-digest'
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 24h
+
+    # Self-monitoring SIEM — отдельный канал
+    - matchers:
+        - alertname =~ "SIEM.*"
+      receiver: 'slack-siem-ops'
+      group_wait: 5s
+      repeat_interval: 10m
+
+# ── Дедупликация (inhibit rules) ─────────────────────────────────────────────
+inhibit_rules:
+  # Если critical алерт активен — подавляем high/medium с того же IP
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity =~ "high|medium"
+    equal: ['source_ip', 'rule_id']
+
+  # Если brute-force алерт активен — подавляем rate-limit с того же IP
+  - source_matchers:
+      - alertname = "BruteForceDetected"
+    target_matchers:
+      - alertname = "RateLimitEvasion"
+    equal: ['source_ip']
+
+# ── Receivers ─────────────────────────────────────────────────────────────────
+receivers:
+  - name: 'default-slack'
+    slack_configs:
+      - channel: '#security-logs'
+        send_resolved: true
+        title: '{{ template "siem.title" . }}'
+        text: '{{ template "siem.text" . }}'
+        color: '{{ template "siem.color" . }}'
+        actions:
+          - type: button
+            text: "View in Grafana"
+            url: 'http://grafana:3000/d/siem-events?var-alert_id={{ (index .Alerts 0).Labels.alert_id }}'
+
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - routing_key_file: '/run/secrets/pagerduty_key'
+        severity: 'critical'
+        description: '{{ template "siem.title" . }}'
+        details:
+          rule_id: '{{ (index .Alerts 0).Labels.rule_id }}'
+          source_ip: '{{ (index .Alerts 0).Labels.source_ip }}'
+          mitre: '{{ (index .Alerts 0).Labels.mitre_tags }}'
+        links:
+          - href: 'http://grafana:3000/d/siem-events'
+            text: 'SIEM Dashboard'
+
+  - name: 'slack-critical'
+    slack_configs:
+      - channel: '#security-critical'
+        send_resolved: true
+        title: '🚨 CRITICAL: {{ template "siem.title" . }}'
+        text: '{{ template "siem.text.detailed" . }}'
+        color: '#FF0000'
+
+  - name: 'slack-high'
+    slack_configs:
+      - channel: '#security-alerts'
+        send_resolved: true
+        title: '⚠️ HIGH: {{ template "siem.title" . }}'
+        text: '{{ template "siem.text" . }}'
+        color: '#FF6600'
+
+  - name: 'slack-medium'
+    slack_configs:
+      - channel: '#security-info'
+        send_resolved: false
+        title: '📊 MEDIUM: {{ template "siem.title" . }}'
+        text: '{{ template "siem.text.brief" . }}'
+        color: '#FFAA00'
+
+  - name: 'email-security'
+    email_configs:
+      - to: 'security-team@example.com'
+        subject: '[SIEM] {{ template "siem.title" . }}'
+        html: '{{ template "siem.email.html" . }}'
+        send_resolved: true
+
+  - name: 'email-digest'
+    email_configs:
+      - to: 'security-digest@example.com'
+        subject: '[SIEM Daily] Security Events Summary'
+        html: '{{ template "siem.email.digest" . }}'
+        send_resolved: false
+
+  - name: 'slack-siem-ops'
+    slack_configs:
+      - channel: '#siem-operations'
+        send_resolved: true
+        title: '🔧 SIEM OPS: {{ template "siem.title" . }}'
+        text: '{{ template "siem.text" . }}'
+        color: '#0099FF'

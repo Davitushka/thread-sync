@@ -1,0 +1,393 @@
+version: "3.9"
+
+# SIEM-Lite Docker Compose — production-ready конфигурация
+# Требования: Docker 24+, Docker Compose v2.20+
+# Команда запуска: docker compose -f deploy/docker/docker-compose.yml up -d
+# Остановка: docker compose down --volumes (удаляет данные!)
+
+x-common-env: &common-env
+  TZ: UTC
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
+
+networks:
+  siem-internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  vector-data:
+    driver: local
+  redpanda-data:
+    driver: local
+  clickhouse-data-hot:
+    driver: local
+  clickhouse-config:
+    driver: local
+  grafana-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  loki-data:
+    driver: local
+  minio-data:
+    driver: local
+  geoip-data:
+    driver: local
+
+secrets:
+  smtp_password:
+    file: ./secrets/smtp_password.txt
+  slack_webhook_url:
+    file: ./secrets/slack_webhook_url.txt
+  pagerduty_key:
+    file: ./secrets/pagerduty_key.txt
+  clickhouse_password:
+    file: ./secrets/clickhouse_password.txt
+  minio_secret_key:
+    file: ./secrets/minio_secret_key.txt
+
+services:
+  # ════════════════════════════════════════════════════════════════
+  # Redpanda (Kafka-совместимый брокер, без JVM)
+  # ════════════════════════════════════════════════════════════════
+  redpanda:
+    image: redpandadata/redpanda:v23.3.11
+    container_name: siem-redpanda
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "9092:9092"    # Kafka protocol
+      - "9644:9644"    # Admin API
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container  # prod: убрать, настроить storage.commit-interval-ms
+      - --advertise-kafka-addr=redpanda:9092
+      - --kafka-addr=0.0.0.0:9092
+      - --overprovisioned
+      - --smp=2
+      - --memory=1G
+      - --reserve-memory=200M
+      - --set=redpanda.auto_create_topics_enabled=false
+    environment:
+      <<: *common-env
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "rpk", "cluster", "info", "--brokers=localhost:9092"]
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1500M
+
+  # Инициализация топиков Redpanda
+  redpanda-init:
+    image: redpandadata/redpanda:v23.3.11
+    container_name: siem-redpanda-init
+    networks:
+      - siem-internal
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        rpk topic create siem.events \
+          --brokers=redpanda:9092 \
+          --partitions=12 \
+          --replicas=1 \
+          --topic-config=retention.ms=86400000 \
+          --topic-config=segment.bytes=104857600 \
+          --topic-config=compression.type=snappy || true
+
+        rpk topic create siem.events.dlq \
+          --brokers=redpanda:9092 \
+          --partitions=4 \
+          --replicas=1 \
+          --topic-config=retention.ms=604800000 || true
+
+        echo "Redpanda topics initialized"
+    restart: "no"
+
+  # ════════════════════════════════════════════════════════════════
+  # ClickHouse — основное хранилище событий
+  # ════════════════════════════════════════════════════════════════
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: siem-clickhouse
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "8123:8123"    # HTTP interface
+      - "9000:9000"    # Native protocol
+    volumes:
+      - clickhouse-data-hot:/var/lib/clickhouse
+      - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/siem-config.xml:ro
+      - ../../clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    environment:
+      <<: *common-env
+      CLICKHOUSE_USER: siem
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+      CLICKHOUSE_DB: siem
+    secrets:
+      - clickhouse_password
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+        reservations:
+          memory: 2G
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # ════════════════════════════════════════════════════════════════
+  # siem-parser — Rust binary для парсинга и нормализации
+  # ════════════════════════════════════════════════════════════════
+  siem-parser:
+    build:
+      context: ../../rust-parser
+      dockerfile: ../deploy/docker/Dockerfile.parser
+      target: runtime
+    container_name: siem-parser
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "7000:7000"    # HTTP API
+      - "9100:9100"    # Prometheus metrics
+    volumes:
+      - geoip-data:/etc/geoip:ro
+    environment:
+      <<: *common-env
+      SIEM__KAFKA__BOOTSTRAP_SERVERS: redpanda:9092
+      SIEM__KAFKA__TOPIC: siem.events
+      SIEM__KAFKA__DLQ_TOPIC: siem.events.dlq
+      SIEM__GEOIP__CITY_DB_PATH: /etc/geoip/GeoLite2-City.mmdb
+      SIEM__GEOIP__ASN_DB_PATH: /etc/geoip/GeoLite2-ASN.mmdb
+      SIEM__PROCESSING__ENABLE_PII_MASKING: "true"
+      SIEM__PROCESSING__ENABLE_GEOIP: "true"
+      SIEM__SERVER__WORKERS: "4"
+      RUST_LOG: siem_parser=info,warn
+      RUST_BACKTRACE: "1"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7000/health"]
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+        reservations:
+          cpus: "1"
+          memory: 256M
+
+  # ════════════════════════════════════════════════════════════════
+  # Vector Aggregator
+  # ════════════════════════════════════════════════════════════════
+  vector-aggregator:
+    image: timberio/vector:0.43.0-debian
+    container_name: siem-vector-aggregator
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "6000:6000"    # Vector protocol (от агентов)
+      - "8686:8686"    # Vector API
+      - "9598:9598"    # Prometheus metrics
+    volumes:
+      - vector-data:/var/lib/vector
+      - ../../vector/aggregator.yaml:/etc/vector/vector.yaml:ro
+    environment:
+      <<: *common-env
+      VECTOR_LOG: info
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8686/health"]
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+
+  # ════════════════════════════════════════════════════════════════
+  # MinIO — S3-совместимое хранилище для cold tier
+  # ════════════════════════════════════════════════════════════════
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    container_name: siem-minio
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "9001:9001"    # Console UI
+    volumes:
+      - minio-data:/data
+    environment:
+      <<: *common-env
+      MINIO_ROOT_USER: siemadmin
+      MINIO_ROOT_PASSWORD_FILE: /run/secrets/minio_secret_key
+    secrets:
+      - minio_secret_key
+    command: server /data --console-address ":9001"
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "mc", "ready", "local"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+
+  # ════════════════════════════════════════════════════════════════
+  # Prometheus
+  # ════════════════════════════════════════════════════════════════
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: siem-prometheus
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../alerting/prometheus-rules.yaml:/etc/prometheus/rules/siem-rules.yaml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  # ════════════════════════════════════════════════════════════════
+  # Alertmanager
+  # ════════════════════════════════════════════════════════════════
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: siem-alertmanager
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "9093:9093"
+    volumes:
+      - ../../alerting/alertmanager.yaml:/etc/alertmanager/alertmanager.yaml:ro
+      - ../../alerting/templates:/etc/alertmanager/templates:ro
+    secrets:
+      - smtp_password
+      - slack_webhook_url
+      - pagerduty_key
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yaml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://alertmanager:9093'
+      - '--cluster.advertise-address=0.0.0.0:9094'
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ════════════════════════════════════════════════════════════════
+  # Loki — хранилище логов самой SIEM (не событий)
+  # ════════════════════════════════════════════════════════════════
+  loki:
+    image: grafana/loki:3.3.0
+    container_name: siem-loki
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+    command: -config.file=/etc/loki/config.yaml
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+
+  # ════════════════════════════════════════════════════════════════
+  # Grafana — визуализация
+  # ════════════════════════════════════════════════════════════════
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: siem-grafana
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      <<: *common-env
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/clickhouse_password
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_LOG_LEVEL: warn
+      # ClickHouse datasource
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+    secrets:
+      - clickhouse_password
+    depends_on:
+      - clickhouse
+      - prometheus
+      - loki
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M

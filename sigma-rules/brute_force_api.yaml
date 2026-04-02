@@ -1,0 +1,78 @@
+title: API / SignalR Brute-Force Authentication Attempts
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+status: stable
+description: |
+  Обнаруживает серию неудачных попыток аутентификации с одного IP-адреса
+  за короткий промежуток времени. Применимо к REST API (/api/auth/*)
+  и WebSocket хэндшейку SignalR (/hubs/*). Порог 10 неудач за 2 минуты
+  сбалансирован между чувствительностью и ложными срабатываниями.
+author: SIEM-Lite Team
+date: 2024-01-15
+modified: 2024-01-15
+
+logsource:
+  product: dotnet
+  service: api
+  # source_type: "dotnet" в нашей ECS-схеме
+  definition: 'Требует: структурированные логи ASP.NET Core с полями source_ip, status_code, url_path'
+
+detection:
+  selection_auth_failure:
+    source_type: 'dotnet'
+    status_code:
+      - 401
+      - 403
+    url_path|contains:
+      - '/api/auth'
+      - '/api/login'
+      - '/api/token'
+      - '/hubs/'
+      - '/api/account'
+  
+  condition: selection_auth_failure
+
+  # Временно́е агрегирование (реализуется в correlator, не в sigma-go напрямую):
+  # COUNT(source_ip) >= 10 за WINDOW(2 минуты) GROUP BY source_ip
+  timeframe: 2m
+  aggregate:
+    field: source_ip
+    condition: count >= 10
+
+fields:
+  - source_ip
+  - user_id
+  - url_path
+  - status_code
+  - "@timestamp"
+  - geo.country_iso
+  - geo.org
+
+level: high
+
+tags:
+  - attack.credential_access
+  - attack.t1110
+  - attack.t1110.001  # Brute Force: Password Guessing
+  - attack.t1110.003  # Brute Force: Password Spraying
+
+falsepositives:
+  - Автоматизированные health-check системы без корректной аутентификации
+  - Load testing без настроенных credentials
+  - Пользователи после смены пароля (≤3 попытки, не достигают порога)
+  - Mobile apps с агрессивным retry на истёкший токен
+
+tuning_notes: |
+  Рекомендации по настройке:
+  1. Увеличить порог до 20 если много false positives от мобильных клиентов
+     с OAuth refresh token логикой.
+  2. Добавить whitelist IP для мониторинговых систем:
+     filter_monitoring: { source_ip: ['10.0.0.0/8', '172.16.0.0/12'] }
+  3. Для SignalR: WebSocket соединения используют initial HTTP handshake —
+     включить URL /negotiate в selection.
+  4. Разделить правило на password_spray (много usernames, один IP)
+     и credential_stuffing (один username, много IP) для точной классификации.
+  5. Cooldown алерта: 5 минут после первого срабатывания по этому IP.
+
+references:
+  - https://attack.mitre.org/techniques/T1110/
+  - https://owasp.org/www-community/attacks/Brute_force_attack

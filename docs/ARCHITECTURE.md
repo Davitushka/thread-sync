@@ -1,0 +1,155 @@
+# SIEM-Lite: Архитектура и потоки данных
+
+## 1. Общая архитектура
+
+```mermaid
+flowchart TD
+    subgraph Sources["📡 Log Sources"]
+        BE[".NET 9 Backend\nREST + SignalR"]
+        FE["React Frontend\nBrowser Logs"]
+        PG["PostgreSQL\nAudit Logs"]
+        RD["Redis\nAccess Logs"]
+        INFRA["Docker/K8s\nContainer Logs"]
+    end
+
+    subgraph Ingestion["🔄 Ingestion Layer (Rust/Vector 0.43)"]
+        VEC["Vector Agent\n(per-node sidecar)"]
+        VEC_AGG["Vector Aggregator\n(stateless, 2+ replicas)"]
+    end
+
+    subgraph Processing["⚙️ Processing Layer (Rust)"]
+        PARSER["siem-parser\n(Rust binary, custom)\n<5ms p99 latency"]
+        ENRICH["Enrichment\n(GeoIP, ASN, LDAP cache)"]
+        NORM["Normalizer\n(VRL scripts → ECS schema)"]
+    end
+
+    subgraph Queue["📨 Message Queue"]
+        KAFKA["Redpanda 23.x\n(Kafka-compatible)\nat-least-once, idempotent producers"]
+    end
+
+    subgraph Storage["🗄️ Storage Layer"]
+        CH["ClickHouse 24.x\nHot: 7d, Warm: 30d"]
+        S3["S3-compatible\n(MinIO)\nCold: 1y, Archive"]
+        CH_TIERED["ClickHouse TTL\n→ S3 tiered storage"]
+    end
+
+    subgraph Detection["🔍 Detection Layer (Go)"]
+        SIGMA["sigma-go\nrule engine"]
+        CORR["Correlator\n(Go, stateful windows)"]
+        ML["Anomaly baseline\n(simple stats, Go)"]
+    end
+
+    subgraph Alerting["🚨 Alerting Layer"]
+        ALERT["Alertmanager 0.27\n(dedup, routing, silence)"]
+        NOTIFY["Notifiers:\nSlack / Email / PagerDuty\nWebhook"]
+    end
+
+    subgraph Visualization["📊 Visualization"]
+        GRAFANA["Grafana 11.x\n(dashboards, explore)"]
+        CH_PLUGIN["ClickHouse\ndata source plugin"]
+    end
+
+    subgraph Ops["🔧 Self-Monitoring"]
+        PROM["Prometheus 2.x\n(metrics)"]
+        LOKI["Loki 3.x\n(SIEM own logs)"]
+        OTEL["OpenTelemetry\nCollector"]
+    end
+
+    BE -->|"stdout JSON\n+ OTLP traces"| VEC
+    FE -->|"HTTP /api/logs\nbatch endpoint"| VEC
+    PG -->|"pg_audit\nCSV → syslog"| VEC
+    RD -->|"slowlog + keyspace\nevents"| VEC
+    INFRA -->|"containerd\nstdio capture"| VEC
+
+    VEC -->|"mTLS gRPC\n(Vector protocol)"| VEC_AGG
+    VEC_AGG -->|"Rust transform\nbasic validation"| PARSER
+    PARSER -->|"normalized events\nbatch 1000/5ms"| NORM
+    NORM --> ENRICH
+    ENRICH -->|"enriched JSON\nRedpanda topic: siem.events"| KAFKA
+
+    KAFKA -->|"consumer group\nClickHouse sink"| CH
+    KAFKA -->|"consumer group\ndetection engine"| SIGMA
+    KAFKA -->|"consumer group\ncorrelation"| CORR
+
+    SIGMA -->|"rule matches\nseverity ≥ medium"| ALERT
+    CORR -->|"correlated incidents"| ALERT
+    ML -->|"anomaly scores"| CORR
+
+    CH --> CH_TIERED
+    CH_TIERED -->|"TTL move\nto S3"| S3
+
+    ALERT --> NOTIFY
+    CH --> CH_PLUGIN
+    CH_PLUGIN --> GRAFANA
+
+    VEC_AGG --> OTEL
+    SIGMA --> OTEL
+    OTEL --> PROM
+    OTEL --> LOKI
+    PROM --> GRAFANA
+    LOKI --> GRAFANA
+```
+
+## 2. Роли каждого слоя
+
+### Ingestion Layer (Vector 0.43, Rust)
+- **Vector Agent** — sidecar на каждой ноде. Читает stdout/stderr контейнеров, системные логи, syslog. Минимальная трансформация (добавление `host`, `container_name`). Буферизует на диск при потере связи с аггрегатором.
+- **Vector Aggregator** — stateless, 2+ реплик за L4 балансировщиком. Принимает по Vector protocol (gRPC + mTLS), применяет VRL-трансформации первого уровня (routing по типу источника), передаёт в Rust-парсер по Unix socket или localhost gRPC.
+
+**Почему Rust/Vector**: нативный Rust, zero-copy буферизация, встроенный VRL для трансформаций, 10k+ EPS на одном ядре documented benchmarks.
+
+### Processing Layer (Rust binary: siem-parser)
+- Принимает сырые байты, определяет формат (JSON/CEF/syslog/plain), парсит, нормализует в ECS-совместимую схему.
+- Применяет PII-маскирование через regex-automata (детерминированный DFA, zero allocation на горячем пути).
+- Обогащение: GeoIP (MaxMind MMDB, mmap), ASN lookup, внутренний LRU-кэш LDAP-пользователей (TTL 5 мин).
+- **Целевые метрики**: <5ms p99 на parsing+normalization+enrichment для 1KB события, 10k EPS на одном ядре CPU.
+
+### Message Queue (Redpanda 23.x)
+- Kafka-совместимый, написан на C++, без JVM overhead.
+- Topic `siem.events` — партиций 12, replication factor 3 (prod) / 1 (dev).
+- Producers: idempotent (`enable.idempotence=true`), `acks=all` — гарантия at-least-once.
+- Consumers: ClickHouse sink читает батчами, использует offset commit после успешной вставки.
+
+### Storage Layer (ClickHouse 24.x)
+- Основная таблица `siem.events` с движком `MergeTree`, партиционирование по `toYYYYMMDD(timestamp)`.
+- TTL: hot 7d на NVMe → warm 30d на HDD → cold через S3 tiered storage (MinIO).
+- Дедупликация через `ReplacingMergeTree` для событий с одинаковым `event_id`.
+- Материализованные представления для агрегатов: топ IP, топ users, rate counters.
+
+### Detection Layer (Go)
+- **sigma-go** — компилирует Sigma YAML в Go-предикаты, применяет к потоку из Redpanda.
+- **Correlator** — stateful временны́е окна (sliding window 5 мин) для brute-force, rate limit detection. Хранит состояние в Redis с TTL.
+- Детекция латентность: <500ms от события до генерации алерта (критические правила).
+
+### Alerting Layer (Alertmanager 0.27)
+- Роутинг по severity: `critical` → PagerDuty + Slack, `high` → Slack + email, `medium/low` → email.
+- Группировка по `source_ip` + `rule_id`, cooldown 5 мин, повторный алерт через 30 мин.
+- Silence API для planned maintenance.
+
+### Visualization (Grafana 11.x)
+- ClickHouse datasource plugin (Altinity).
+- Dashboards: Overview (EPS, top threats), Incident timeline, User activity, Infrastructure health.
+- Explore mode для ad-hoc SQL-запросов к ClickHouse.
+
+## 3. Гарантии доставки
+
+| Участок | Гарантия | Механизм |
+|---------|----------|-----------|
+| Source → Vector Agent | best-effort | file position tracking, socket reconnect |
+| Agent → Aggregator | at-least-once | Vector disk buffer, retry with backoff |
+| Aggregator → Redpanda | at-least-once | idempotent producer, acks=all |
+| Redpanda → ClickHouse | at-least-once | offset commit after INSERT |
+| Redpanda → Detection | at-least-once | consumer group, manual offset commit |
+| Detection → Alertmanager | at-least-once | HTTP retry, dedup по fingerprint |
+
+**Exactly-once** не реализовано на всём пути намеренно — это упрощает архитектуру. Дедупликация на уровне ClickHouse (`ReplacingMergeTree` по `event_id`) обеспечивает идемпотентность хранения.
+
+## 4. Rust-компоненты: где и почему
+
+| Компонент | Технология | Обоснование |
+|-----------|-----------|-------------|
+| Vector Agent/Aggregator | Vector 0.43 (Rust) | Доказанная производительность, встроенный VRL, native async |
+| siem-parser | Rust binary | <5ms SLA невозможен на JVM/GC-языках при p99 гарантиях |
+| PII masking | regex-automata crate | DFA без backtracking, zero-alloc на горячем пути |
+| GeoIP enrichment | maxminddb crate + mmap | Нулевые аллокации при lookup, mmap shared между потоками |
+| Protocol buffers | prost crate | Сериализация нормализованных событий между компонентами |

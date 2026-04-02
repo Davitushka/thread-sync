@@ -1,0 +1,165 @@
+# Prometheus alerting rules для SIEM self-monitoring и detection
+# Файл монтируется в Prometheus как rule file
+# Документация: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+
+groups:
+  # ── SIEM Self-Monitoring ──────────────────────────────────────────────────
+  - name: siem_infrastructure
+    interval: 15s
+    rules:
+      - alert: SIEMIngestionStopped
+        expr: |
+          rate(siem_parser_events_parsed_total{status="ok"}[5m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+          alertname: SIEMIngestionStopped
+        annotations:
+          summary: "SIEM ingestion pipeline stopped receiving events"
+          description: |
+            No events parsed successfully for 2+ minutes.
+            Check Vector agents, network connectivity, and siem-parser health.
+          runbook_url: "http://grafana:3000/d/siem-runbook#ingestion-stopped"
+
+      - alert: SIEMHighParseLatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(siem_parser_parse_duration_seconds_bucket[5m])
+          ) > 0.005
+        for: 5m
+        labels:
+          severity: high
+          alertname: SIEMHighParseLatency
+        annotations:
+          summary: "siem-parser p99 latency exceeds 5ms SLA"
+          description: |
+            p99 parse latency is {{ $value | humanizeDuration }}.
+            SLA target: <5ms. Check CPU load on parser nodes.
+
+      - alert: SIEMHighParseErrorRate
+        expr: |
+          rate(siem_parser_events_parsed_total{status="error"}[5m]) /
+          rate(siem_parser_events_parsed_total[5m]) > 0.01
+        for: 3m
+        labels:
+          severity: high
+          alertname: SIEMHighParseErrorRate
+        annotations:
+          summary: "SIEM parse error rate exceeds 1%"
+          description: |
+            Error rate: {{ $value | humanizePercentage }}.
+            Check DLQ topic siem.events.dlq for malformed events.
+
+      - alert: SIEMKafkaLagHigh
+        expr: |
+          kafka_consumer_group_lag{topic="siem.events"} > 100000
+        for: 5m
+        labels:
+          severity: high
+          alertname: SIEMKafkaLagHigh
+        annotations:
+          summary: "Redpanda consumer lag > 100k events"
+          description: |
+            Consumer group lag: {{ $value }} events.
+            Detection engine may be falling behind real-time.
+            Scale up detection consumers.
+
+      - alert: ClickHouseHighDiskUsage
+        expr: |
+          (
+            clickhouse_disks_free_space_bytes{disk_name="hot"}
+            / clickhouse_disks_total_space_bytes{disk_name="hot"}
+          ) < 0.15
+        for: 10m
+        labels:
+          severity: high
+          alertname: ClickHouseHighDiskUsage
+        annotations:
+          summary: "ClickHouse hot disk below 15% free"
+          description: |
+            Hot disk free: {{ $value | humanizePercentage }}.
+            Run OPTIMIZE TABLE siem.events FINAL or check TTL policy.
+
+      - alert: VectorAgentDown
+        expr: |
+          up{job="vector-agent"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          alertname: VectorAgentDown
+        annotations:
+          summary: "Vector agent down on {{ $labels.instance }}"
+          description: "Log collection stopped on host {{ $labels.instance }}."
+
+  # ── Security Detection Rules ───────────────────────────────────────────────
+  - name: siem_detection
+    interval: 30s
+    rules:
+      - alert: BruteForceDetected
+        expr: |
+          sum by (source_ip) (
+            rate(siem_events_total{
+              source_type="dotnet",
+              status_code=~"401|403",
+              url_path=~".*(auth|login|token|hubs).*"
+            }[2m])
+          ) * 120 > 10
+        for: 0s
+        labels:
+          severity: high
+          rule_id: brute_force_api
+          mitre_tags: "T1110,T1110.001"
+        annotations:
+          summary: "Brute-force on API from {{ $labels.source_ip }}"
+          description: |
+            {{ $value | humanize }} failed auth attempts in 2 minutes from {{ $labels.source_ip }}.
+            Check Grafana for request pattern and consider IP block.
+          runbook_url: "http://grafana:3000/d/siem-runbook#brute-force"
+
+      - alert: RateLimitEvasion
+        expr: |
+          sum by (source_ip) (
+            rate(siem_events_total{source_type="dotnet"}[1m])
+          ) * 60 > 500
+        for: 0s
+        labels:
+          severity: medium
+          rule_id: rate_limit_evasion
+          mitre_tags: "T1595,T1046"
+        annotations:
+          summary: "High request rate from {{ $labels.source_ip }}"
+          description: |
+            {{ $value | humanize }} req/min from single IP {{ $labels.source_ip }}.
+            May indicate scraping, DDoS, or rate limit bypass attempt.
+
+      - alert: CriticalErrorSpike
+        expr: |
+          rate(siem_events_total{severity=~"error|critical"}[5m]) /
+          rate(siem_events_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: high
+          rule_id: error_spike
+          mitre_tags: "T1499"
+        annotations:
+          summary: "Error rate spike: {{ $value | humanizePercentage }} of events are errors"
+          description: |
+            Sustained error rate above 10% for 3 minutes.
+            May indicate application attack or infrastructure failure.
+
+      - alert: SIEMEPSAnomaly
+        expr: |
+          abs(
+            rate(siem_events_total[5m]) -
+            avg_over_time(rate(siem_events_total[5m])[1h:5m])
+          ) / avg_over_time(rate(siem_events_total[5m])[1h:5m]) > 3.0
+        for: 5m
+        labels:
+          severity: medium
+          rule_id: eps_anomaly
+          mitre_tags: "T1499,T1078"
+        annotations:
+          summary: "Anomalous EPS: {{ $value | humanizePercentage }} deviation from 1h baseline"
+          description: |
+            Event rate deviates >300% from 1-hour moving average.
+            Could indicate log flood attack or data exfiltration.
