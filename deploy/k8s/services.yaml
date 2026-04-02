@@ -1,0 +1,212 @@
+---
+# siem-parser — внутренний ClusterIP
+apiVersion: v1
+kind: Service
+metadata:
+  name: siem-parser
+  namespace: siem-lite
+  labels:
+    app: siem-parser
+    app.kubernetes.io/component: parser
+spec:
+  selector:
+    app: siem-parser
+  ports:
+    - name: http
+      port: 7000
+      targetPort: 7000
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+  type: ClusterIP
+---
+# detection-engine — внутренний ClusterIP
+apiVersion: v1
+kind: Service
+metadata:
+  name: detection-engine
+  namespace: siem-lite
+  labels:
+    app: detection-engine
+spec:
+  selector:
+    app: detection-engine
+  ports:
+    - name: metrics
+      port: 9110
+      targetPort: 9110
+  type: ClusterIP
+---
+# vector-aggregator — принимает логи от агентов
+apiVersion: v1
+kind: Service
+metadata:
+  name: vector-aggregator
+  namespace: siem-lite
+  labels:
+    app: vector-aggregator
+spec:
+  selector:
+    app: vector-aggregator
+  ports:
+    - name: vector-protocol
+      port: 6000
+      targetPort: 6000
+    - name: http-ingest
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 9598
+      targetPort: 9598
+    - name: api
+      port: 8686
+      targetPort: 8686
+  type: ClusterIP
+---
+# clickhouse — headless для StatefulSet + ClusterIP для доступа
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: siem-lite
+  labels:
+    app: clickhouse
+spec:
+  selector:
+    app: clickhouse
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+    - name: native
+      port: 9000
+      targetPort: 9000
+    - name: metrics
+      port: 9363
+      targetPort: 9363
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-headless
+  namespace: siem-lite
+  labels:
+    app: clickhouse
+spec:
+  selector:
+    app: clickhouse
+  clusterIP: None
+  ports:
+    - name: native
+      port: 9000
+      targetPort: 9000
+---
+# redpanda — headless + ClusterIP
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  namespace: siem-lite
+  labels:
+    app: redpanda
+spec:
+  selector:
+    app: redpanda
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+    - name: admin
+      port: 9644
+      targetPort: 9644
+    - name: proxy
+      port: 8082
+      targetPort: 8082
+    - name: schema
+      port: 8081
+      targetPort: 8081
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda-headless
+  namespace: siem-lite
+spec:
+  selector:
+    app: redpanda
+  clusterIP: None
+  ports:
+    - name: rpc
+      port: 33145
+      targetPort: 33145
+---
+# grafana — NodePort для внешнего доступа в dev окружении
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: siem-lite
+  labels:
+    app: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      nodePort: 30300
+  type: NodePort
+---
+# alertmanager
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: siem-lite
+  labels:
+    app: alertmanager
+spec:
+  selector:
+    app: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: 9093
+  type: ClusterIP
+---
+# correlator
+apiVersion: v1
+kind: Service
+metadata:
+  name: correlator
+  namespace: siem-lite
+  labels:
+    app: correlator
+spec:
+  selector:
+    app: correlator
+  ports:
+    - name: http
+      port: 9111
+      targetPort: 9111
+  type: ClusterIP
+---
+# prometheus
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: siem-lite
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+  type: ClusterIP

@@ -1,0 +1,34 @@
+{
+  "brute_force": {
+    "rule_id": "brute_force_api",
+    "severity": "high",
+    "mitre_tags": ["T1110", "T1110.001"],
+    "min_events": 10,
+    "max_alert_delay_sec": 30,
+    "description_contains": ["brute-force", "authentication", "failed"]
+  },
+  "sql_injection": {
+    "rule_id": "sql_injection_attempt",
+    "severity": ["high", "critical"],
+    "mitre_tags": ["T1190"],
+    "min_events": 1,
+    "max_alert_delay_sec": 10,
+    "description_contains": ["injection", "SQL"]
+  },
+  "rate_limit": {
+    "rule_id": "rate_limit_evasion",
+    "severity": "medium",
+    "mitre_tags": ["T1595"],
+    "min_events": 500,
+    "max_alert_delay_sec": 60,
+    "description_contains": ["rate", "request"]
+  },
+  "privilege_escalation": {
+    "rule_id": "privilege_escalation_attempt",
+    "severity": ["high", "critical"],
+    "mitre_tags": ["T1068", "T1548"],
+    "min_events": 3,
+    "max_alert_delay_sec": 30,
+    "description_contains": ["admin", "forbidden", "privilege"]
+  }
+}

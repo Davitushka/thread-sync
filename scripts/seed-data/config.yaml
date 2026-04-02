@@ -1,0 +1,66 @@
+vector_url: "http://localhost:8080/logs"
+batch_size: 100
+request_timeout_sec: 10
+
+# Распределение по типам источников (в сумме 1.0)
+source_weights:
+  dotnet: 0.50
+  postgresql: 0.20
+  redis: 0.15
+  nginx: 0.15
+
+# Доля событий с ошибками (warning/error/critical) среди обычных
+error_ratio: 0.05
+
+# Диапазоны IP-адресов для генерации
+ip_pools:
+  normal:
+    - "192.168.1.0/24"
+    - "10.0.0.0/8"
+  attacker:
+    - "203.0.113.0/24"
+    - "198.51.100.0/24"
+
+# Эндпоинты приложения
+api_endpoints:
+  - "/api/auth/login"
+  - "/api/auth/register"
+  - "/api/users"
+  - "/api/users/{id}"
+  - "/api/products"
+  - "/api/products/{id}"
+  - "/api/orders"
+  - "/api/search"
+  - "/api/admin/users"
+  - "/api/admin/config"
+  - "/hubs/notifications"
+  - "/hubs/live"
+  - "/health"
+  - "/metrics"
+
+# Атаки для threat simulation
+attacks:
+  brute_force:
+    requests: 15
+    interval_ms: 100
+    status_code: 401
+    path: "/api/auth/login"
+
+  sql_injection:
+    payloads:
+      - "' OR '1'='1"
+      - "'; DROP TABLE users;--"
+      - "UNION SELECT username, password FROM users"
+      - "1 AND (SELECT * FROM (SELECT(SLEEP(5)))..."
+
+  rate_limit:
+    requests: 600
+    interval_ms: 50
+    burst: true
+
+  privilege_escalation:
+    paths:
+      - "/api/admin/users"
+      - "/api/admin/config"
+      - "/api/management/stats"
+    status_code: 403

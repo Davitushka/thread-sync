@@ -1,0 +1,209 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: siem-lite
+  labels:
+    app: clickhouse
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: siem-lite
+spec:
+  serviceName: clickhouse-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9363"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: init-sql
+          image: clickhouse/clickhouse-server:24.8
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              cp /sql-init/init.sql /docker-entrypoint-initdb.d/init.sql
+          volumeMounts:
+            - name: sql-init
+              mountPath: /sql-init
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.8
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8123
+            - name: native
+              containerPort: 9000
+            - name: metrics
+              containerPort: 9363
+
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: siem-secrets
+                  key: clickhouse-password
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+            - name: logs
+              mountPath: /var/log/clickhouse-server
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [NET_BIND_SERVICE]
+
+      volumes:
+        - name: sql-init
+          configMap:
+            name: clickhouse-init-sql
+        - name: init-scripts
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 100Gi
+        storageClassName: standard
+---
+# ConfigMap с init.sql монтируем через отдельный ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-init-sql
+  namespace: siem-lite
+data:
+  init.sql: |
+    CREATE DATABASE IF NOT EXISTS siem;
+
+    CREATE TABLE IF NOT EXISTS siem.events
+    (
+        timestamp         DateTime64(3, 'UTC'),
+        event_id          UUID,
+        source_type       LowCardinality(String),
+        event_type        LowCardinality(String),
+        severity          Enum8('debug'=0,'info'=1,'warning'=2,'error'=3,'critical'=4),
+        message           String,
+        host              LowCardinality(String),
+        source_ip         Nullable(IPv4),
+        user_id           Nullable(String),
+        action            Nullable(String),
+        status_code       Nullable(UInt16),
+        url_path          Nullable(String),
+        http_method       Nullable(String),
+        duration_ms       Nullable(Float32),
+        geo_country_iso   Nullable(FixedString(2)),
+        geo_country_name  Nullable(String),
+        geo_city          Nullable(String),
+        geo_lat           Nullable(Float32),
+        geo_lon           Nullable(Float32),
+        geo_asn           Nullable(UInt32),
+        geo_org           Nullable(String),
+        metadata          Map(String, String),
+        agent_version     LowCardinality(String),
+        ingest_ts         DateTime64(3, 'UTC'),
+        severity_num      UInt8 MATERIALIZED toUInt8(severity),
+        ingest_lag_ms     Float32 MATERIALIZED dateDiff('millisecond', timestamp, ingest_ts)
+    )
+    ENGINE = ReplacingMergeTree(ingest_ts)
+    PARTITION BY toYYYYMMDD(timestamp)
+    ORDER BY (source_type, timestamp, event_id)
+    PRIMARY KEY (source_type, timestamp)
+    TTL toDateTime(timestamp) + INTERVAL 365 DAY DELETE
+    SETTINGS index_granularity = 8192;
+
+    CREATE TABLE IF NOT EXISTS siem.alerts
+    (
+        alert_id        UUID DEFAULT generateUUIDv4(),
+        triggered_at    DateTime64(3, 'UTC'),
+        rule_id         String,
+        rule_title      String,
+        severity        Enum8('low'=1,'medium'=2,'high'=3,'critical'=4),
+        description     String,
+        source_ip       Nullable(IPv4),
+        user_id         Nullable(String),
+        event_ids       Array(UUID),
+        mitre_tags      Array(String),
+        status          Enum8('new'=0,'acknowledged'=1,'resolved'=2,'false_positive'=3) DEFAULT 'new',
+        acknowledged_by Nullable(String),
+        acknowledged_at Nullable(DateTime64(3, 'UTC')),
+        notes           String DEFAULT ''
+    )
+    ENGINE = MergeTree()
+    PARTITION BY toYYYYMM(triggered_at)
+    ORDER BY (triggered_at, severity, rule_id)
+    TTL toDateTime(triggered_at) + INTERVAL 365 DAY DELETE
+    SETTINGS index_granularity = 1024;
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickhouse-pdb
+  namespace: siem-lite
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: clickhouse

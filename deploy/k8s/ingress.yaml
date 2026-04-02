@@ -1,0 +1,67 @@
+---
+# Ingress для Grafana — публичный доступ с TLS
+# Требует: ingress-nginx controller + cert-manager
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: siem-ingress
+  namespace: siem-lite
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Rate limiting для защиты UI
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+    # Заголовки безопасности
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    # TLS через cert-manager (Let's Encrypt)
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - siem.example.com    # Замени на реальный домен
+      secretName: siem-tls
+  rules:
+    - host: siem.example.com  # Замени на реальный домен
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
+---
+# Ingress для Vector HTTP ingest (внутренний, без TLS)
+# Используется приложениями для отправки логов
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vector-ingest-ingress
+  namespace: siem-lite
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Большой body для батчей логов
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: logs.siem.internal  # Внутренний hostname
+      http:
+        paths:
+          - path: /logs
+            pathType: Prefix
+            backend:
+              service:
+                name: vector-aggregator
+                port:
+                  number: 8080

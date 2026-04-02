@@ -1,0 +1,155 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: siem-parser-config
+  namespace: siem-lite
+data:
+  SIEM__KAFKA__BOOTSTRAP_SERVERS: "redpanda:9092"
+  SIEM__KAFKA__TOPIC: "siem.events"
+  SIEM__SERVER__BIND_ADDR: "0.0.0.0:7000"
+  SIEM__METRICS__BIND_ADDR: "0.0.0.0:9100"
+  SIEM__PROCESSING__ENABLE_GEOIP: "true"
+  SIEM__PROCESSING__GEOIP_CITY_DB_PATH: "/var/geoip/GeoLite2-City.mmdb"
+  SIEM__PROCESSING__GEOIP_ASN_DB_PATH: "/var/geoip/GeoLite2-ASN.mmdb"
+  SIEM__PROCESSING__ENABLE_PII_MASKING: "true"
+  SIEM__PROCESSING__MAX_BATCH_SIZE: "1000"
+  RUST_LOG: "warn,siem_parser=info"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: detection-engine-config
+  namespace: siem-lite
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "redpanda:9092"
+  KAFKA_TOPIC: "siem.events"
+  KAFKA_GROUP_ID: "detection-engine"
+  REDIS_ADDR: "redis-master:6379"
+  METRICS_ADDR: ":9110"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-aggregator-config
+  namespace: siem-lite
+data:
+  aggregator.yaml: |
+    data_dir: /var/lib/vector
+
+    sources:
+      agent_logs:
+        type: vector
+        address: "0.0.0.0:6000"
+        version: "2"
+
+      http_logs:
+        type: http_server
+        address: "0.0.0.0:8080"
+        encoding:
+          codec: json
+
+    transforms:
+      normalize:
+        type: remap
+        inputs: [agent_logs, http_logs]
+        source: |
+          .ingest_ts = now()
+          if !exists(.source_type) { .source_type = "unknown" }
+          if !exists(.host) { .host = "unknown" }
+
+      dedupe:
+        type: dedupe
+        inputs: [normalize]
+        fields:
+          match:
+            - message
+            - source_type
+            - host
+          expire_after_ms: 5000
+
+    sinks:
+      redpanda:
+        type: kafka
+        inputs: [dedupe]
+        bootstrap_servers: "redpanda:9092"
+        topic: "siem.events"
+        encoding:
+          codec: json
+        batch:
+          max_events: 1000
+          timeout_secs: 1
+        buffer:
+          type: disk
+          max_size: 268435456
+
+      prometheus_exporter:
+        type: prometheus_exporter
+        inputs: [normalize]
+        address: "0.0.0.0:9598"
+
+    api:
+      enabled: true
+      address: "0.0.0.0:8686"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: siem-lite
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: siem-lite
+        environment: production
+
+    rule_files:
+      - /etc/prometheus/rules/*.yaml
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ['alertmanager:9093']
+
+    scrape_configs:
+      - job_name: siem-parser
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [siem-lite]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: siem-parser
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: "${1}:9100"
+
+      - job_name: detection-engine
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [siem-lite]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: detection-engine
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: "${1}:9110"
+
+      - job_name: vector-aggregator
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [siem-lite]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: vector-aggregator
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: "${1}:9598"

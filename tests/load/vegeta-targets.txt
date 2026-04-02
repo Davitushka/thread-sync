@@ -1,0 +1,6 @@
+POST http://localhost:7000/api/v1/parse
+Content-Type: application/x-ndjson
+X-Source-Type: dotnet
+X-Host: vegeta-test-01
+
+{"Timestamp":"2024-01-15T10:00:00Z","Level":"Information","Message":"HTTP GET /api/users responded 200 in 45ms","Properties":{"ClientIp":"192.168.1.10","RequestMethod":"GET","RequestPath":"/api/users","StatusCode":200,"Elapsed":45}}

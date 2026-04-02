@@ -1,0 +1,158 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: siem-parser
+  namespace: siem-lite
+  labels:
+    app: siem-parser
+    app.kubernetes.io/component: parser
+    app.kubernetes.io/part-of: siem-lite
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9100"
+    prometheus.io/path: "/metrics"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: siem-parser
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: siem-parser
+        app.kubernetes.io/component: parser
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Anti-affinity: не размещать оба пода на одной ноде
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: siem-parser
+                topologyKey: kubernetes.io/hostname
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: siem-parser
+          image: siem-parser:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 7000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: siem-parser-config
+
+          env:
+            - name: SIEM__KAFKA__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: siem-secrets
+                  key: clickhouse-password
+                  optional: true
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "2"
+              memory: "512Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 7000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 3
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 7000
+            failureThreshold: 30
+            periodSeconds: 5
+
+          volumeMounts:
+            - name: geoip-data
+              mountPath: /var/geoip
+              readOnly: true
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+
+      volumes:
+        - name: geoip-data
+          persistentVolumeClaim:
+            claimName: geoip-pvc
+            readOnly: true
+
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: siem-parser
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: siem-parser-pdb
+  namespace: siem-lite
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: siem-parser
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: geoip-pvc
+  namespace: siem-lite
+spec:
+  accessModes: [ReadOnlyMany]
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: standard

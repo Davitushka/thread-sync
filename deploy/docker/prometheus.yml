@@ -47,6 +47,12 @@ scrape_configs:
     metrics_path: /metrics
     scrape_interval: 15s
 
+  - job_name: correlator
+    static_configs:
+      - targets: ['correlator:9111']
+    metrics_path: /metrics
+    scrape_interval: 15s
+
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']

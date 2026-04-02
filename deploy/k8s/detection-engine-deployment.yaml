@@ -1,0 +1,110 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: detection-engine
+  namespace: siem-lite
+  labels:
+    app: detection-engine
+    app.kubernetes.io/component: detection
+    app.kubernetes.io/part-of: siem-lite
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9110"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: detection-engine
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: detection-engine
+        app.kubernetes.io/component: detection
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9110"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: detection-engine
+                topologyKey: kubernetes.io/hostname
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10002
+        runAsGroup: 10002
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: detection-engine
+          image: detection-engine:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9110
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: detection-engine-config
+
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: siem-secrets
+                  key: redis-password
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "256Mi"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9110
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9110
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: detection-engine-pdb
+  namespace: siem-lite
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: detection-engine

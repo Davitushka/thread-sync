@@ -418,3 +418,37 @@ services:
         limits:
           cpus: "0.5"
           memory: 256M
+
+  # ── Correlator ────────────────────────────────────────────────────────────
+  correlator:
+    build:
+      context: ../../detection-engine
+      dockerfile: Dockerfile
+    container_name: siem-correlator
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    environment:
+      <<: *common-env
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_TOPIC: siem.events
+      KAFKA_GROUP_ID: correlator
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ""
+      ALERTMANAGER_URL: http://alertmanager:9093
+      CORRELATOR_HTTP_ADDR: ":9111"
+      BRUTE_FORCE_THRESHOLD: "10"
+      RATE_LIMIT_THRESHOLD: "500"
+      LOG_LEVEL: "info"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9111/health"]
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M

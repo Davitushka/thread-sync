@@ -1,0 +1,237 @@
+---
+# Default deny-all для namespace — zero-trust baseline
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: siem-lite
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# siem-parser: принимает HTTP от vector-aggregator, отдаёт метрики Prometheus
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: siem-parser-netpol
+  namespace: siem-lite
+spec:
+  podSelector:
+    matchLabels:
+      app: siem-parser
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: vector-aggregator
+      ports:
+        - port: 7000
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9100
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redpanda
+      ports:
+        - port: 9092
+          protocol: TCP
+    # DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# detection-engine: читает из Kafka, пишет в Redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: detection-engine-netpol
+  namespace: siem-lite
+spec:
+  podSelector:
+    matchLabels:
+      app: detection-engine
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9110
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redpanda
+      ports:
+        - port: 9092
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis-master
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: alertmanager
+      ports:
+        - port: 9093
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# vector-aggregator: принимает логи от агентов, отдаёт в Kafka и siem-parser
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vector-aggregator-netpol
+  namespace: siem-lite
+spec:
+  podSelector:
+    matchLabels:
+      app: vector-aggregator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Vector protocol от агентов (любой под в namespace или из кластера)
+    - ports:
+        - port: 6000
+          protocol: TCP
+    # HTTP ingest (для seed data и тестов)
+    - ports:
+        - port: 8080
+          protocol: TCP
+    # Prometheus scrape
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9598
+          protocol: TCP
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redpanda
+      ports:
+        - port: 9092
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# clickhouse: принимает запросы от Grafana, siem-parser sink
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clickhouse-netpol
+  namespace: siem-lite
+spec:
+  podSelector:
+    matchLabels:
+      app: clickhouse
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - port: 8123
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: siem-parser
+        - podSelector:
+            matchLabels:
+              app: vector-aggregator
+      ports:
+        - port: 9000
+          protocol: TCP
+        - port: 8123
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9363
+          protocol: TCP
+  egress:
+    # ClickHouse может делать backup на MinIO/S3
+    - to:
+        - podSelector:
+            matchLabels:
+              app: minio
+      ports:
+        - port: 9000
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+---
+# redpanda: Kafka broker
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redpanda-netpol
+  namespace: siem-lite
+spec:
+  podSelector:
+    matchLabels:
+      app: redpanda
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 9092
+          protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9644
+          protocol: TCP
+  egress:
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
