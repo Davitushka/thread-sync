@@ -1,0 +1,474 @@
+{
+  "title": "SIEM-Lite — операции (стек)",
+  "uid": "siem-operations",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["siem", "operations", "prometheus"],
+  "graphTooltip": 1,
+  "editable": true,
+  "links": [
+    {
+      "title": "Overview (события в CH)",
+      "type": "link",
+      "icon": "dashboard",
+      "url": "/d/siem-overview",
+      "keepTime": true
+    },
+    {
+      "title": "Проверки компонентов",
+      "type": "link",
+      "icon": "dashboard",
+      "url": "/d/siem-validation",
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 301,
+      "type": "text",
+      "title": "",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 4 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Операционный мониторинг\n\nСводка по **Prometheus**: доступность scrape-целей, нагрузка **ClickHouse** (из встроенного `/metrics`), поток **Redpanda** (`siem.events`), смещения consumer group **clickhouse_siem_events**, **Vector** и **detection**.\n\n- События и дашборды безопасности — **SIEM-Lite Overview** (ссылка сверху).\n- Пошаговый чек-лист и таблицы проверок — **проверки компонентов**.\n\nЕсли панели ClickHouse пустые, убедитесь, что в контейнере поднят endpoint `9363` и цель `clickhouse` в Prometheus в статусе UP."
+      },
+      "transparent": true
+    },
+    {
+      "id": 302,
+      "title": "Vector",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 4, "w": 3, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "max(up{job=\"vector-aggregator\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 303,
+      "title": "Parser",
+      "type": "stat",
+      "gridPos": { "x": 3, "y": 4, "w": 3, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "max(up{job=\"siem-parser\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 304,
+      "title": "Redpanda",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 4, "w": 3, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "max(up{job=\"redpanda\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 305,
+      "title": "ClickHouse",
+      "type": "stat",
+      "gridPos": { "x": 9, "y": 4, "w": 3, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "max(up{job=\"clickhouse\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 306,
+      "title": "Detection",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 4, "w": 3, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "max(up{job=\"detection-engine\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 307,
+      "title": "Correlator",
+      "type": "stat",
+      "gridPos": { "x": 15, "y": 4, "w": 3, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "max(up{job=\"correlator\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 308,
+      "title": "Alertmanager",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 4, "w": 3, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "max(up{job=\"alertmanager\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 309,
+      "title": "Prometheus",
+      "type": "stat",
+      "gridPos": { "x": 21, "y": 4, "w": 3, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "max(up{job=\"prometheus\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 310,
+      "title": "ClickHouse: события профиля (запросы / с)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 7, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "description": "Counters из встроенного экспорта ClickHouse (`events` в prometheus.xml). Select/Insert — типичная нагрузка; FailedQuery — сбои выполнения.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(ClickHouseProfileEvents_SelectQuery[2m])",
+          "legendFormat": "SelectQuery / s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(ClickHouseProfileEvents_InsertQuery[2m])",
+          "legendFormat": "InsertQuery / s"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(ClickHouseProfileEvents_FailedQuery[2m])",
+          "legendFormat": "FailedQuery / s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 311,
+      "title": "Redpanda: записей / с в topic siem.events",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 7, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "description": "Суммарная скорость записи записей по партициям (namespace kafka). DLQ — отдельный topic при необходимости.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(rate(vectorized_cluster_partition_records_produced{namespace=\"kafka\",topic=\"siem.events\"}[2m]))",
+          "legendFormat": "produced records/s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 312,
+      "title": "Redpanda: offset consumer group → ClickHouse (siem.events)",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "description": "Текущие `vectorized_kafka_group_offset` для группы, которая читает в ingest в ClickHouse. Рост со временем при активном потреблении; при залипании — сравните с high watermark в Redpanda Console.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "vectorized_kafka_group_offset{topic=\"siem.events\",group=\"clickhouse_siem_events\"}",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "renameByName": {
+              "partition": "partition",
+              "Value": "offset"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "inspect": false } },
+        "overrides": []
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "partition", "desc": false }] }
+    },
+    {
+      "id": 313,
+      "title": "Vector: HTTP ingest → Kafka sink (события / с)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(vector_component_received_events_total{component_id=\"http_ingest\"}[2m])",
+          "legendFormat": "HTTP ingest recv / s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(vector_component_received_events_total{component_id=\"to_redpanda\"}[2m])",
+          "legendFormat": "Kafka sink recv / s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 14 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 314,
+      "title": "Detection: обработка и алерты / с",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 22, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(detection_events_processed_total{job=\"correlator\"}[2m])",
+          "legendFormat": "correlator ev/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(detection_events_processed_total{job=\"detection-engine\"}[2m])",
+          "legendFormat": "detection-engine ev/s"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(rate(detection_alerts_fired_total[2m]))",
+          "legendFormat": "alerts fired / s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 315,
+      "title": "siem-parser: /parse → Kafka (при вызовах)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 22, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(rate(siem_parser_events_parsed_total[2m]))",
+          "legendFormat": "parsed / s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(rate(siem_parser_kafka_produced_total[2m]))",
+          "legendFormat": "kafka produced / s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 316,
+      "title": "Prometheus: firing alerts",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 30, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "description": "Количество активных записей в `ALERTS` (если заданы recording/alert rules). Ноль — норма.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 317,
+      "title": "Ошибки парсинга detection (24ч)",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 30, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(increase(detection_parse_errors_total[24h]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 318,
+      "title": "Дропы алертов (24ч)",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 30, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(increase(detection_alerts_dropped_total[24h]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 319,
+      "title": "Недавние алерты (ClickHouse)",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 30, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "format": 1,
+          "rawSql": "SELECT formatDateTime(triggered_at, '%m-%d %H:%M') AS t, rule_id, toString(severity), left(description, 48) AS msg FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 15",
+          "meta": { "builderOptions": { "fields": [] } }
+        }
+      ],
+      "options": { "showHeader": true }
+    }
+  ]
+}

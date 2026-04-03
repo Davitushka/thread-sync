@@ -29,7 +29,7 @@ def _iter_raw_sql_panels(dash: dict):
 
 @pytest.mark.parametrize(
     "name",
-    ["siem-overview.json", "siem-validation.json"],
+    ["siem-overview.json", "siem-validation.json", "siem-operations.json"],
 )
 def test_dashboard_json_loads(repo_root: Path, name: str) -> None:
     path = repo_root / "grafana" / "dashboards" / name
@@ -74,7 +74,7 @@ def test_siem_overview_error_rate_uses_float_division(repo_root: Path) -> None:
 def test_no_broken_ch_sql_patterns(repo_root: Path) -> None:
     """Сканируем все rawSql в обоих дашбордах на известные ошибки CH."""
     bad = re.compile(r"toUInt16OrZero\s*\(\s*status_code\s*\)", re.IGNORECASE)
-    for fname in ("siem-overview.json", "siem-validation.json"):
+    for fname in ("siem-overview.json", "siem-validation.json", "siem-operations.json"):
         dash = _load_dashboard(repo_root / "grafana" / "dashboards" / fname)
         for title, pid, sql in _iter_raw_sql_panels(dash):
             assert not bad.search(sql), (
@@ -82,6 +82,22 @@ def test_no_broken_ch_sql_patterns(repo_root: Path) -> None:
                 "в ClickHouse 24 это ILLEGAL_TYPE для Nullable(UInt16). "
                 "Сравнивайте status_code IS NULL OR status_code = 0."
             )
+
+
+def test_siem_operations_links_and_uid(repo_root: Path) -> None:
+    dash = _load_dashboard(repo_root / "grafana" / "dashboards" / "siem-operations.json")
+    assert dash.get("uid") == "siem-operations"
+    links = dash.get("links") or []
+    assert any("/d/siem-overview" in str(L.get("url", "")) for L in links), (
+        "siem-operations: нужна ссылка на Overview"
+    )
+    assert any("/d/siem-validation" in str(L.get("url", "")) for L in links), (
+        "siem-operations: нужна ссылка на проверки"
+    )
+    prom_panels = [
+        p for p in dash.get("panels", []) if p.get("datasource", {}).get("uid") == "prometheus-siem"
+    ]
+    assert len(prom_panels) >= 5, "siem-operations: ожидается несколько Prometheus-панелей"
 
 
 def test_validation_dashboard_has_instruction_text(repo_root: Path) -> None:
