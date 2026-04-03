@@ -139,7 +139,7 @@ services:
       CLICKHOUSE_DB: siem
     healthcheck:
       <<: *healthcheck-defaults
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' || exit 1"]
     deploy:
       resources:
         limits:
@@ -151,6 +151,22 @@ services:
       nofile:
         soft: 262144
         hard: 262144
+
+  # ════════════════════════════════════════════════════════════════
+  # Redis — состояние для detection-engine / correlator
+  # ════════════════════════════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: siem-redis
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      test: ["CMD", "redis-cli", "ping"]
 
   # ════════════════════════════════════════════════════════════════
   # siem-parser — Rust binary для парсинга и нормализации
@@ -208,6 +224,7 @@ services:
       - siem-internal
     ports:
       - "6000:6000"    # Vector protocol (от агентов)
+      - "8080:8080"    # HTTP ingest (NDJSON) для сидов / приложений
       - "8686:8686"    # Vector API
       - "9598:9598"    # Prometheus metrics
     volumes:
@@ -221,7 +238,7 @@ services:
         condition: service_healthy
     healthcheck:
       <<: *healthcheck-defaults
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8686/health"]
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/8686'"]
       start_period: 15s
     deploy:
       resources:
@@ -407,6 +424,8 @@ services:
       REDIS_PASSWORD: ""
       METRICS_ADDR: ":9110"
     depends_on:
+      redis:
+        condition: service_healthy
       redpanda:
         condition: service_healthy
     healthcheck:
@@ -426,6 +445,7 @@ services:
       dockerfile: Dockerfile
     container_name: siem-correlator
     restart: unless-stopped
+    entrypoint: ["/usr/local/bin/correlator"]
     networks:
       - siem-internal
     environment:
@@ -441,8 +461,12 @@ services:
       RATE_LIMIT_THRESHOLD: "500"
       LOG_LEVEL: "info"
     depends_on:
+      redis:
+        condition: service_healthy
       redpanda:
         condition: service_healthy
+      alertmanager:
+        condition: service_started
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9111/health"]

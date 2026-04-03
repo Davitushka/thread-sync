@@ -11,13 +11,16 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o /detection-engine ./cmd/detector
+# Коррелятор — без Kafka/CGO (Redis + HTTP)
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /correlator ./cmd/correlator
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM alpine:3.21
 
-RUN apk add --no-cache librdkafka ca-certificates
+RUN apk add --no-cache librdkafka ca-certificates wget
 
 COPY --from=builder /detection-engine /usr/local/bin/detection-engine
+COPY --from=builder /correlator /usr/local/bin/correlator
 
 EXPOSE 9110
 

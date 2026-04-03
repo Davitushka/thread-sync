@@ -11,15 +11,22 @@ api:
 # ── SOURCES ──────────────────────────────────────────────────────────────────
 
 sources:
+  # Агенты (локально / Docker без сертификатов — TLS выключен; для prod включите mTLS и смонтируйте certs)
   from_agents:
     type: vector
     address: "0.0.0.0:6000"
+    version: "2"
     tls:
-      enabled: true
-      ca_file: "/etc/vector/certs/ca.crt"
-      crt_file: "/etc/vector/certs/aggregator.crt"
-      key_file: "/etc/vector/certs/aggregator.key"
-      verify_certificate: true
+      enabled: false
+
+  # HTTP ingest для сидов и тестов (NDJSON строки)
+  http_ingest:
+    type: http_server
+    address: "0.0.0.0:8080"
+    framing:
+      method: newline_delimited
+    decoding:
+      codec: json
 
   internal_metrics_source:
     type: internal_metrics
@@ -33,9 +40,10 @@ transforms:
     type: route
     inputs:
       - from_agents
+      - http_ingest
     route:
       dotnet_json: '.source_hint == "docker" && exists(.message)'
-      postgres_csv: 'exists(.file) && match(string!(.file), r"audit")'
+      postgres_csv: 'exists(.file) && contains(string!(.file), "audit")'
       redis_event: '.source_hint == "redis"'
       syslog: '.source_hint == "syslog"'
       default: 'true'
@@ -53,9 +61,15 @@ transforms:
         .event_type = "raw"
         .normalized = false
       } else {
-        . = merge(., parsed)
-        .event_type = "application"
-        .normalized = true
+        merged, m_err = merge(., parsed)
+        if m_err == null {
+          . = merged
+          .event_type = "application"
+          .normalized = true
+        } else {
+          .event_type = "raw"
+          .normalized = false
+        }
       }
 
       # Маппинг полей Serilog → ECS
@@ -123,9 +137,10 @@ transforms:
         parts = split(string!(.message), " ", limit: 4)
         if length(parts) >= 4 {
           .redis_cmd_id = parts[0]
-          .redis_duration_us = to_int(parts[2]) ?? null
+          dur = to_int(parts[2]) ?? 0
+          .redis_duration_us = dur
           .action = parts[3]
-          if .redis_duration_us != null && .redis_duration_us > 10000 {
+          if dur > 10000 {
             .severity = "warning"
           }
         }
@@ -140,13 +155,14 @@ transforms:
       - parse_redis
       - route_events.syslog
       - route_events.default
+      - route_events._unmatched
     source: |
       # ── Обязательные поля ECS ──
       if !exists(.event_id) {
         .event_id = uuid_v4()
       }
       if !exists(.source_type) {
-        .source_type = .source_hint ?? "unknown"
+        .source_type = if exists(.source_hint) { string!(.source_hint) } else { "unknown" }
       }
       if !exists(.severity) {
         .severity = "info"
@@ -155,17 +171,26 @@ transforms:
         .event_type = "generic"
       }
 
-      # Нормализация @timestamp
-      ts_val = .timestamp ?? .ingest_ts ?? now()
-      parsed_ts, err = to_timestamp(ts_val)
-      .timestamp = if err == null { parsed_ts } else { now() }
+      # Нормализация @timestamp (VRL 0.43+: нет to_timestamp — parse_timestamp / тип)
+      ts_val = if exists(.timestamp) { .timestamp } else if exists(.ingest_ts) { .ingest_ts } else { now() }
+      if is_timestamp(ts_val) {
+        .timestamp = ts_val
+      } else if is_string(ts_val) {
+        parsed_ts, e_ts = parse_timestamp(ts_val, format: "%+")
+        .timestamp = if e_ts == null { parsed_ts } else { now() }
+      } else {
+        .timestamp = now()
+      }
 
       # IP нормализация
       if exists(.client_ip) && !exists(.source_ip) {
         .source_ip = .client_ip
       }
       if exists(."x-forwarded-for") && !exists(.source_ip) {
-        .source_ip = split(string!(."x-forwarded-for"), ",")[0] ?? null
+        parts_xff = split(string!(."x-forwarded-for"), ",")
+        if length(parts_xff) > 0 {
+          .source_ip = parts_xff[0]
+        }
       }
 
       # ── PII МАСКИРОВАНИЕ (выполняется до записи) ──
@@ -190,27 +215,36 @@ transforms:
         if exists(.metadata.credit_card) { .metadata.credit_card = "[REDACTED]" }
       }
 
-      # ── Итоговая структура ──
+      # ── Итоговая структура (без ?? — в VRL 0.43+ это error-coalescing, не null-coalescing)
+      ingest_final = if exists(.ingest_ts) { .ingest_ts } else { now() }
+      msg_out = if exists(.message) { string!(.message) } else { "" }
+      host_out = if exists(.agent_host) { string!(.agent_host) } else { "unknown" }
+      meta_out = if exists(.metadata) { .metadata } else { {} }
+      av_out = if exists(.agent_version) { string!(.agent_version) } else { "0.43.0" }
+      raw_src = if exists(.source_hint) { .source_hint } else { null }
+      sc_out = if exists(.status_code) { .status_code } else if exists(.StatusCode) { .StatusCode } else { null }
+      path_out = if exists(.url_path) { .url_path } else if exists(.RequestPath) { .RequestPath } else { null }
+      meth_out = if exists(.http_method) { .http_method } else if exists(.RequestMethod) { .RequestMethod } else { null }
+      dur_out = if exists(.duration_ms) { .duration_ms } else if exists(.ElapsedMilliseconds) { .ElapsedMilliseconds } else { null }
       . = {
         "@timestamp": .timestamp,
         "event_id": .event_id,
         "source_type": .source_type,
         "event_type": .event_type,
         "severity": .severity,
-        "message": .message ?? "",
-        "host": .agent_host ?? "unknown",
-        "source_ip": .source_ip ?? null,
-        "user_id": .user_id ?? null,
-        "action": .action ?? null,
-        "status_code": .status_code ?? .StatusCode ?? null,
-        "url_path": .url_path ?? .RequestPath ?? null,
-        "http_method": .http_method ?? .RequestMethod ?? null,
-        "duration_ms": .duration_ms ?? .ElapsedMilliseconds ?? null,
-        "metadata": .metadata ?? {},
-        "agent_version": .agent_version ?? "0.43.0",
-        "ingest_ts": .ingest_ts ?? now(),
-        # Оставляем исходные специфичные поля в metadata
-        "_raw_source": .source_hint
+        "message": msg_out,
+        "host": host_out,
+        "source_ip": .source_ip,
+        "user_id": .user_id,
+        "action": .action,
+        "status_code": sc_out,
+        "url_path": path_out,
+        "http_method": meth_out,
+        "duration_ms": dur_out,
+        "metadata": meta_out,
+        "agent_version": av_out,
+        "ingest_ts": ingest_final,
+        "_raw_source": raw_src
       }
 
   # Фильтруем дубликаты по event_id в скользящем окне
@@ -223,6 +257,13 @@ transforms:
         - event_id
     cache:
       num_events: 50000
+
+  # События с признаком ошибки нормализации — в DLQ (фильтр вместо condition на sink)
+  filter_dlq:
+    type: filter
+    inputs:
+      - normalize_ecs
+    condition: 'exists(.errors)'
 
 # ── SINKS ────────────────────────────────────────────────────────────────────
 
@@ -237,8 +278,8 @@ sinks:
     encoding:
       codec: json
     batch:
-      max_bytes: 5242880   # 5MB
       timeout_secs: 1
+      max_events: 1000
     librdkafka_options:
       enable.idempotence: "true"
       acks: "all"
@@ -246,24 +287,20 @@ sinks:
       max.in.flight.requests.per.connection: "5"
       delivery.timeout.ms: "30000"
       linger.ms: "5"
-      batch.size: "1048576"
     # Ключ партиционирования по source_ip для локальности данных
     key_field: source_ip
     tls:
       enabled: false  # TLS на уровне сети (VPC/overlay)
 
-  # Dead letter queue для событий с ошибками
+  # Dead letter queue (только если normalize_ecs оставил поле errors)
   to_redpanda_dlq:
     type: kafka
     inputs:
-      - normalize_ecs  # события до дедупликации с ошибками трансформаций
+      - filter_dlq
     bootstrap_servers: "redpanda:9092"
     topic: "siem.events.dlq"
     encoding:
       codec: json
-    condition:
-      type: vrl
-      source: 'exists(.errors)'
 
   internal_metrics_sink:
     type: prometheus_exporter
