@@ -103,6 +103,50 @@ open http://localhost:3000  # admin/ClickHousePass123!
 | Visualization | Grafana 11.4 | TypeScript |
 | Self-monitoring | Prometheus + Loki | Go |
 
+## Secrets Setup
+
+Секреты **никогда** не коммитятся в репозиторий. Перед первым запуском создайте файлы в `deploy/docker/secrets/`:
+
+```bash
+cd deploy/docker/secrets
+
+# Обязательные
+echo -n "ClickHousePass123!"                       > clickhouse_password.txt
+echo -n "MinIOSecret456!"                          > minio_secret_key.txt
+echo -n "your-smtp-password"                       > smtp_password.txt
+echo -n "https://hooks.slack.com/services/T.../..." > slack_webhook_url.txt
+echo -n "your-pagerduty-routing-key"               > pagerduty_key.txt
+
+chmod 600 *.txt
+```
+
+Подробнее: [deploy/docker/secrets/README.md](deploy/docker/secrets/README.md)
+
+> **Для production** рекомендуется [SOPS + age](https://github.com/getsops/sops) для шифрования файлов секретов в git.
+
+## GeoIP Setup
+
+GeoIP обогащение опционально — без него события пишутся без geo-полей.
+
+```bash
+# Зарегистрироваться на maxmind.com, скачать GeoLite2-City.mmdb и GeoLite2-ASN.mmdb
+# Скопировать в docker volume:
+docker volume create siem-lite_geoip-data
+docker run --rm -v siem-lite_geoip-data:/target -v /path/to/mmdb:/src alpine \
+  sh -c "cp /src/GeoLite2-City.mmdb /target/ && cp /src/GeoLite2-ASN.mmdb /target/"
+```
+
+## Troubleshooting
+
+| Симптом | Причина | Решение |
+|---------|---------|---------|
+| `siem-parser` не стартует | Нет Kafka при старте | Зависимость от `redpanda` healthy — проверить `docker compose ps` |
+| ClickHouse auth error | Несовпадение пароля | Проверить `deploy/docker/secrets/clickhouse_password.txt` |
+| Grafana нет данных | MV пустые (нет событий) | Запустить сид: `bash scripts/seed-data/seed.sh` |
+| `detection_events_processed_total` = 0 | Kafka consumer не подключился | Проверить `docker logs detection-engine`, убедиться что Redpanda healthy |
+| Алерты не пишутся в siem.alerts | Alertmanager не достигает siem-parser | Проверить маршрут `clickhouse-siem` в Alertmanager, `curl http://localhost:7000/alerts/ingest` |
+| Disk alert срабатывает постоянно | Мало места на диске или метрика не найдена | Проверить `curl http://localhost:9363/metrics | grep DiskAvailable` |
+
 ## Документация
 
 - [Архитектура и потоки данных](docs/ARCHITECTURE.md)

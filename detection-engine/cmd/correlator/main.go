@@ -16,17 +16,36 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	kafka "github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/siem-lite/detection-engine/internal/correlator"
 	"github.com/siem-lite/detection-engine/internal/engine"
 	"github.com/siem-lite/detection-engine/internal/rules"
+)
+
+var (
+	corrEventsProcessed = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "correlator_events_processed_total",
+		Help: "Total events consumed from Kafka by correlator",
+	})
+	corrParseErrors = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "correlator_parse_errors_total",
+		Help: "Total JSON parse errors in correlator consumer",
+	})
+	corrAlertsForwarded = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "correlator_alerts_forwarded_total",
+		Help: "Total alerts forwarded to Alertmanager",
+	})
 )
 
 // AlertmanagerAlert — структура для отправки алертов в Alertmanager API.
@@ -254,15 +273,65 @@ func (s *Correlator) forwardToAlertmanager(ctx context.Context, client *http.Cli
 
 func (s *Correlator) runKafkaConsumer(ctx context.Context) {
 	defer s.wg.Done()
-	s.logger.Info("Kafka consumer starting",
+
+	brokerList := strings.Split(s.cfg.KafkaBrokers, ",")
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:        brokerList,
+		Topic:          s.cfg.KafkaTopic,
+		GroupID:        s.cfg.KafkaGroupID,
+		MinBytes:       1,
+		MaxBytes:       10 << 20,
+		MaxWait:        500 * time.Millisecond,
+		CommitInterval: time.Second,
+		StartOffset:    kafka.LastOffset,
+	})
+	defer reader.Close() //nolint:errcheck
+
+	s.logger.Info("Kafka consumer started",
 		zap.String("brokers", s.cfg.KafkaBrokers),
 		zap.String("topic", s.cfg.KafkaTopic),
 		zap.String("group", s.cfg.KafkaGroupID),
 	)
-	// Полная реализация Kafka consumer требует CGO (confluent-kafka-go).
-	// Stub ожидает ctx.Done.
-	<-ctx.Done()
-	s.logger.Info("Kafka consumer stopped")
+
+	for {
+		msg, err := reader.FetchMessage(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				s.logger.Info("Kafka consumer shutting down")
+				return
+			}
+			s.logger.Warn("Kafka fetch error", zap.Error(err))
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		var event rules.Event
+		if err := json.Unmarshal(msg.Value, &event); err != nil {
+			corrParseErrors.Inc()
+			s.logger.Warn("JSON parse error",
+				zap.Error(err),
+				zap.ByteString("raw", msg.Value[:minBytes(len(msg.Value), 200)]),
+			)
+			if err := reader.CommitMessages(ctx, msg); err != nil && ctx.Err() == nil {
+				s.logger.Warn("commit failed after parse error", zap.Error(err))
+			}
+			continue
+		}
+
+		s.eng.Process(&event)
+		corrEventsProcessed.Inc()
+
+		if err := reader.CommitMessages(ctx, msg); err != nil && ctx.Err() == nil {
+			s.logger.Warn("commit failed", zap.Error(err))
+		}
+	}
+}
+
+func minBytes(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // ── Stats Reporter ─────────────────────────────────────────────────────────────
@@ -293,15 +362,29 @@ func (s *Correlator) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprint(w, `{"status":"ok","service":"correlator"}`)
 }
 
-func (s *Correlator) handleReady(w http.ResponseWriter, _ *http.Request) {
+func (s *Correlator) handleReady(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	if err := s.store.Ping(); err != nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprintf(w, `{"status":"not_ready","reason":"redis_unavailable"}`)
+		fmt.Fprint(w, `{"status":"not_ready","reason":"redis_unavailable"}`)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+
+	// Быстрая проверка доступности Kafka (TCP dial).
+	checkCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	broker := strings.SplitN(s.cfg.KafkaBrokers, ",", 2)[0]
+	conn, err := kafka.DialContext(checkCtx, "tcp", broker)
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprint(w, `{"status":"not_ready","reason":"kafka_unavailable"}`)
+		return
+	}
+	conn.Close() //nolint:errcheck
+
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `{"status":"ready"}`)
+	fmt.Fprint(w, `{"status":"ready","service":"correlator"}`)
 }
 
 func (s *Correlator) handleStats(w http.ResponseWriter, _ *http.Request) {

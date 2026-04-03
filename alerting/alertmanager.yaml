@@ -181,12 +181,12 @@ receivers:
         text: '{{ template "siem.text" . }}'
         color: '#0099FF'
 
-  # Webhook → siem-parser /alerts/ingest → INSERT INTO siem.alerts
-  # Пишет только firing алерты; resolved игнорируются на уровне handler.
+  # Webhook → siem-parser /alerts/ingest → INSERT/UPDATE siem.alerts
+  # firing → INSERT новой строки; resolved → ALTER TABLE UPDATE status='resolved'
   - name: 'clickhouse-siem'
     webhook_configs:
       - url: 'http://siem-parser:7000/alerts/ingest'
-        send_resolved: false
+        send_resolved: true
         http_config:
           follow_redirects: true
         max_alerts: 50

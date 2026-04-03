@@ -3,18 +3,38 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	kafka "github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 
 	"github.com/siem-lite/detection-engine/internal/correlator"
 	"github.com/siem-lite/detection-engine/internal/engine"
 	"github.com/siem-lite/detection-engine/internal/rules"
+)
+
+var (
+	eventsProcessed = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "detection_events_processed_total",
+		Help: "Total events consumed from Kafka and processed by detection engine",
+	})
+	parseErrors = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "detection_parse_errors_total",
+		Help: "Total JSON parse errors on Kafka messages",
+	})
+	consumerLag = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "detection_kafka_consumer_lag",
+		Help: "Approximate consumer lag (messages behind high watermark)",
+	})
 )
 
 func main() {
@@ -102,13 +122,12 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok")) //nolint:errcheck
+		w.Write([]byte(`{"status":"ok","service":"detector"}`)) //nolint:errcheck
 	})
-	mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ready")) //nolint:errcheck
-	})
+	// /ready — проверяет реальные зависимости: Redis и Kafka broker.
+	mux.HandleFunc("/ready", makeReadyHandler(kafkaBrokers, redisStore))
 
 	srv := &http.Server{
 		Addr:         metricsAddr,
@@ -144,14 +163,102 @@ func runKafkaConsumer(
 	eng *engine.Engine,
 	logger *zap.Logger,
 ) {
-	// Kafka consumer на librdkafka через confluent-kafka-go
-	// (реализован как заглушка — полная реализация требует CGO)
-	logger.Info("Kafka consumer stub — waiting for events",
+	brokerList := strings.Split(brokers, ",")
+
+	reader := kafka.NewReader(kafka.ReaderConfig{
+		Brokers:        brokerList,
+		Topic:          topic,
+		GroupID:        group,
+		MinBytes:       1,
+		MaxBytes:       10 << 20, // 10 MB
+		MaxWait:        500 * time.Millisecond,
+		CommitInterval: time.Second,
+		// Начинаем с конца — обрабатываем только новые события после старта.
+		StartOffset: kafka.LastOffset,
+	})
+	defer reader.Close() //nolint:errcheck
+
+	logger.Info("Kafka consumer started",
 		zap.String("brokers", brokers),
 		zap.String("topic", topic),
 		zap.String("group", group),
 	)
-	<-ctx.Done()
+
+	for {
+		msg, err := reader.FetchMessage(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				logger.Info("Kafka consumer shutting down")
+				return
+			}
+			logger.Warn("Kafka fetch error", zap.Error(err))
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		// Обновляем метрику лага из статистики reader.
+		stats := reader.Stats()
+		consumerLag.Set(float64(stats.Lag))
+
+		var event rules.Event
+		if err := json.Unmarshal(msg.Value, &event); err != nil {
+			parseErrors.Inc()
+			logger.Warn("JSON parse error",
+				zap.Error(err),
+				zap.ByteString("raw", msg.Value[:min(len(msg.Value), 200)]),
+			)
+			// Коммитим невалидное сообщение — иначе будет бесконечная петля.
+			if err := reader.CommitMessages(ctx, msg); err != nil && ctx.Err() == nil {
+				logger.Warn("commit failed after parse error", zap.Error(err))
+			}
+			continue
+		}
+
+		eng.Process(&event)
+		eventsProcessed.Inc()
+
+		if err := reader.CommitMessages(ctx, msg); err != nil && ctx.Err() == nil {
+			logger.Warn("commit failed", zap.Error(err))
+		}
+	}
+}
+
+// makeReadyHandler возвращает HTTP handler для /ready, проверяющий Kafka и Redis.
+func makeReadyHandler(kafkaBrokers string, store interface{ Ping() error }) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// Проверяем Redis
+		if store != nil {
+			if err := store.Ping(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(`{"status":"not_ready","reason":"redis_unavailable"}`)) //nolint:errcheck
+				return
+			}
+		}
+
+		// Проверяем достижимость Kafka брокера через dial
+		checkCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		broker := strings.SplitN(kafkaBrokers, ",", 2)[0]
+		conn, err := kafka.DialContext(checkCtx, "tcp", broker)
+		if err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"status":"not_ready","reason":"kafka_unavailable"}`)) //nolint:errcheck
+			return
+		}
+		conn.Close() //nolint:errcheck
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ready"}`)) //nolint:errcheck
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func getEnv(key, fallback string) string {
@@ -160,3 +267,4 @@ func getEnv(key, fallback string) string {
 	}
 	return fallback
 }
+

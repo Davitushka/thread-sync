@@ -1,16 +1,17 @@
 //! Обогащение событий: GeoIP, ASN lookup, LRU-кэш пользователей.
 //! MaxMind MMDB читается через mmap — нулевые копии при каждом lookup.
 
-use crate::error::ParserError;
 use crate::schema::{GeoInfo, NormalizedEvent};
 use lru::LruCache;
 use maxminddb::{geoip2, Reader};
+use memmap2::Mmap;
+use std::fs::File;
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// Конфигурация обогащения
 pub struct EnrichmentConfig {
@@ -32,10 +33,10 @@ impl Default for EnrichmentConfig {
 }
 
 /// Enricher — держит открытые MMDB readers и LRU-кэш пользователей.
-/// Потокобезопасен: Reader<Mmap> — Send+Sync, LruCache защищён Mutex.
+/// Reader<Mmap> — Send+Sync, файл отображён в адресное пространство без копирования.
 pub struct Enricher {
-    city_reader: Option<Reader<Vec<u8>>>,
-    asn_reader: Option<Reader<Vec<u8>>>,
+    city_reader: Option<Reader<Mmap>>,
+    asn_reader: Option<Reader<Mmap>>,
     // В продакшне LruCache с TTL лучше заменить на moka::sync::Cache
     user_cache: Arc<Mutex<LruCache<String, CachedUser>>>,
 }
@@ -136,14 +137,30 @@ impl Enricher {
     }
 }
 
-fn load_mmdb(path: &str) -> Option<Reader<Vec<u8>>> {
+/// Открывает MMDB файл через mmap — нулевые копии данных при каждом lookup.
+/// SAFETY: mmap безопасен для read-only файлов при условии что файл не изменяется
+/// в процессе работы (стандартная практика для GeoIP БД).
+fn load_mmdb(path: &str) -> Option<Reader<Mmap>> {
     if !Path::new(path).exists() {
         warn!("GeoIP database not found: {}. GeoIP enrichment disabled.", path);
         return None;
     }
-    match Reader::open_readfile(path) {
+
+    let t0 = std::time::Instant::now();
+    let result = (|| -> std::io::Result<Reader<Mmap>> {
+        let file = File::open(path)?;
+        // SAFETY: файл открыт только для чтения и не изменяется во время жизни mmap.
+        let mmap = unsafe { Mmap::map(&file)? };
+        Reader::from_source(mmap).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    })();
+
+    match result {
         Ok(reader) => {
-            debug!("Loaded GeoIP database: {}", path);
+            info!(
+                path = path,
+                elapsed_ms = t0.elapsed().as_millis(),
+                "GeoIP database loaded via mmap"
+            );
             Some(reader)
         }
         Err(e) => {

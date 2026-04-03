@@ -492,7 +492,35 @@ docker exec siem-clickhouse clickhouse-client --query "
 
 ---
 
-## 7. Оценка производительности
+## 7. Проверка Kafka consumer (detection-engine)
+
+```bash
+# Проверить что detection-engine потребляет события
+docker logs detection-engine --tail 50 | grep -E "Kafka consumer|started|error"
+
+# Метрики: события обработаны / ошибки парсинга
+curl -s http://localhost:9110/metrics | grep -E "detection_events_processed|detection_parse_errors|detection_kafka"
+
+# Consumer lag через Redpanda Admin API
+curl -s http://localhost:9644/v1/groups | python3 -m json.tool
+
+# Тест: отправить событие через Vector и проверить что detection-engine его получил
+curl -s -X POST http://localhost:8080/logs \
+  -H "Content-Type: application/json" \
+  -d '{"Level":"Warning","Message":"Test auth failed","StatusCode":401,"RequestPath":"/auth/login","ClientIp":"1.2.3.4"}'
+# Через ~2 сек: docker logs detection-engine --tail 10 | grep ALERT
+
+# Проверить /ready endpoint (проверяет Redis + Kafka)
+curl -s http://localhost:9110/ready | python3 -m json.tool
+
+# Correlator
+curl -s http://localhost:9111/ready | python3 -m json.tool
+curl -s http://localhost:9111/api/v1/stats | python3 -m json.tool
+```
+
+---
+
+## 8. Оценка производительности
 
 ```bash
 # Benchmark: измерить текущий EPS

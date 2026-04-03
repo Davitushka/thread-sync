@@ -69,13 +69,14 @@ services:
     command:
       - redpanda
       - start
-      - --mode=dev-container  # prod: убрать, настроить storage.commit-interval-ms
       - --advertise-kafka-addr=redpanda:9092
       - --kafka-addr=0.0.0.0:9092
-      - --overprovisioned
       - --smp=2
       - --memory=1G
       - --reserve-memory=200M
+      - --overprovisioned
+      # Тюнинг storage.commit-interval-ms / log_segment_size — через redpanda.yaml или rpk cluster config
+      # (rpk redpanda start в v23.3 не поддерживает --set=key=value.)
     environment:
       <<: *common-env
     healthcheck:

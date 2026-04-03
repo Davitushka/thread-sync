@@ -404,7 +404,7 @@ groups:
               }[5m])
             ) * 300 > 0
           )
-        for: 0s
+        for: 30s
         labels:
           severity: critical
           rule_id: account_takeover

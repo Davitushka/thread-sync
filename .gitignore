@@ -2,10 +2,25 @@
 rust-parser/target/
 rust-parser/Cargo.lock
 
-# Secrets — никогда не коммитим
+# Secrets — НИКОГДА не коммитим в репозиторий
+# Файлы секретов в корне (устаревшие пути)
+clickhouse_password.txt
+smtp_password.txt
+slack_webhook_url.txt
+pagerduty_key.txt
+minio_secret_key.txt
+*_password.txt
+*_secret_key.txt
+*_webhook_url.txt
+*_key.txt
+*.secret
+
+# Файлы секретов в директории деплоя
 deploy/docker/secrets/*.txt
+deploy/docker/secrets/*.secret
 deploy/docker/certs/
 !deploy/docker/secrets/README.md
+!deploy/docker/secrets/.gitkeep
 
 # GeoIP базы данных
 *.mmdb
@@ -23,3 +38,10 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Go build artifacts
+detection-engine/detection-engine
+detection-engine/correlator
+detection-engine/*.exe
+detection-engine/detector.exe
+detection-engine/correlator.exe

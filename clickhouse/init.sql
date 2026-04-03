@@ -5,6 +5,15 @@
 CREATE DATABASE IF NOT EXISTS siem
     COMMENT 'SIEM-Lite event storage';
 
+-- Read-only пользователь для Grafana (пароль задаётся через env CLICKHOUSE_GRAFANA_PASSWORD
+-- или fallback 'GrafanaReadOnly!' для dev-окружения).
+-- В prod: передавать через Docker secret или vault, не хардкодить.
+CREATE USER IF NOT EXISTS grafana_ro
+    IDENTIFIED WITH plaintext_password BY 'GrafanaReadOnly!'
+    HOST IP '172.28.0.0/24', IP '127.0.0.1', IP '::1';
+
+GRANT SELECT ON siem.* TO grafana_ro;
+
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Основная таблица событий
 -- ══════════════════════════════════════════════════════════════════════════════

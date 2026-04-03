@@ -51,27 +51,9 @@
         </siem_grafana>
     </profiles>
 
-    <!-- RBAC пользователи (prod: переключить на LDAP/Kerberos) -->
-    <users>
-        <siem>
-            <password_sha256_hex from_env="CLICKHOUSE_PASSWORD_SHA256"/>
-            <profile>default</profile>
-            <quota>default</quota>
-            <networks>
-                <ip>::/0</ip>
-            </networks>
-            <databases>
-                <siem/>
-            </databases>
-        </siem>
-        <grafana_ro>
-            <!-- Read-only пользователь для Grafana -->
-            <password_sha256_hex from_env="CLICKHOUSE_GRAFANA_PASSWORD_SHA256"/>
-            <profile>siem_grafana</profile>
-            <quota>default</quota>
-            <networks>
-                <ip>172.28.0.0/24</ip>
-            </networks>
-        </grafana_ro>
-    </users>
+    <!-- Пользователи управляются через CLICKHOUSE_USER/CLICKHOUSE_PASSWORD env vars
+         (docker-entrypoint официального образа) + SQL-инициализация в init.sql.
+         Блок <users> здесь намеренно отсутствует, чтобы избежать конфликта
+         между SHA256-хешем в XML и plaintext-паролем из env. -->
+    <!-- prod: добавить users.xml с password_sha256_hex + Docker secrets -->
 </clickhouse>

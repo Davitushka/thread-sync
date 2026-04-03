@@ -34,11 +34,12 @@ rdkafka = { version = "0.36", features = ["cmake-build", "ssl", "gssapi"] }
 regex-automata = { version = "0.4", features = ["dfa", "perf"] }
 regex-syntax = "0.8"
 
-# GeoIP
-maxminddb = "0.23"
+# GeoIP — mmap режим: нулевые копии, файл отображается в память ОС
+maxminddb = { version = "0.24", features = ["mmap"] }
+memmap2 = "0.9"
 
 # UUID
-uuid = { version = "1.11", features = ["v4", "fast-rng"] }
+uuid = { version = "1.11", features = ["v4", "fast-rng", "serde"] }
 
 # Временны́е метки
 chrono = { version = "0.4", features = ["serde"] }

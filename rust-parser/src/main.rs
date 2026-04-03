@@ -25,6 +25,8 @@ use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use uuid::Uuid;
+
 use siem_parser::{
     config::AppConfig,
     enrichment::{Enricher, EnrichmentConfig},
@@ -110,7 +112,7 @@ async fn main() -> Result<()> {
     let enricher = Enricher::new(&EnrichmentConfig {
         geoip_city_db_path: config.geoip.city_db_path.clone(),
         geoip_asn_db_path: config.geoip.asn_db_path.clone(),
-        cache_size: config.geoip.cache_size,
+        user_cache_size: config.geoip.cache_size,
         ..Default::default()
     });
 
@@ -246,13 +248,19 @@ async fn handle_alerts_ingest(
         }
     };
 
-    // Игнорируем resolved уведомления — в siem.alerts пишем только новые алерты.
     let firing: Vec<&AlertmanagerAlert> = webhook.alerts.iter()
         .filter(|a| a.status == "firing")
         .collect();
+    let resolved: Vec<&AlertmanagerAlert> = webhook.alerts.iter()
+        .filter(|a| a.status == "resolved")
+        .collect();
 
-    if firing.is_empty() {
-        return (StatusCode::OK, Json(serde_json::json!({"inserted": 0, "reason": "no firing alerts"}))).into_response();
+    if firing.is_empty() && resolved.is_empty() {
+        return (StatusCode::OK, Json(serde_json::json!({
+            "inserted": 0,
+            "resolved": 0,
+            "reason": "no actionable alerts"
+        }))).into_response();
     }
 
     // Строим INSERT ... VALUES для ClickHouse HTTP API (формат Values).
@@ -308,13 +316,13 @@ async fn handle_alerts_ingest(
             .filter(|s| !s.is_empty())
             .collect();
 
-        // Fingerprint как event_id: если Alertmanager прислал fingerprint — используем его как UUID v5-namespace proxy.
-        // Иначе генерируем на основе rule_id + starts_at.
-        let alert_id_seed = alert.fingerprint.clone()
-            .unwrap_or_else(|| format!("{}-{}", rule_id, alert.starts_at));
+        // Генерируем UUID v4 для каждого алерта — ClickHouse ожидает тип UUID.
+        // Fingerprint Alertmanager является 64-bit hex, не UUID-совместим, поэтому
+        // просто генерируем новый UUID v4 при каждом срабатывании.
+        let alert_id = Uuid::new_v4().to_string();
 
         let mut row = serde_json::json!({
-            "alert_id": format!("{:0>32}", &alert_id_seed.chars().filter(|c| c.is_alphanumeric()).take(32).collect::<String>()),
+            "alert_id": alert_id,
             "triggered_at": alert.starts_at,
             "rule_id": rule_id,
             "rule_title": rule_title,
@@ -336,43 +344,96 @@ async fn handle_alerts_ingest(
         rows.push(row);
     }
 
-    // Сериализуем в JSONEachRow (одна JSON-строка на строку).
-    let body_str: String = rows.iter()
-        .filter_map(|r| serde_json::to_string(r).ok())
-        .collect::<Vec<_>>()
-        .join("\n");
+    // Пишем новые firing алерты
+    let mut inserted = 0usize;
+    if !rows.is_empty() {
+        let body_str: String = rows.iter()
+            .filter_map(|r| serde_json::to_string(r).ok())
+            .collect::<Vec<_>>()
+            .join("\n");
 
-    let query_url = format!(
-        "{ch_url}/?query=INSERT+INTO+siem.alerts+FORMAT+JSONEachRow&user={ch_user}",
-    );
+        let query_url = format!(
+            "{ch_url}/?query=INSERT+INTO+siem.alerts+FORMAT+JSONEachRow",
+        );
 
-    match state.http_client
-        .post(&query_url)
-        .basic_auth(&ch_user, Some(&ch_password))
-        .header("Content-Type", "application/octet-stream")
-        .body(body_str)
-        .send()
-        .await
-    {
-        Ok(resp) if resp.status().is_success() => {
-            info!(count = firing.len(), "Alerts written to siem.alerts");
-            (StatusCode::OK, Json(serde_json::json!({"inserted": firing.len()}))).into_response()
-        }
-        Ok(resp) => {
-            let status = resp.status().as_u16();
-            let body_text = resp.text().await.unwrap_or_default();
-            error!(status, body = %body_text, "ClickHouse INSERT failed");
-            (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
-                "error": format!("ClickHouse error {}: {}", status, body_text)
-            }))).into_response()
-        }
-        Err(e) => {
-            error!(error = %e, "HTTP request to ClickHouse failed");
-            (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
-                "error": format!("Connection failed: {}", e)
-            }))).into_response()
+        match state.http_client
+            .post(&query_url)
+            .basic_auth(&ch_user, Some(&ch_password))
+            .header("Content-Type", "application/octet-stream")
+            .body(body_str)
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                inserted = rows.len();
+                info!(count = inserted, "Alerts written to siem.alerts");
+            }
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let body_text = resp.text().await.unwrap_or_default();
+                error!(status, body = %body_text, "ClickHouse INSERT failed");
+                return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
+                    "error": format!("ClickHouse error {}: {}", status, body_text)
+                }))).into_response();
+            }
+            Err(e) => {
+                error!(error = %e, "HTTP request to ClickHouse failed");
+                return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
+                    "error": format!("Connection failed: {}", e)
+                }))).into_response();
+            }
         }
     }
+
+    // Обновляем resolved алерты — ALTER TABLE UPDATE (мутация ClickHouse).
+    // Используем fingerprint как идентификатор для поиска алерта по rule_id + started_at.
+    let mut resolved_count = 0usize;
+    for alert in &resolved {
+        let rule_id = alert.labels.get("rule_id")
+            .or_else(|| alert.labels.get("alertname"))
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let update_sql = format!(
+            "ALTER TABLE siem.alerts UPDATE status='resolved' WHERE rule_id='{}' AND status='new'",
+            rule_id.replace('\'', "\\'")
+        );
+        let query_url = format!("{ch_url}/?query={}", urlencoding_simple(&update_sql));
+
+        match state.http_client
+            .post(&query_url)
+            .basic_auth(&ch_user, Some(&ch_password))
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                resolved_count += 1;
+                info!(rule_id = %rule_id, "Alert marked resolved in siem.alerts");
+            }
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let body_text = resp.text().await.unwrap_or_default();
+                error!(status, rule_id = %rule_id, body = %body_text, "ClickHouse UPDATE failed");
+            }
+            Err(e) => {
+                error!(error = %e, rule_id = %rule_id, "HTTP request for UPDATE failed");
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({
+        "inserted": inserted,
+        "resolved": resolved_count,
+    }))).into_response()
+}
+
+/// Минимальный URL-энкодер для SQL запросов (не тянем отдельный крейт).
+fn urlencoding_simple(s: &str) -> String {
+    s.chars().map(|c| match c {
+        ' ' => "+".to_string(),
+        c if c.is_alphanumeric() || "_-.'=,()".contains(c) => c.to_string(),
+        c => format!("%{:02X}", c as u32),
+    }).collect()
 }
 
 async fn handle_health() -> impl IntoResponse {
@@ -411,11 +472,22 @@ async fn shutdown_signal() {
             .await;
     };
 
-    #[cfg(not(unix))]
+    // На Windows используем ctrl_close (закрытие окна консоли) вместо SIGTERM.
+    // ctrl_c уже обрабатывает Ctrl+C; ctrl_close перехватывает WM_CLOSE / логаут.
+    #[cfg(windows)]
+    let terminate = async {
+        signal::windows::ctrl_close()
+            .expect("failed to install Windows ctrl_close handler")
+            .recv()
+            .await;
+    };
+
+    // На прочих (не Unix, не Windows) платформах просто ожидаем вечно.
+    #[cfg(not(any(unix, windows)))]
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => info!("Received Ctrl+C"),
-        _ = terminate => info!("Received SIGTERM"),
+        _ = ctrl_c => info!("Received Ctrl+C, shutting down"),
+        _ = terminate => info!("Received terminate signal, shutting down"),
     }
 }

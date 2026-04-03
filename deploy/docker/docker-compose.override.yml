@@ -1,0 +1,24 @@
+# docker-compose.override.yml — dev-режим для локальной разработки.
+# Автоматически подхватывается docker compose, ТОЛЬКО если находится рядом с docker-compose.yml.
+#
+# Использование:
+#   docker compose -f deploy/docker/docker-compose.yml up -d               # prod
+#   docker compose -f deploy/docker/docker-compose.yml \
+#                  -f deploy/docker/docker-compose.override.yml up -d      # dev
+#
+# Что меняет override:
+#   - Redpanda переходит в dev-container режим (нет fsync, быстрый старт)
+#   - НЕ ИСПОЛЬЗОВАТЬ в production — данные топиков теряются при crash
+
+services:
+  redpanda:
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --advertise-kafka-addr=redpanda:9092
+      - --kafka-addr=0.0.0.0:9092
+      - --overprovisioned
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=100M
