@@ -136,6 +136,31 @@ jobs:
       - name: Validate docker-compose config
         run: docker compose -f deploy/docker/docker-compose.yml config --quiet
 
+  # ── Контракты пайплайна: Grafana SQL, сиды, Vector validate ──────────────
+  pipeline-contracts:
+    name: Pipeline contracts (pytest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Pytest (Grafana, seed-data, ClickHouse SQL)
+        run: pytest tests/pipeline -v --tb=short -k "not vector"
+
+      - name: Vector validate (aggregator.yaml)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE/vector:/etc/vector:ro" \
+            timberio/vector:0.43.0-debian \
+            validate --skip-healthchecks --config-yaml /etc/vector/aggregator.yaml
+
   # ── YAML lint: Sigma rules + Vector configs ────────────────────────────────
   yaml-lint:
     name: YAML Lint

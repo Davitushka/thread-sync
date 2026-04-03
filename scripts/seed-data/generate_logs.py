@@ -130,10 +130,13 @@ def generate_dotnet_log(
         "Verbose": f"Middleware pipeline: {method} {endpoint} → handler invoked",
     }
 
+    host = f"api-{random.randint(1, 4):02d}"
     return {
         "Timestamp": _ts(),
         "Level": level,
         "Message": messages.get(level, f"Event on {endpoint}"),
+        "SourceType": "dotnet",
+        "Host": host,
         "Properties": {
             "ClientIp": source_ip,
             "RequestMethod": method,
@@ -142,7 +145,7 @@ def generate_dotnet_log(
             "Elapsed": duration,
             "UserId": fake.uuid4() if random.random() > 0.3 else None,
             "CorrelationId": str(uuid.uuid4()),
-            "MachineName": f"api-{random.randint(1, 4):02d}",
+            "MachineName": host,
         },
     }
 
