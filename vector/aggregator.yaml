@@ -23,6 +23,7 @@ sources:
   http_ingest:
     type: http_server
     address: "0.0.0.0:8080"
+    path: "/logs"
     framing:
       method: newline_delimited
     decoding:

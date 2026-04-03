@@ -132,6 +132,7 @@ services:
     volumes:
       - clickhouse-data-hot:/var/lib/clickhouse
       - ../../clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ../../clickhouse/02-kafka_ingest.sql:/docker-entrypoint-initdb.d/02-kafka_ingest.sql:ro
     environment:
       <<: *common-env
       CLICKHOUSE_USER: siem
