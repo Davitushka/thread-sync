@@ -417,142 +417,130 @@ groups:
             Immediate action: lock the session, notify user, investigate user_id.
           runbook_url: "http://grafana:3000/d/siem-runbook#account-takeover"
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Infrastructure Host & Container alerts (node-exporter + cAdvisor)
-# ══════════════════════════════════════════════════════════════════════════════
-- name: siem_infrastructure_host
-  interval: 30s
-  rules:
+  # ════════════════════════════════════════════════════════════════════════════
+  # Infrastructure Host & Container alerts (node-exporter + cAdvisor)
+  # ════════════════════════════════════════════════════════════════════════════
+  - name: siem_infrastructure_host
+    interval: 30s
+    rules:
+      # CPU хоста >80% в течение 5 минут
+      - alert: HostHighCPU
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle",job="node-exporter"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: |
+            CPU utilization: {{ $value | printf "%.1f" }}% (threshold: 80%).
+            Check top consumers: docker stats --no-stream
+            Or container CPU: scrape job cadvisor in Prometheus.
+          runbook_url: "http://grafana:3000/d/siem-infrastructure#host-cpu"
 
-    # CPU хоста >80% в течение 5 минут
-    - alert: HostHighCPU
-      expr: |
-        100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle",job="node-exporter"}[5m])) * 100) > 80
-      for: 5m
-      labels:
-        severity: warning
-        component: host
-      annotations:
-        summary: "High CPU usage on {{ $labels.instance }}"
-        description: |
-          CPU utilization: {{ $value | printf "%.1f" }}% (threshold: 80%).
-          Check top consumers: docker stats --no-stream
-          Or container CPU: curl -s http://localhost:9090/metrics | grep container_cpu
-        runbook_url: "http://grafana:3000/d/siem-infrastructure#host-cpu"
+      - alert: HostHighMemory
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"})) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: |
+            Memory utilization: {{ $value | printf "%.1f" }}% (threshold: 85%).
+            Check: docker stats --no-stream for per-container usage.
+          runbook_url: "http://grafana:3000/d/siem-infrastructure#host-memory"
 
-    # RAM хоста >85% в течение 5 минут
-    - alert: HostHighMemory
-      expr: |
-        (1 - (node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"})) * 100 > 85
-      for: 5m
-      labels:
-        severity: warning
-        component: host
-      annotations:
-        summary: "High memory usage on {{ $labels.instance }}"
-        description: |
-          Memory utilization: {{ $value | printf "%.1f" }}% (threshold: 85%).
-          Free: {{ with query "node_memory_MemAvailable_bytes" }}{{ . | first | value | humanize1024 }}B{{ end }}.
-          Check: docker stats --no-stream --format "{{.Name}}\t{{.MemUsage}}"
-        runbook_url: "http://grafana:3000/d/siem-infrastructure#host-memory"
+      - alert: HostDiskFull
+        expr: |
+          (1 - (
+            node_filesystem_avail_bytes{job="node-exporter",mountpoint="/",fstype!="tmpfs"}
+            / node_filesystem_size_bytes{job="node-exporter",mountpoint="/",fstype!="tmpfs"}
+          )) * 100 > 90
+        for: 10m
+        labels:
+          severity: critical
+          component: host
+        annotations:
+          summary: "Disk almost full on {{ $labels.instance }} (mount: {{ $labels.mountpoint }})"
+          description: |
+            Disk utilization: {{ $value | printf "%.1f" }}% (threshold: 90%).
+            Quick fix: docker system prune -f
+            Check ClickHouse volume: docker exec siem-clickhouse du -sh /var/lib/clickhouse/
+          runbook_url: "http://grafana:3000/d/siem-infrastructure#host-disk"
 
-    # Диск / заполнен >90% в течение 10 минут
-    - alert: HostDiskFull
-      expr: |
-        (1 - (
-          node_filesystem_avail_bytes{job="node-exporter",mountpoint="/",fstype!="tmpfs"}
-          / node_filesystem_size_bytes{job="node-exporter",mountpoint="/",fstype!="tmpfs"}
-        )) * 100 > 90
-      for: 10m
-      labels:
-        severity: critical
-        component: host
-      annotations:
-        summary: "Disk almost full on {{ $labels.instance }} (mount: {{ $labels.mountpoint }})"
-        description: |
-          Disk utilization: {{ $value | printf "%.1f" }}% (threshold: 90%).
-          Free space: {{ with query "node_filesystem_avail_bytes{mountpoint=\"/\"}" }}{{ . | first | value | humanize1024 }}B{{ end }}.
-          Quick fix: docker system prune -f
-          Check ClickHouse volume: docker exec siem-clickhouse du -sh /var/lib/clickhouse/
-        runbook_url: "http://grafana:3000/d/siem-infrastructure#host-disk"
+      - alert: HostHighLoad
+        expr: node_load1{job="node-exporter"} > 4
+        for: 5m
+        labels:
+          severity: warning
+          component: host
+        annotations:
+          summary: "High system load on {{ $labels.instance }}"
+          description: |
+            Load average (1m): {{ $value | printf "%.2f" }} (threshold: 4.0).
+            May cause event processing delays at peak 50k EPS.
+          runbook_url: "http://grafana:3000/d/siem-infrastructure#host-load"
 
-    # Load average 1m > 4 в течение 5 минут (критично для SIEM EPS)
-    - alert: HostHighLoad
-      expr: node_load1{job="node-exporter"} > 4
-      for: 5m
-      labels:
-        severity: warning
-        component: host
-      annotations:
-        summary: "High system load on {{ $labels.instance }}"
-        description: |
-          Load average (1m): {{ $value | printf "%.2f" }} (threshold: 4.0).
-          Load avg 5m: {{ with query "node_load5" }}{{ . | first | value | printf "%.2f" }}{{ end }},
-          15m: {{ with query "node_load15" }}{{ . | first | value | printf "%.2f" }}{{ end }}.
-          May cause event processing delays at peak 50k EPS.
-        runbook_url: "http://grafana:3000/d/siem-infrastructure#host-load"
+      - alert: ContainerHighMemory
+        expr: |
+          container_memory_usage_bytes{job="cadvisor",name!="",image!=""} > 1073741824
+        for: 5m
+        labels:
+          severity: warning
+          component: container
+        annotations:
+          summary: "Container {{ $labels.name }} using >1GB RAM"
+          description: |
+            Container {{ $labels.name }} memory: {{ $value | humanize1024 }}B (threshold: 1GB).
+            Check for memory leaks: docker stats
+            If ClickHouse: run OPTIMIZE TABLE siem.events FINAL to release memory.
+          runbook_url: "http://grafana:3000/d/siem-infrastructure#container-memory"
 
-    # Контейнер потребляет >1GB RAM (аномалия для SIEM сервисов)
-    - alert: ContainerHighMemory
-      expr: |
-        container_memory_usage_bytes{job="cadvisor",name!="",image!=""} > 1073741824
-      for: 5m
-      labels:
-        severity: warning
-        component: container
-      annotations:
-        summary: "Container {{ $labels.name }} using >1GB RAM"
-        description: |
-          Container {{ $labels.name }} memory: {{ $value | humanize1024 }}B (threshold: 1GB).
-          Check for memory leaks: docker stats {{ $labels.name }}
-          If ClickHouse: run OPTIMIZE TABLE siem.events FINAL to release memory.
-        runbook_url: "http://grafana:3000/d/siem-infrastructure#container-memory"
+      - alert: ContainerOOMKilled
+        expr: |
+          (
+            container_oom_events_total{job="cadvisor",name!="",image!=""}
+            - container_oom_events_total{job="cadvisor",name!="",image!=""} offset 5m
+          ) > 0
+        for: 1m
+        labels:
+          severity: high
+          component: container
+        annotations:
+          summary: "Container {{ $labels.name }} was OOM-killed"
+          description: |
+            Container {{ $labels.name }} received OOM kill signal.
+            Increase memory limit in docker-compose.yml or reduce workload.
+            Check logs: docker logs for the container name shown in labels.
+          runbook_url: "http://grafana:3000/d/siem-infrastructure#container-oom"
 
-    # Контейнер завершился (memory=0 означает остановленный контейнер в cAdvisor)
-    - alert: ContainerOOMKilled
-      expr: |
-        (
-          container_oom_events_total{job="cadvisor",name!="",image!=""}
-          - container_oom_events_total{job="cadvisor",name!="",image!=""} offset 5m
-        ) > 0
-      for: 1m
-      labels:
-        severity: high
-        component: container
-      annotations:
-        summary: "Container {{ $labels.name }} was OOM-killed"
-        description: |
-          Container {{ $labels.name }} received OOM kill signal.
-          Increase memory limit in docker-compose.yml or reduce workload.
-          Check logs: docker logs {{ $labels.name }} --tail 50
-        runbook_url: "http://grafana:3000/d/siem-infrastructure#container-oom"
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "node-exporter is DOWN"
+          description: |
+            Host metrics collection stopped. Infrastructure dashboard will be empty.
+            Check: docker ps (siem-node-exporter)
+            Restart: docker compose -f deploy/docker/docker-compose.yml restart node-exporter
+          runbook_url: "http://grafana:3000/d/siem-infrastructure#node-exporter-down"
 
-    # node-exporter недоступен
-    - alert: NodeExporterDown
-      expr: up{job="node-exporter"} == 0
-      for: 2m
-      labels:
-        severity: warning
-        component: monitoring
-      annotations:
-        summary: "node-exporter is DOWN"
-        description: |
-          Host metrics collection stopped. Infrastructure dashboard will be empty.
-          Check: docker ps | grep node-exporter
-          Restart: docker compose -f deploy/docker/docker-compose.yml restart node-exporter
-        runbook_url: "http://grafana:3000/d/siem-infrastructure#node-exporter-down"
-
-    # cAdvisor недоступен
-    - alert: CAdvisorDown
-      expr: up{job="cadvisor"} == 0
-      for: 2m
-      labels:
-        severity: warning
-        component: monitoring
-      annotations:
-        summary: "cAdvisor is DOWN"
-        description: |
-          Container metrics collection stopped. Container panels will be empty.
-          Check: docker ps | grep cadvisor
-          Restart: docker compose -f deploy/docker/docker-compose.yml restart cadvisor
-        runbook_url: "http://grafana:3000/d/siem-infrastructure#cadvisor-down"
+      - alert: CAdvisorDown
+        expr: up{job="cadvisor"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "cAdvisor is DOWN"
+          description: |
+            Container metrics collection stopped. Container panels will be empty.
+            Check: docker ps (siem-cadvisor)
+            Restart: docker compose -f deploy/docker/docker-compose.yml restart cadvisor
+          runbook_url: "http://grafana:3000/d/siem-infrastructure#cadvisor-down"

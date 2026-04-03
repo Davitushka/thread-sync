@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,20 +21,10 @@ import (
 	"github.com/siem-lite/detection-engine/internal/rules"
 )
 
-var (
-	eventsProcessed = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "detection_events_processed_total",
-		Help: "Total events consumed from Kafka and processed by detection engine",
-	})
-	parseErrors = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "detection_parse_errors_total",
-		Help: "Total JSON parse errors on Kafka messages",
-	})
-	consumerLag = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "detection_kafka_consumer_lag",
-		Help: "Approximate consumer lag (messages behind high watermark)",
-	})
-)
+var consumerLag = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "detection_kafka_consumer_lag",
+	Help: "Approximate consumer lag (messages behind high watermark)",
+})
 
 func main() {
 	// ── Logger ────────────────────────────────────────────────────────────────
@@ -200,22 +189,14 @@ func runKafkaConsumer(
 		stats := reader.Stats()
 		consumerLag.Set(float64(stats.Lag))
 
-		var event rules.Event
-		if err := json.Unmarshal(msg.Value, &event); err != nil {
-			parseErrors.Inc()
-			logger.Warn("JSON parse error",
-				zap.Error(err),
-				zap.ByteString("raw", msg.Value[:min(len(msg.Value), 200)]),
-			)
-			// Коммитим невалидное сообщение — иначе будет бесконечная петля.
+		// ProcessRaw: учёт JSON-ошибок и processed через engine metrics (без дубля с promauto).
+		if len(msg.Value) == 0 {
 			if err := reader.CommitMessages(ctx, msg); err != nil && ctx.Err() == nil {
-				logger.Warn("commit failed after parse error", zap.Error(err))
+				logger.Warn("commit failed on empty message", zap.Error(err))
 			}
 			continue
 		}
-
-		eng.Process(&event)
-		eventsProcessed.Inc()
+		eng.ProcessRaw(msg.Value)
 
 		if err := reader.CommitMessages(ctx, msg); err != nil && ctx.Err() == nil {
 			logger.Warn("commit failed", zap.Error(err))
