@@ -57,3 +57,30 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']
+
+  # ── Infrastructure exporters ───────────────────────────────────────────────
+
+  # node-exporter: метрики хост-машины (CPU, RAM, disk, net, temperature)
+  # scrape_interval=15s — баланс между актуальностью и нагрузкой на /proc
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          host: siem-host
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # cAdvisor: per-container CPU/mem/net/I/O
+  # scrape_interval=15s — cAdvisor обновляет данные каждые housekeeping_interval=15s
+  - job_name: cadvisor
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          host: siem-host
+    scrape_interval: 15s
+    metrics_path: /metrics
+    # Убираем высококардинальные метрики cAdvisor, которые не нужны для SIEM мониторинга
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'container_(tasks_state|memory_failures_total|spec_.*)'
+        action: drop

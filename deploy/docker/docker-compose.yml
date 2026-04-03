@@ -446,6 +446,73 @@ services:
           cpus: "0.5"
           memory: 256M
 
+  # ════════════════════════════════════════════════════════════════
+  # node-exporter — метрики хост-машины (CPU, RAM, disk, network)
+  # ════════════════════════════════════════════════════════════════
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: siem-node-exporter
+    restart: unless-stopped
+    pid: host          # Доступ к PID namespace хоста для точных метрик процессов
+    networks:
+      - siem-internal
+    ports:
+      - "9101:9100"    # Не 9100 — занят siem-parser
+    volumes:
+      - /proc:/host/proc:ro       # Метрики процессов
+      - /sys:/host/sys:ro         # Метрики ядра и устройств
+      - /:/rootfs:ro              # Метрики файловой системы
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      # Игнорируем псевдо-ФС и виртуальные mount points
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)(/|$$)'
+    healthcheck:
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9100/metrics"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: 64M
+
+  # ════════════════════════════════════════════════════════════════
+  # cAdvisor — метрики контейнеров (CPU, mem, net, I/O per container)
+  # ════════════════════════════════════════════════════════════════
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: siem-cadvisor
+    restart: unless-stopped
+    privileged: true      # Нужен для доступа к cgroup metrics
+    networks:
+      - siem-internal
+    ports:
+      - "8081:8080"       # Не 8080 — занят vector-aggregator
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      # На systemd-хостах добавить: - /cgroup:/cgroup:ro
+    command:
+      - '--housekeeping_interval=15s'    # Период сбора метрик
+      - '--docker_only=true'             # Только Docker контейнеры (не все cgroup)
+      - '--disable_metrics=percpu,sched,tcp,udp,disk,diskIO,hugetlb,referenced_memory,cpu_topology,resctrl'
+      - '--store_container_labels=false' # Не сохранять все Docker labels в метрики (экономия кардинальности)
+    healthcheck:
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 128M
+
   # ── Correlator ────────────────────────────────────────────────────────────
   correlator:
     build:
