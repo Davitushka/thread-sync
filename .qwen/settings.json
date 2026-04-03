@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(docker compose *)",
-      "Bash(cargo generate-lockfile)"
+      "Bash(cargo generate-lockfile)",
+      "Bash(mkdir *)"
     ]
   },
   "$version": 3

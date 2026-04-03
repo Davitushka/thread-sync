@@ -2,67 +2,38 @@
   "title": "SIEM-Lite — Infrastructure",
   "uid": "siem-infrastructure",
   "version": 1,
-  "schemaVersion": 38,
   "refresh": "30s",
+  "schemaVersion": 38,
   "time": { "from": "now-24h", "to": "now" },
   "timezone": "browser",
-  "graphTooltip": 1,
   "tags": ["siem", "infrastructure", "monitoring"],
+  "graphTooltip": 1,
+  "editable": true,
   "links": [
-    {
-      "title": "SIEM Overview",
-      "url": "/d/siem-overview",
-      "type": "link",
-      "icon": "dashboard",
-      "targetBlank": false
-    },
-    {
-      "title": "Detection Engine",
-      "url": "/d/siem-detection",
-      "type": "link",
-      "icon": "dashboard",
-      "targetBlank": false
-    },
-    {
-      "title": "Operations",
-      "url": "/d/siem-operations",
-      "type": "link",
-      "icon": "dashboard",
-      "targetBlank": false
-    }
+    { "title": "Overview", "type": "link", "url": "/d/siem-overview", "keepTime": true, "icon": "dashboard" },
+    { "title": "Detection", "type": "link", "url": "/d/siem-detection", "keepTime": true, "icon": "dashboard" },
+    { "title": "Operations", "type": "link", "url": "/d/siem-operations", "keepTime": true, "icon": "dashboard" },
+    { "title": "Validation", "type": "link", "url": "/d/siem-validation", "keepTime": true, "icon": "dashboard" }
   ],
-  "annotations": {
-    "list": [
-      {
-        "builtIn": 1,
-        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
-        "enable": true,
-        "hide": true,
-        "iconColor": "rgba(0, 211, 255, 1)",
-        "name": "Annotations & Alerts",
-        "type": "dashboard"
-      }
-    ]
-  },
   "panels": [
-
     {
       "id": 100,
       "type": "text",
       "title": "",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## HOST OVERVIEW (node-exporter)"
-      }
+        "content": "## SIEM-Lite Infrastructure Monitoring\n\nХост-машина + контейнеры + компоненты SIEM стека. **node-exporter** (порт 9101) + **cAdvisor** (порт 8081) + метрики компонентов.\n\n- События и дашборды безопасности — [Overview](/d/siem-overview)\n- Операционные метрики — [Operations](/d/siem-operations)\n- Пошаговые проверки — [Validation](/d/siem-validation)"
+      },
+      "transparent": true
     },
 
     {
-      "id": 1,
+      "id": 101,
       "title": "CPU Usage (%)",
-      "description": "Загрузка CPU хоста. Thresholds: <60% норма, 60–80% предупреждение, >80% критично.",
+      "description": "Хост CPU: 100 - idle. Окрашены по порогам: зелёный <60%, оранжевый 60-80%, красный >80%.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 1, "w": 8, "h": 6 },
+      "gridPos": { "x": 0, "y": 3, "w": 8, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
@@ -75,333 +46,174 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "min": 0,
-          "max": 100,
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 60 },
-              { "color": "red", "value": 80 }
-            ]
-          },
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "gradientMode": "opacity",
-            "showPoints": "never"
-          }
+          "custom": { "lineWidth": 2, "fillOpacity": 20 },
+          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 80 }] },
+          "color": { "mode": "thresholds" }
         }
-      },
-      "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
       }
     },
 
     {
-      "id": 2,
+      "id": 102,
       "title": "Memory Usage (%)",
-      "description": "Использование RAM хоста. Thresholds: <70% норма, 70–85% предупреждение, >85% критично.",
+      "description": "Хост RAM: (1 - Available/Total) * 100. Порог: зелёный <70%, оранжевый 70-85%, красный >85%.",
       "type": "gauge",
-      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 6 },
+      "gridPos": { "x": 8, "y": 3, "w": 4, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
           "expr": "(1 - (node_memory_MemAvailable_bytes{job=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"node-exporter\"})) * 100",
-          "legendFormat": "Memory"
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 85 }] },
+          "color": { "mode": "thresholds" },
           "min": 0,
-          "max": 100,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 70 },
-              { "color": "red", "value": 85 }
-            ]
-          }
+          "max": 100
         }
       },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
     },
 
     {
-      "id": 3,
-      "title": "Disk Usage (/) (%)",
-      "description": "Заполненность корневого раздела. Thresholds: <70% норма, 70–85% предупреждение, >85% критично.",
+      "id": 103,
+      "title": "Disk Usage (%)",
+      "description": "Хост Disk: (1 - Available/Size) * 100 для /. Порог: зелёный <70%, оранжевый 70-85%, красный >85%.",
       "type": "gauge",
-      "gridPos": { "x": 12, "y": 1, "w": 4, "h": 6 },
+      "gridPos": { "x": 12, "y": 3, "w": 4, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
           "expr": "(1 - (node_filesystem_avail_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"})) * 100",
-          "legendFormat": "Disk /"
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 85 }] },
+          "color": { "mode": "thresholds" },
           "min": 0,
-          "max": 100,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 70 },
-              { "color": "red", "value": 85 }
-            ]
-          }
+          "max": 100
         }
       },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
     },
 
     {
-      "id": 4,
+      "id": 104,
       "title": "Network I/O (bytes/sec)",
-      "description": "Скорость входящего и исходящего трафика на сетевых интерфейсах хоста.",
+      "description": "Хост Network: RX (входящий) и TX (исходящий) трафик.",
       "type": "timeseries",
-      "gridPos": { "x": 16, "y": 1, "w": 8, "h": 6 },
+      "gridPos": { "x": 16, "y": 3, "w": 8, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(node_network_receive_bytes_total{job=\"node-exporter\",device!~\"lo|veth.*|br-.*|docker.*\"}[2m])",
-          "legendFormat": "RX {{device}}"
+          "expr": "sum(rate(node_network_receive_bytes_total{job=\"node-exporter\",device!=\"lo\"}[2m]))",
+          "legendFormat": "RX (received)"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(node_network_transmit_bytes_total{job=\"node-exporter\",device!~\"lo|veth.*|br-.*|docker.*\"}[2m])",
-          "legendFormat": "TX {{device}}"
+          "expr": "sum(rate(node_network_transmit_bytes_total{job=\"node-exporter\",device!=\"lo\"}[2m]))",
+          "legendFormat": "TX (transmitted)"
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "Bps",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "gradientMode": "opacity",
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byNamePattern", "options": "TX.*" },
-            "properties": [{ "id": "custom.transform", "value": "negative-Y" }]
-          }
-        ]
-      },
-      "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+        "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
       }
     },
 
     {
-      "id": 5,
-      "title": "System Load (1m / 5m / 15m)",
-      "description": "Load average хоста. Для оценки: значение выше числа ядер CPU = перегрузка.",
+      "id": 105,
+      "title": "System Load (1m, 5m, 15m)",
+      "description": "Load average хоста. Если > количества CPU — перегрузка.",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 7, "w": 8, "h": 4 },
+      "gridPos": { "x": 0, "y": 9, "w": 8, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "node_load1{job=\"node-exporter\"}",
-          "legendFormat": "1m"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "node_load5{job=\"node-exporter\"}",
-          "legendFormat": "5m"
-        },
-        {
-          "refId": "C",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "node_load15{job=\"node-exporter\"}",
-          "legendFormat": "15m"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "node_load1{job=\"node-exporter\"}", "legendFormat": "1 min", "instant": true },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "node_load5{job=\"node-exporter\"}", "legendFormat": "5 min", "instant": true },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "node_load15{job=\"node-exporter\"}", "legendFormat": "15 min", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 2 },
-              { "color": "red", "value": 4 }
-            ]
-          }
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 4 }, { "color": "red", "value": 8 }] },
+          "color": { "mode": "thresholds" }
         }
       },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "horizontal",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area"
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
     },
 
     {
-      "id": 6,
+      "id": 106,
       "title": "Uptime",
-      "description": "Время работы хоста с момента последней перезагрузки.",
+      "description": "Время работы хоста с момента загрузки.",
       "type": "stat",
-      "gridPos": { "x": 8, "y": 7, "w": 4, "h": 4 },
+      "gridPos": { "x": 8, "y": 9, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "time() - node_boot_time_seconds{job=\"node-exporter\"}",
-          "legendFormat": "Uptime"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "time() - node_boot_time_seconds{job=\"node-exporter\"}", "instant": true }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }]
-          }
-        }
+        "defaults": { "unit": "s", "color": { "fixedColor": "blue", "mode": "fixed" } }
       },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
     },
 
     {
-      "id": 7,
+      "id": 107,
       "title": "CPU Temperature (°C)",
-      "description": "Температура CPU thermal zones. Thresholds: <60°C норма, 60–75°C предупреждение, >75°C критично.",
+      "description": "Температура CPU хоста (если доступна через node-exporter). Может быть null если датчик не поддерживается.",
       "type": "gauge",
-      "gridPos": { "x": 12, "y": 7, "w": 4, "h": 4 },
+      "gridPos": { "x": 12, "y": 9, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "node_thermal_zone_temp{job=\"node-exporter\"}",
-          "legendFormat": "{{zone}}"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "node_hwmon_temp_celsius{job=\"node-exporter\"}", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "celsius",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 75 }] },
+          "color": { "mode": "thresholds" },
           "min": 0,
-          "max": 100,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 60 },
-              { "color": "red", "value": 75 }
-            ]
-          }
+          "max": 100
         }
       },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "showThresholdLabels": true,
-        "showThresholdMarkers": true
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
     },
 
     {
-      "id": 8,
-      "title": "Disk I/O (ops/sec)",
-      "description": "Количество завершённых операций чтения/записи на диск в секунду.",
+      "id": 108,
+      "title": "Disk I/O (reads/writes per sec)",
+      "description": "Хост Disk I/O: операции чтения и записи в секунду.",
       "type": "timeseries",
-      "gridPos": { "x": 16, "y": 7, "w": 8, "h": 4 },
+      "gridPos": { "x": 16, "y": 9, "w": 8, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(node_disk_reads_completed_total{job=\"node-exporter\",device!~\"dm-.*\"}[2m])",
-          "legendFormat": "Read {{device}}"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(node_disk_writes_completed_total{job=\"node-exporter\",device!~\"dm-.*\"}[2m])",
-          "legendFormat": "Write {{device}}"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(node_disk_reads_completed_total{job=\"node-exporter\"}[2m]))", "legendFormat": "Reads/s" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(node_disk_writes_completed_total{job=\"node-exporter\"}[2m]))", "legendFormat": "Writes/s" }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "iops",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byNamePattern", "options": "Write.*" },
-            "properties": [{ "id": "custom.transform", "value": "negative-Y" }]
-          }
-        ]
-      },
-      "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
       }
     },
 
     {
       "id": 200,
-      "type": "text",
-      "title": "",
-      "gridPos": { "x": 0, "y": 11, "w": 24, "h": 1 },
-      "options": {
-        "mode": "markdown",
-        "content": "## CONTAINER METRICS (cAdvisor)"
-      }
-    },
-
-    {
-      "id": 21,
       "title": "Container CPU Usage (%)",
-      "description": "Загрузка CPU по каждому контейнеру SIEM-стека. Значение >80% — признак перегрузки.",
+      "description": "Per-container CPU usage через cAdvisor. Сортировка по убыванию.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 7 },
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
@@ -414,28 +226,19 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "min": 0,
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "gradientMode": "opacity",
-            "showPoints": "never"
-          },
-          "color": { "mode": "palette-classic" }
+          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 50 }, { "color": "red", "value": 80 }] },
+          "color": { "mode": "thresholds" }
         }
-      },
-      "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }
       }
     },
 
     {
-      "id": 22,
-      "title": "Container Memory Usage",
-      "description": "Потребление RAM по контейнерам. Резкий рост без роста нагрузки — признак утечки памяти.",
+      "id": 201,
+      "title": "Container Memory Usage (bytes)",
+      "description": "Per-container RAM usage через cAdvisor.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 7 },
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
@@ -446,27 +249,14 @@
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 8,
-            "gradientMode": "opacity",
-            "showPoints": "never"
-          },
-          "color": { "mode": "palette-classic" }
-        }
-      },
-      "options": {
-        "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }
+        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
       }
     },
 
     {
-      "id": 23,
+      "id": 202,
       "title": "Container Network RX/TX",
-      "description": "Входящий (RX) и исходящий (TX, отражён вниз) трафик по контейнерам в байтах/сек.",
+      "description": "Сетевой трафик контейнеров (суммарно по всем интерфейсам).",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 19, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -474,42 +264,25 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum by(name) (rate(container_network_receive_bytes_total{job=\"cadvisor\",name!=\"\"}[2m]))",
-          "legendFormat": "RX {{name}}"
+          "expr": "sum by(name) (rate(container_network_receive_bytes_total{job=\"cadvisor\",name!=\"\",image!=\"\",interface!~\"(lo|docker|veth).*\"}[2m]))",
+          "legendFormat": "{{name}} RX"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum by(name) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",name!=\"\"}[2m]))",
-          "legendFormat": "TX {{name}}"
+          "expr": "sum by(name) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",name!=\"\",image!=\"\",interface!~\"(lo|docker|veth).*\"}[2m]))",
+          "legendFormat": "{{name}} TX"
         }
       ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "Bps",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "showPoints": "never"
-          }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byNamePattern", "options": "TX.*" },
-            "properties": [{ "id": "custom.transform", "value": "negative-Y" }]
-          }
-        ]
-      },
-      "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean"] }
+        "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 12 } }
       }
     },
 
     {
-      "id": 24,
-      "title": "Top 5 Containers by CPU (5m avg)",
-      "description": "Рейтинг контейнеров по среднему потреблению CPU за последние 5 минут.",
+      "id": 203,
+      "title": "Top 5 Containers by CPU",
+      "description": "Топ-5 контейнеров по среднему CPU за 5 минут.",
       "type": "barchart",
       "gridPos": { "x": 12, "y": 19, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -517,216 +290,170 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "topk(5, sum by(name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",image!=\"\",name!=\"\"}[5m])) * 100)",
-          "legendFormat": "{{name}}",
+          "expr": "topk(5, sum by(name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\",image!=\"\"}[5m]))) * 100",
+          "format": "table",
           "instant": true
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "color": { "mode": "palette-classic" }
-        }
-      },
-      "options": {
-        "orientation": "horizontal",
-        "groupWidth": 0.7,
-        "barRadius": 0.03,
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "list", "placement": "bottom" },
-        "xField": "Time",
-        "reduceOptions": { "calcs": ["lastNotNull"] }
-      }
-    },
-
-    {
-      "id": 25,
-      "title": "Container Status (Running count)",
-      "description": "Количество работающих контейнеров с ненулевым потреблением памяти.",
-      "type": "stat",
-      "gridPos": { "x": 0, "y": 25, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",name!=\"\",image!=\"\"} > 0)",
-          "legendFormat": "Running"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 8 },
-              { "color": "green", "value": 10 }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "none"
-      }
-    },
-
-    {
-      "id": 26,
-      "title": "Container Memory Limit Utilization",
-      "description": "Использование памяти относительно лимита Docker deploy.resources.limits.memory.",
-      "type": "table",
-      "gridPos": { "x": 6, "y": 25, "w": 18, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "container_memory_usage_bytes{job=\"cadvisor\",name!=\"\",image!=\"\"} / container_spec_memory_limit_bytes{job=\"cadvisor\",name!=\"\",image!=\"\"} * 100",
-          "legendFormat": "{{name}}",
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 70 },
-              { "color": "red", "value": 90 }
-            ]
-          },
-          "custom": { "displayMode": "color-background" }
-        }
-      },
-      "options": {
-        "sortBy": [{ "displayName": "Value", "desc": true }],
-        "footer": { "show": false }
-      },
       "transformations": [
-        { "id": "labelsToFields", "options": { "mode": "columns" } },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true },
-            "renameByName": { "name": "Container", "Value": "Memory Limit %" }
-          }
+        { "id": "organize", "options": { "renameByName": { "name": "Container", "Value": "CPU %" } } }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percent" },
+        "overrides": [{ "matcher": { "id": "byName", "options": "CPU %" }, "properties": [{ "id": "custom.displayMode", "value": "gradient-gauge" }] }]
+      },
+      "options": { "orientation": "horizontal", "xField": "Container", "barWidth": 0.7, "showValue": "auto" }
+    },
+
+    {
+      "id": 204,
+      "title": "Container Count (Running)",
+      "description": "Количество запущенных контейнеров (имеющих потребление памяти).",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 25, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",name!=\"\",image!=\"\"})", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "blue", "mode": "fixed" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+
+    {
+      "id": 205,
+      "title": "OOM Kills (24h)",
+      "description": "Контейнеры, получившие OOM kill за последние 24 часа.",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 25, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(increase(container_oom_events_total{job=\"cadvisor\",name!=\"\",image!=\"\"}[24h]))", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }] },
+          "color": { "mode": "thresholds" }
         }
-      ]
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+
+    {
+      "id": 206,
+      "title": "Total Container CPU (%)",
+      "description": "Суммарное CPU всех контейнеров.",
+      "type": "gauge",
+      "gridPos": { "x": 8, "y": 25, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\",image!=\"\"}[2m])) * 100", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 80 }] },
+          "color": { "mode": "thresholds" },
+          "min": 0,
+          "max": 100
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
+    },
+
+    {
+      "id": 207,
+      "title": "Total Container Memory (bytes)",
+      "description": "Суммарная RAM всех контейнеров.",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 25, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(container_memory_usage_bytes{job=\"cadvisor\",name!=\"\",image!=\"\"})", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "color": { "fixedColor": "purple", "mode": "fixed" } }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+
+    {
+      "id": 208,
+      "title": "Host IP Addresses",
+      "description": "IP адреса хоста (из node-exporter).",
+      "type": "table",
+      "gridPos": { "x": 16, "y": 25, "w": 8, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "node_network_address_info{job=\"node-exporter\"}",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        { "id": "filterFieldsByName", "options": { "include": { "pattern": "^(name|address|Value)$" } } },
+        { "id": "organize", "options": { "renameByName": { "name": "Interface", "address": "IP Address" } } }
+      ],
+      "options": { "showHeader": true }
     },
 
     {
       "id": 300,
-      "type": "text",
-      "title": "",
-      "gridPos": { "x": 0, "y": 29, "w": 24, "h": 1 },
-      "options": {
-        "mode": "markdown",
-        "content": "## SIEM COMPONENTS HEALTH"
-      }
-    },
-
-    {
-      "id": 31,
       "title": "Component UP/DOWN Status",
-      "description": "Статус всех сервисов SIEM-стека. Зелёный = UP (1), Красный = DOWN (0).",
+      "description": "Статус всех компонентов SIEM стека. Зелёный = UP, красный = DOWN.",
       "type": "table",
-      "gridPos": { "x": 0, "y": 30, "w": 12, "h": 7 },
+      "gridPos": { "x": 0, "y": 29, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "up{job=~\"vector-aggregator|siem-parser|redpanda|clickhouse|detection-engine|correlator|alertmanager|prometheus|node-exporter|cadvisor\"}",
-          "instant": true,
-          "legendFormat": "{{job}}"
+          "expr": "up{job=~\"vector-aggregator|siem-parser|redpanda|clickhouse|detection-engine|correlator|alertmanager|prometheus|node-exporter|cadvisor|grafana|loki|minio|redis\"}",
+          "format": "table",
+          "instant": true
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
-            ]
-          },
-          "mappings": [
-            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
-          ],
-          "custom": { "displayMode": "color-background", "width": 90 }
-        }
-      },
-      "options": {
-        "sortBy": [{ "displayName": "Value", "desc": false }],
-        "footer": { "show": false }
-      },
       "transformations": [
-        { "id": "labelsToFields", "options": { "mode": "columns" } },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": { "Time": true, "__name__": true, "instance": true },
-            "renameByName": { "job": "Service", "Value": "Status" }
-          }
-        }
-      ]
-    },
-
-    {
-      "id": 32,
-      "title": "Vector Throughput (events/sec)",
-      "description": "Скорость обработки событий Vector: входящие (http_ingest) и исходящие (to_redpanda) в секунду.",
-      "type": "timeseries",
-      "gridPos": { "x": 12, "y": 30, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(vector_component_received_events_total{component_id=\"http_ingest\"}[2m])",
-          "legendFormat": "Received (http_ingest)"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(vector_component_sent_events_total[2m])",
-          "legendFormat": "Sent {{component_id}}"
-        }
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "host": true }, "renameByName": { "job": "Component", "Value": "UP" } } }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "epm",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 12,
-            "gradientMode": "opacity",
-            "showPoints": "never"
-          },
-          "color": { "mode": "palette-classic" }
-        }
+          "custom": { "align": "auto", "inspect": false },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "UP" }, "properties": [
+            { "id": "custom.displayMode", "value": "color-background" },
+            { "id": "mappings", "value": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red", "index": 0 }, "1": { "text": "UP", "color": "green", "index": 1 } } }] }
+          ]}
+        ]
       },
-      "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
-      }
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "Component", "desc": false }] }
     },
 
     {
-      "id": 33,
-      "title": "Rust Parser Latency p99 (ms)",
-      "description": "99-й перцентиль латентности парсинга событий. SLA: <5ms (warning 5–10ms, critical >10ms).",
+      "id": 301,
+      "title": "Vector Throughput (events/sec)",
+      "description": "Vector: входящие события через HTTP ingest и отправка в Kafka.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 37, "w": 8, "h": 6 },
+      "gridPos": { "x": 12, "y": 29, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(vector_component_received_events_total{job=\"vector-aggregator\",component_id=\"http_ingest\"}[2m])", "legendFormat": "HTTP ingest recv /s" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(vector_component_sent_events_total{job=\"vector-aggregator\",component_id=\"to_redpanda\"}[2m])", "legendFormat": "Kafka sink sent /s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } }
+    },
+
+    {
+      "id": 302,
+      "title": "Rust Parser Latency p99 (ms)",
+      "description": "siem-parser p99 latency парсинга. SLA: <5ms. Порог: зелёный <5ms, оранжевый 5-10ms, красный >10ms.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 35, "w": 8, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
@@ -734,265 +461,169 @@
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
           "expr": "histogram_quantile(0.99, rate(siem_parser_parse_duration_seconds_bucket{job=\"siem-parser\"}[2m])) * 1000",
           "legendFormat": "p99 latency"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "histogram_quantile(0.50, rate(siem_parser_parse_duration_seconds_bucket{job=\"siem-parser\"}[2m])) * 1000",
-          "legendFormat": "p50 latency"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 5 },
-              { "color": "red", "value": 10 }
-            ]
-          },
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "gradientMode": "opacity",
-            "showPoints": "never"
-          }
+          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 10 }] },
+          "color": { "mode": "thresholds" }
         }
-      },
-      "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
       }
     },
 
     {
-      "id": 34,
+      "id": 303,
       "title": "Redpanda Consumer Lag",
-      "description": "Отставание consumer group от последнего offset в топике siem.events. Thresholds: <1k норма, >10k критично.",
+      "description": "Lag consumer group clickhouse_siem_events. Порог: зелёный <1k, оранжевый 1k-10k, красный >10k.",
       "type": "timeseries",
-      "gridPos": { "x": 8, "y": 37, "w": 8, "h": 6 },
+      "gridPos": { "x": 8, "y": 35, "w": 8, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "vectorized_kafka_group_offset{topic=\"siem.events\"}",
-          "legendFormat": "Lag {{group}}"
+          "expr": "siem:kafka_consumer_lag:sum",
+          "legendFormat": "Total lag"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 1000 },
-              { "color": "red", "value": 10000 }
-            ]
-          },
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          }
+          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1000 }, { "color": "red", "value": 10000 }] },
+          "color": { "mode": "thresholds" }
         }
-      },
-      "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
       }
     },
 
     {
-      "id": 35,
-      "title": "ClickHouse Queries/sec",
-      "description": "Скорость SELECT и INSERT запросов в ClickHouse.",
+      "id": 304,
+      "title": "ClickHouse Queries/s",
+      "description": "ClickHouse: скорость SELECT и INSERT запросов.",
       "type": "timeseries",
-      "gridPos": { "x": 16, "y": 37, "w": 8, "h": 6 },
+      "gridPos": { "x": 16, "y": 35, "w": 8, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m])",
-          "legendFormat": "SELECT/s"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m])",
-          "legendFormat": "INSERT/s"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m])", "legendFormat": "SelectQuery /s" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m])", "legendFormat": "InsertQuery /s" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\"}[2m])", "legendFormat": "FailedQuery /s" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "never"
-          },
-          "color": { "mode": "palette-classic" }
-        }
-      },
-      "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
-      }
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } }
     },
 
     {
-      "id": 36,
+      "id": 305,
       "title": "Detection Alerts/sec",
-      "description": "Скорость генерации алертов detection engine за последние 5 минут.",
+      "description": "Detection Engine: скорость срабатывания алертов.",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 43, "w": 6, "h": 4 },
+      "gridPos": { "x": 0, "y": 41, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum(rate(detection_alerts_fired_total{job=\"detection-engine\"}[5m]))",
-          "legendFormat": "Alerts/s"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(detection_alerts_fired_total[5m]))", "instant": true }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 10 }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "area"
-      }
+      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 2, "color": { "fixedColor": "red", "mode": "fixed" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
     },
 
     {
-      "id": 37,
+      "id": 306,
       "title": "Parse Error Rate (%)",
-      "description": "Доля ошибок парсинга от общего потока. Thresholds: <1% норма, 1–5% предупреждение, >5% критично.",
+      "description": "Доля событий с ошибкой парсинга. Порог: зелёный <1%, оранжевый 1-5%, красный >5%.",
       "type": "gauge",
-      "gridPos": { "x": 6, "y": 43, "w": 6, "h": 4 },
+      "gridPos": { "x": 4, "y": 41, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"error\"}[5m]) / rate(siem_parser_events_parsed_total{job=\"siem-parser\"}[5m]) * 100",
-          "legendFormat": "Error %"
+          "expr": "(siem:parser_events_error:rate5m / (siem:parser_events_ok:rate5m + siem:parser_events_error:rate5m)) * 100",
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] },
+          "color": { "mode": "thresholds" },
           "min": 0,
-          "max": 100,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 5 }
-            ]
-          }
+          "max": 100
         }
       },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "showThresholdLabels": true,
-        "showThresholdMarkers": true
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
     },
 
     {
-      "id": 38,
+      "id": 307,
       "title": "Active Prometheus Alerts",
-      "description": "Количество активных (firing) алертов в Prometheus Alertmanager.",
+      "description": "Количество firing алертов в Prometheus.",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 43, "w": 6, "h": 4 },
+      "gridPos": { "x": 8, "y": 41, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)",
-          "legendFormat": "Firing"
-        }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 5 }
-            ]
-          }
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] },
+          "color": { "mode": "thresholds" }
         }
       },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "background",
-        "graphMode": "none"
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
     },
 
     {
-      "id": 39,
-      "title": "Total Events Ingested (24h)",
-      "description": "Общее количество событий, записанных в ClickHouse за последние 24 часа.",
+      "id": 308,
+      "title": "Detection Events/sec",
+      "description": "Detection Engine: скорость обработки событий из Kafka.",
       "type": "stat",
-      "gridPos": { "x": 18, "y": 43, "w": 6, "h": 4 },
+      "gridPos": { "x": 12, "y": 41, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(detection_events_processed_total[5m]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 0, "color": { "fixedColor": "blue", "mode": "fixed" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+
+    {
+      "id": 309,
+      "title": "Total Events Ingested (24h)",
+      "description": "Общее количество событий в ClickHouse за 24 часа.",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 41, "w": 4, "h": 4 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT count() AS total FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR",
+          "rawSql": "SELECT count() AS Total FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR",
           "format": 1
         }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "fixedColor": "blue", "mode": "fixed" } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+
+    {
+      "id": 310,
+      "title": "Parse Errors (24h)",
+      "description": "Количество событий с ошибкой парсинга за 24 часа.",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 41, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(increase(siem_parser_events_parsed_total{status=\"error\"}[24h]))", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "color": { "mode": "thresholds" },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [{ "color": "blue", "value": null }]
-          }
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 100 }, { "color": "red", "value": 1000 }] },
+          "color": { "mode": "thresholds" }
         }
       },
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"] },
-        "orientation": "auto",
-        "textMode": "auto",
-        "colorMode": "value",
-        "graphMode": "none"
-      }
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
     }
-
   ]
 }

@@ -194,6 +194,63 @@ jobs:
             timberio/vector:0.43.0-debian \
             validate --skip-healthchecks --config-yaml /etc/vector/aggregator.yaml
 
+  # ── Grafana Validation (E2E) ───────────────────────────────────────────────
+  grafana-validation:
+    name: Grafana Validation (E2E)
+    runs-on: ubuntu-latest
+    needs: [docker-parser, docker-detection, compose-validate]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create placeholder secrets
+        run: |
+          mkdir -p deploy/docker/secrets
+          echo -n "placeholder" > deploy/docker/secrets/smtp_password.txt
+          echo -n "https://hooks.slack.com/placeholder" > deploy/docker/secrets/slack_webhook_url.txt
+          echo -n "placeholder" > deploy/docker/secrets/pagerduty_key.txt
+          echo -n "ClickHousePass123!" > deploy/docker/secrets/clickhouse_password.txt
+          echo -n "MinIOSecret456!" > deploy/docker/secrets/minio_secret_key.txt
+
+      - name: Start SIEM stack
+        run: docker compose -f deploy/docker/docker-compose.yml up -d
+
+      - name: Wait for Grafana to be ready
+        run: |
+          echo "Waiting for Grafana (plugin installation can take 60s)..."
+          timeout 120 bash -c 'until curl -sf http://localhost:3000/api/health > /dev/null 2>&1; do sleep 5; done'
+          echo "Grafana is ready!"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validation dependencies
+        run: pip install -r tests/grafana/requirements.txt
+
+      - name: Run Grafana validation
+        run: |
+          cd tests/grafana
+          python validate_grafana.py \
+            --url http://localhost:3000 \
+            --user admin \
+            --password ClickHousePass123! \
+            --output report.json \
+            --verbose
+
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grafana-validation-report
+          path: tests/grafana/report.json
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f deploy/docker/docker-compose.yml down
+
   # ── YAML lint: Sigma rules + Vector configs ────────────────────────────────
   yaml-lint:
     name: YAML Lint
