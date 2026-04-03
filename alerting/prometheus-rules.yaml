@@ -130,12 +130,14 @@ groups:
             Consider scaling ClickHouse Kafka ingest threads or increasing partitions.
           runbook_url: "http://grafana:3000/d/siem-runbook#kafka-lag"
 
-      # Disk usage — исправлены метрики под встроенный CH Prometheus endpoint (port 9363)
+      # Disk usage — реальные имена метрик из CH 24.8 endpoint :9363
+      # Проверено: ClickHouseAsyncMetrics_DiskAvailable_default, DiskTotal_default
+      # (без суффикса Bytes — это имя диска "default" без storage policy)
       - alert: ClickHouseHighDiskUsage
         expr: |
           (
-            ClickHouseAsyncMetrics_DiskAvailableBytes
-            / ClickHouseAsyncMetrics_DiskTotalBytes
+            ClickHouseAsyncMetrics_DiskAvailable_default
+            / ClickHouseAsyncMetrics_DiskTotal_default
           ) < 0.15
         for: 10m
         labels:
@@ -267,8 +269,9 @@ groups:
           summary: "EPS anomaly: {{ $value | humanizePercentage }} deviation from 1h baseline"
           description: |
             Event rate deviates >300% from 1-hour moving average.
-            Current: {{ with query "siem:events_total:rate5m" }}{{ . | first | value | humanize }}{{ end }} events/s.
+            Deviation ratio: {{ $value | humanize }}x (baseline × this factor).
             Could indicate log flood attack, data exfiltration, or service restart.
+            Check Grafana: http://grafana:3000/d/siem-operations
           runbook_url: "http://grafana:3000/d/siem-runbook#eps-anomaly"
 
   # ── New Security Detection Rules ─────────────────────────────────────────────

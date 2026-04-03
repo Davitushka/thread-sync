@@ -80,6 +80,16 @@ route:
       group_wait: 5s
       repeat_interval: 10m
 
+    # Все firing алерты → запись в siem.alerts через siem-parser webhook
+    # continue: true — чтобы уведомление ушло и в основной канал
+    - matchers:
+        - alertname =~ ".+"
+      receiver: 'clickhouse-siem'
+      group_wait: 5s
+      group_interval: 1m
+      repeat_interval: 6h
+      continue: true
+
 # ── Дедупликация (inhibit rules) ─────────────────────────────────────────────
 inhibit_rules:
   # Если critical алерт активен — подавляем high/medium с того же IP
@@ -170,3 +180,13 @@ receivers:
         title: '🔧 SIEM OPS: {{ template "siem.title" . }}'
         text: '{{ template "siem.text" . }}'
         color: '#0099FF'
+
+  # Webhook → siem-parser /alerts/ingest → INSERT INTO siem.alerts
+  # Пишет только firing алерты; resolved игнорируются на уровне handler.
+  - name: 'clickhouse-siem'
+    webhook_configs:
+      - url: 'http://siem-parser:7000/alerts/ingest'
+        send_resolved: false
+        http_config:
+          follow_redirects: true
+        max_alerts: 50

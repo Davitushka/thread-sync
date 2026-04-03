@@ -200,6 +200,10 @@ services:
       SIEM__SERVER__WORKERS: "4"
       RUST_LOG: siem_parser=info,warn
       RUST_BACKTRACE: "1"
+      # Для webhook /alerts/ingest → ClickHouse
+      CLICKHOUSE_URL: "http://clickhouse:8123"
+      CLICKHOUSE_USER: "siem"
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
     depends_on:
       redpanda:
         condition: service_healthy

@@ -73,6 +73,9 @@ once_cell = "1.20"
 # CPU count для дефолтного числа воркеров
 num_cpus = "1.16"
 
+# HTTP клиент для webhook→ClickHouse (alerts ingest)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
 # Protocol Buffers
 prost = "0.13"
 

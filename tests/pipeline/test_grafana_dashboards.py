@@ -64,8 +64,12 @@ def test_siem_overview_error_rate_uses_float_division(repo_root: Path) -> None:
             f"Панель «{title}»: доля ошибок должна считаться через float (toFloat64/toFloat32), "
             "иначе целочисленное деление в ClickHouse даёт 0%."
         )
-        assert "nullIf(count()" in sql or "if(count()" in sql.lower(), (
-            f"Панель «{title}»: защититесь от деления на ноль (nullIf(count(),0) или аналог)."
+        assert (
+            "nullIf(count()" in sql
+            or "if(count()" in sql.lower()
+            or "nullIf(countMerge(" in sql
+        ), (
+            f"Панель «{title}»: защититесь от деления на ноль (nullIf(count(),0) или nullIf(countMerge(...),0))."
         )
         return
     pytest.fail("Не найдена панель Error Rate с rawSql")

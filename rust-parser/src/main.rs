@@ -32,10 +32,38 @@ use siem_parser::{
     normalizer::NormalizationPipeline,
 };
 
+// ── Alertmanager webhook → ClickHouse ─────────────────────────────────────────
+
+/// Формат payload, который Alertmanager отправляет на webhook receiver.
+/// https://prometheus.io/docs/alerting/latest/configuration/#webhook_config
+#[derive(Debug, Deserialize)]
+struct AlertmanagerWebhook {
+    version: String,
+    #[serde(rename = "groupKey")]
+    group_key: Option<String>,
+    status: String,
+    alerts: Vec<AlertmanagerAlert>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlertmanagerAlert {
+    status: String,
+    labels: std::collections::HashMap<String, String>,
+    annotations: std::collections::HashMap<String, String>,
+    #[serde(rename = "startsAt")]
+    starts_at: String,
+    #[serde(rename = "endsAt")]
+    ends_at: Option<String>,
+    #[serde(rename = "generatorURL")]
+    generator_url: Option<String>,
+    fingerprint: Option<String>,
+}
+
 struct AppState {
     pipeline: NormalizationPipeline,
     producer: FutureProducer,
     config: AppConfig,
+    http_client: reqwest::Client,
 }
 
 #[derive(Deserialize)]
@@ -104,11 +132,17 @@ async fn main() -> Result<()> {
         .set("compression.type", "snappy")
         .create()?;
 
-    let state = Arc::new(AppState { pipeline, producer, config: config.clone() });
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("failed to build HTTP client");
+
+    let state = Arc::new(AppState { pipeline, producer, config: config.clone(), http_client });
 
     // HTTP API
     let app = Router::new()
         .route("/parse", post(handle_parse))
+        .route("/alerts/ingest", post(handle_alerts_ingest))
         .route("/health", get(handle_health))
         .route("/ready", get(handle_ready))
         .route("/metrics", get(handle_metrics))
@@ -188,6 +222,157 @@ async fn handle_parse(
     }
 
     (StatusCode::OK, Json(ParseResponse { processed, errors, error_details })).into_response()
+}
+
+/// POST /alerts/ingest — принимает webhook от Alertmanager и пишет в siem.alerts через ClickHouse HTTP API.
+///
+/// Alertmanager конфигурация (alertmanager.yaml):
+///   receivers:
+///     - name: clickhouse-siem
+///       webhook_configs:
+///         - url: 'http://siem-parser:7000/alerts/ingest'
+///           send_resolved: false
+async fn handle_alerts_ingest(
+    State(state): State<Arc<AppState>>,
+    body: Bytes,
+) -> impl IntoResponse {
+    let webhook: AlertmanagerWebhook = match serde_json::from_slice(&body) {
+        Ok(w) => w,
+        Err(e) => {
+            error!(error = %e, "Failed to parse Alertmanager webhook payload");
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "error": format!("Invalid webhook JSON: {}", e)
+            }))).into_response();
+        }
+    };
+
+    // Игнорируем resolved уведомления — в siem.alerts пишем только новые алерты.
+    let firing: Vec<&AlertmanagerAlert> = webhook.alerts.iter()
+        .filter(|a| a.status == "firing")
+        .collect();
+
+    if firing.is_empty() {
+        return (StatusCode::OK, Json(serde_json::json!({"inserted": 0, "reason": "no firing alerts"}))).into_response();
+    }
+
+    // Строим INSERT ... VALUES для ClickHouse HTTP API (формат Values).
+    // URL: http://clickhouse:8123/?query=INSERT+INTO+siem.alerts+FORMAT+JSONEachRow
+    let ch_url = std::env::var("CLICKHOUSE_URL")
+        .unwrap_or_else(|_| "http://clickhouse:8123".to_string());
+    let ch_user = std::env::var("CLICKHOUSE_USER").unwrap_or_else(|_| "siem".to_string());
+    // Читаем пароль из файла (Docker secret) или переменной окружения.
+    let ch_password = if let Ok(path) = std::env::var("CLICKHOUSE_PASSWORD_FILE") {
+        std::fs::read_to_string(&path)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|_| std::env::var("CLICKHOUSE_PASSWORD").unwrap_or_default())
+    } else {
+        std::env::var("CLICKHOUSE_PASSWORD").unwrap_or_default()
+    };
+
+    let mut rows: Vec<serde_json::Value> = Vec::with_capacity(firing.len());
+
+    for alert in &firing {
+        let labels = &alert.labels;
+        let annotations = &alert.annotations;
+
+        let rule_id = labels.get("rule_id")
+            .or_else(|| labels.get("alertname"))
+            .cloned()
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let rule_title = labels.get("alertname")
+            .cloned()
+            .unwrap_or_else(|| rule_id.clone());
+
+        // Маппинг severity: Alertmanager может слать warning/critical/high.
+        // siem.alerts принимает Enum8('low'=1,'medium'=2,'high'=3,'critical'=4).
+        let severity = match labels.get("severity").map(|s| s.as_str()) {
+            Some("critical") => "critical",
+            Some("high") | Some("warning") => "high",
+            Some("medium") => "medium",
+            _ => "low",
+        };
+
+        let description = annotations.get("description")
+            .or_else(|| annotations.get("summary"))
+            .cloned()
+            .unwrap_or_default();
+
+        let source_ip = labels.get("source_ip").cloned();
+        let user_id = labels.get("user_id").cloned();
+
+        let mitre_raw = labels.get("mitre_tags").cloned().unwrap_or_default();
+        let mitre_tags: Vec<String> = mitre_raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        // Fingerprint как event_id: если Alertmanager прислал fingerprint — используем его как UUID v5-namespace proxy.
+        // Иначе генерируем на основе rule_id + starts_at.
+        let alert_id_seed = alert.fingerprint.clone()
+            .unwrap_or_else(|| format!("{}-{}", rule_id, alert.starts_at));
+
+        let mut row = serde_json::json!({
+            "alert_id": format!("{:0>32}", &alert_id_seed.chars().filter(|c| c.is_alphanumeric()).take(32).collect::<String>()),
+            "triggered_at": alert.starts_at,
+            "rule_id": rule_id,
+            "rule_title": rule_title,
+            "severity": severity,
+            "description": description,
+            "event_ids": [],
+            "mitre_tags": mitre_tags,
+            "status": "new",
+            "notes": ""
+        });
+
+        if let Some(ip) = source_ip {
+            row["source_ip"] = serde_json::Value::String(ip);
+        }
+        if let Some(uid) = user_id {
+            row["user_id"] = serde_json::Value::String(uid);
+        }
+
+        rows.push(row);
+    }
+
+    // Сериализуем в JSONEachRow (одна JSON-строка на строку).
+    let body_str: String = rows.iter()
+        .filter_map(|r| serde_json::to_string(r).ok())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let query_url = format!(
+        "{ch_url}/?query=INSERT+INTO+siem.alerts+FORMAT+JSONEachRow&user={ch_user}",
+    );
+
+    match state.http_client
+        .post(&query_url)
+        .basic_auth(&ch_user, Some(&ch_password))
+        .header("Content-Type", "application/octet-stream")
+        .body(body_str)
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            info!(count = firing.len(), "Alerts written to siem.alerts");
+            (StatusCode::OK, Json(serde_json::json!({"inserted": firing.len()}))).into_response()
+        }
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body_text = resp.text().await.unwrap_or_default();
+            error!(status, body = %body_text, "ClickHouse INSERT failed");
+            (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
+                "error": format!("ClickHouse error {}: {}", status, body_text)
+            }))).into_response()
+        }
+        Err(e) => {
+            error!(error = %e, "HTTP request to ClickHouse failed");
+            (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
+                "error": format!("Connection failed: {}", e)
+            }))).into_response()
+        }
+    }
 }
 
 async fn handle_health() -> impl IntoResponse {

@@ -78,6 +78,48 @@ SETTINGS
     min_rows_for_wide_part = 100000;
 
 -- ══════════════════════════════════════════════════════════════════════════════
+-- Skip Indexes для ускорения фильтрации по полям вне primary key
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- ЗАЧЕМ НУЖНЫ:
+--   PRIMARY KEY (source_type, timestamp) — сортировочный ключ, эффективен для
+--   запросов вида WHERE source_type=? AND timestamp BETWEEN ... .
+--   Для фильтрации по source_ip, severity_num, url_path, status_code нужны
+--   дополнительные skip-индексы, которые позволяют пропускать гранулы (8192 строк).
+--
+-- bloom_filter — вероятностный фильтр: нулевые false negative, низкий false positive.
+-- minmax — хранит min/max значения: идеален для числовых диапазонов.
+-- set(N) — хранит уникальные значения (до N): идеален для low-cardinality фильтров.
+
+-- source_ip: топ-запросы — WHERE source_ip = '...', GROUP BY source_ip
+ALTER TABLE siem.events
+    ADD INDEX IF NOT EXISTS idx_source_ip source_ip TYPE bloom_filter(0.01) GRANULARITY 4;
+
+-- severity_num: WHERE severity_num >= 3 (error/critical), фильтры безопасности
+ALTER TABLE siem.events
+    ADD INDEX IF NOT EXISTS idx_severity_num severity_num TYPE set(10) GRANULARITY 1;
+
+-- status_code: WHERE status_code IN (401, 403, 500), HTTP distribution
+ALTER TABLE siem.events
+    ADD INDEX IF NOT EXISTS idx_status_code status_code TYPE set(100) GRANULARITY 2;
+
+-- url_path: LIKE '%auth%', bloom_filter для substring matching (ClickHouse 24.x supports this)
+ALTER TABLE siem.events
+    ADD INDEX IF NOT EXISTS idx_url_path url_path TYPE bloom_filter(0.025) GRANULARITY 4;
+
+-- geo_country_name: WHERE geo_country_name IS NOT NULL (GeoIP таблица)
+ALTER TABLE siem.events
+    ADD INDEX IF NOT EXISTS idx_geo_country geo_country_name TYPE bloom_filter(0.05) GRANULARITY 8;
+
+-- Применить индексы к существующим данным (materialize)
+-- Выполнить вручную после ALTER ADD INDEX на production:
+-- ALTER TABLE siem.events MATERIALIZE INDEX idx_source_ip;
+-- ALTER TABLE siem.events MATERIALIZE INDEX idx_severity_num;
+-- ALTER TABLE siem.events MATERIALIZE INDEX idx_status_code;
+-- ALTER TABLE siem.events MATERIALIZE INDEX idx_url_path;
+-- ALTER TABLE siem.events MATERIALIZE INDEX idx_geo_country;
+
+-- ══════════════════════════════════════════════════════════════════════════════
 -- Tiered Storage политики (настраивается в clickhouse-config.xml)
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Дополнительно: в config.xml добавить:

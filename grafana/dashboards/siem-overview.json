@@ -1,7 +1,7 @@
 {
   "title": "SIEM-Lite Overview",
   "uid": "siem-overview",
-  "version": 5,
+  "version": 6,
   "refresh": "30s",
   "schemaVersion": 38,
   "time": { "from": "now-24h", "to": "now" },
@@ -17,7 +17,7 @@
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT toStartOfMinute(timestamp) AS t, count() AS events FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY t ORDER BY t",
+          "rawSql": "SELECT minute AS t, countMerge(event_count) AS events FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR GROUP BY minute ORDER BY minute",
           "format": 0
         }
       ],
@@ -41,7 +41,7 @@
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT toString(severity) AS severity, count() AS Events FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY severity ORDER BY Events DESC",
+          "rawSql": "SELECT toString(severity) AS severity, countMerge(event_count) AS Events FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR GROUP BY severity ORDER BY Events DESC",
           "format": 1
         }
       ],
@@ -67,7 +67,7 @@
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT toString(source_ip) AS IP, count() AS Events, countIf(severity IN ('error','critical')) AS Threats, countIf(severity = 'critical') AS Critical FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND source_ip IS NOT NULL GROUP BY source_ip ORDER BY Threats DESC, Events DESC LIMIT 20",
+          "rawSql": "SELECT toString(source_ip) AS IP, countMerge(event_count) AS Events, countMerge(error_count) AS Threats FROM siem.top_ips_agg WHERE hour >= now() - INTERVAL 24 HOUR AND source_ip IS NOT NULL GROUP BY source_ip ORDER BY Threats DESC, Events DESC LIMIT 20",
           "format": 1
         }
       ],
@@ -110,7 +110,7 @@
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT count() AS Total FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR",
+          "rawSql": "SELECT countMerge(event_count) AS Total FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR",
           "format": 1
         }
       ],
@@ -145,7 +145,7 @@
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT round(toFloat64(countIf(severity IN ('error','critical'))) / nullIf(count(), 0) * 100, 2) AS error_pct FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR",
+          "rawSql": "SELECT round(toFloat64(countMergeIf(event_count, toUInt8(severity) >= 3)) / nullIf(countMerge(event_count), 0) * 100, 2) AS error_pct FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR",
           "format": 1
         }
       ],
@@ -163,7 +163,7 @@
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT toString(source_type) AS Source, count() AS Events FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY source_type ORDER BY Events DESC",
+          "rawSql": "SELECT toString(source_type) AS Source, countMerge(event_count) AS Events FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR GROUP BY source_type ORDER BY Events DESC",
           "format": 1
         }
       ],
@@ -183,7 +183,7 @@
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT toStartOfHour(timestamp) AS t, countIf(severity = 'critical') AS critical, countIf(severity = 'error') AS error, countIf(severity = 'warning') AS warning FROM siem.events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY t ORDER BY t",
+          "rawSql": "SELECT toStartOfHour(minute) AS t, countMergeIf(event_count, severity = 'critical') AS critical, countMergeIf(event_count, severity = 'error') AS error, countMergeIf(event_count, severity = 'warning') AS warning FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 7 DAY GROUP BY t ORDER BY t",
           "format": 0
         }
       ],
