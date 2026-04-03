@@ -273,13 +273,13 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "histogram_quantile(0.99, rate(siem_parse_duration_seconds_bucket[5m])) * 1000",
+          "expr": "histogram_quantile(0.99, sum(rate(siem_parser_parse_duration_seconds_bucket[5m])) by (le)) * 1000",
           "legendFormat": "p99 latency (ms)"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "histogram_quantile(0.50, rate(siem_parse_duration_seconds_bucket[5m])) * 1000",
+          "expr": "histogram_quantile(0.50, sum(rate(siem_parser_parse_duration_seconds_bucket[5m])) by (le)) * 1000",
           "legendFormat": "p50 latency (ms)"
         }
       ],
@@ -301,7 +301,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "rate(siem_events_parsed_total[1m])",
+          "expr": "sum(rate(siem_parser_events_parsed_total[1m]))",
           "legendFormat": "events/sec"
         }
       ],

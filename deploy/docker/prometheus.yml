@@ -15,9 +15,10 @@ alerting:
         - targets: ['alertmanager:9093']
 
 scrape_configs:
+  # Метрики siem-parser слушают тот же HTTP-сервер, что и /parse (порт 7000)
   - job_name: siem-parser
     static_configs:
-      - targets: ['siem-parser:9100']
+      - targets: ['siem-parser:7000']
     metrics_path: /metrics
     scrape_interval: 15s
 

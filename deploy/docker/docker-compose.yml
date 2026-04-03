@@ -129,10 +129,12 @@ services:
     ports:
       - "8123:8123"    # HTTP interface
       - "9000:9000"    # Native protocol
+      - "9363:9363"    # Prometheus /metrics (self-monitoring)
     volumes:
       - clickhouse-data-hot:/var/lib/clickhouse
       - ../../clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
       - ../../clickhouse/02-kafka_ingest.sql:/docker-entrypoint-initdb.d/02-kafka_ingest.sql:ro
+      - ./clickhouse/config.d/prometheus.xml:/etc/clickhouse-server/config.d/prometheus.xml:ro
     environment:
       <<: *common-env
       CLICKHOUSE_USER: siem

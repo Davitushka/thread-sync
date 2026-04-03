@@ -1,0 +1,262 @@
+{
+  "title": "SIEM-Lite — проверки компонентов",
+  "uid": "siem-validation",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["siem", "validation", "e2e"],
+  "graphTooltip": 1,
+  "editable": true,
+  "panels": [
+    {
+      "id": 200,
+      "type": "text",
+      "title": "Как прогнать проверки",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 9 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Быстрый сценарий\n\n1. **Ingest → Redpanda → ClickHouse (дашборд SIEM-Lite Overview)**  \n   `cd scripts/seed-data && pip install -r requirements.txt`  \n   `python generate_logs.py --eps 100 --duration 90`  \n   Ожидание: зелёные счётчики «UP», растёт график Vector, в таблице ниже — **OK** у строк с событиями.\n\n2. **Detection / корреляция (Prometheus)**  \n   `python generate_logs.py --attack brute_force` или `--attack all`  \n   Ожидание: растёт `detection_events_processed_total` (correlator / detection-engine), при срабатывании правил — `detection_alerts_fired_total`.\n\n3. **siem-parser (отдельный путь HTTP → Kafka)**  \n   Поток Vector**не** проходит через `/parse`. Проверка: POST `http://localhost:7000/parse` с батчем (см. `docs/RUNBOOK.md`). Метрики: `siem_parser_events_parsed_total`.\n\n4. **Метрики ClickHouse**  \n   Цель Prometheus `clickhouse:9363` работает после монтирования `config.d/prometheus.xml`. Если контейнер старый — `docker compose up -d clickhouse` (или пересоздать том при необходимости).\n\n5. **Алерты в таблице**  \n   Заполняются, если движок пишет в `siem.alerts` или вы наполняете вручную; пустая таблица при отсутствии срабатываний — норма."
+      },
+      "pluginVersion": "11.4.0"
+    },
+    {
+      "id": 201,
+      "title": "Prometheus: цели scrape (1 = UP)",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "up{job=~\"vector-aggregator|siem-parser|redpanda|clickhouse|detection-engine|correlator|alertmanager|prometheus\"}",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": {},
+            "renameByName": { "job": "Компонент (job)", "Value": "UP" }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "auto", "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "UP" },
+            "properties": [
+              { "id": "custom.displayMode", "value": "color-background" },
+              { "id": "color", "value": { "mode": "thresholds" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "Компонент (job)", "desc": false }] }
+    },
+    {
+      "id": 202,
+      "title": "Проверки данных (ClickHouse)",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 6 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "format": 1,
+          "rawSql": "SELECT\n  multiIf(\n    idx = 1, '1. ClickHouse отвечает',\n    idx = 2, '2. События siem.events за 24ч',\n    idx = 3, '3. Несколько source_type за 24ч',\n    idx = 4, '4. Записи siem.alerts за 24ч',\n    idx = 5, '5. События warning/error/critical за 24ч',\n    ''\n  ) AS \"Проверка\",\n  multiIf(\n    idx = 1, if((SELECT count() FROM system.one) = 1, 'OK', 'FAIL'),\n    idx = 2, if((SELECT count() FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR) > 0, 'OK', 'ПУСТО — seed-data'),\n    idx = 3,\n      if(\n        (SELECT uniqExact(source_type) FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR) >= 2,\n        'OK',\n        concat('МАЛО: ', toString((SELECT uniqExact(source_type) FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR)), ' тип(а)')\n      ),\n    idx = 4,\n      concat('OK — ', toString((SELECT count() FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 24 HOUR)), ' шт.'),\n    idx = 5,\n      concat(toString((SELECT count() FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND severity IN ('error','critical','warning'))), ' шт. (ожидайте >0 после сида)'),\n    ''\n  ) AS \"Результат\"\nFROM (SELECT arrayJoin([1, 2, 3, 4, 5]) AS idx)\nORDER BY idx",
+          "meta": { "builderOptions": { "fields": [] } }
+        }
+      ],
+      "options": { "showHeader": true }
+    },
+    {
+      "id": 203,
+      "title": "Vector: события HTTP /logs → нормализация → Kafka",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(vector_component_received_events_total{component_id=\"http_ingest\"}[2m])",
+          "legendFormat": "HTTP ingest recv / s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(vector_component_received_events_total{component_id=\"to_redpanda\"}[2m])",
+          "legendFormat": "Kafka sink recv / s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 204,
+      "title": "siem-parser: разбор и выгрузка в Kafka (при вызовах /parse)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(rate(siem_parser_events_parsed_total[2m]))",
+          "legendFormat": "parsed / s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(rate(siem_parser_kafka_produced_total[2m]))",
+          "legendFormat": "kafka produced / s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 205,
+      "title": "Detection: обработка событий из Kafka",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 23, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(detection_events_processed_total{job=\"correlator\"}[2m])",
+          "legendFormat": "correlator ev/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(detection_events_processed_total{job=\"detection-engine\"}[2m])",
+          "legendFormat": "detection-engine ev/s"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(rate(detection_alerts_fired_total[2m]))",
+          "legendFormat": "alerts fired / s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 206,
+      "title": "Redpanda: сжатые байты (общая активность брокера)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 23, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(vector_kafka_produced_messages_bytes_total{component_id=\"to_redpanda\"}[2m])",
+          "legendFormat": "Vector produced payload B/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "rate(vector_kafka_requests_bytes_total{component_id=\"to_redpanda\"}[2m])",
+          "legendFormat": "Vector Kafka wire B/s"
+        }
+      ],
+      "description": "Поток байт из sink Vector в Redpanda (wire vs payload). При нуле проверьте сид и Vector.",
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 207,
+      "title": "ClickHouse: строки в siem.events по часам",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 31, "w": 16, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "format": 0,
+          "rawSql": "SELECT toStartOfHour(timestamp) AS t, count() AS events FROM siem.events WHERE timestamp >= now() - INTERVAL 48 HOUR GROUP BY t ORDER BY t"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 20 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 208,
+      "title": "Контроль: ошибки парсинга detection",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 31, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(increase(detection_parse_errors_total[24h]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 209,
+      "title": "Контроль: дроп алертов (полный канал)",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 31, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "expr": "sum(increase(detection_alerts_dropped_total[24h]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 210,
+      "title": "Недавние алерты (ClickHouse)",
+      "type": "table",
+      "gridPos": { "x": 16, "y": 35, "w": 8, "h": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "format": 1,
+          "rawSql": "SELECT formatDateTime(triggered_at, '%m-%d %H:%M') AS t, rule_id, toString(severity), left(description, 40) AS msg FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 10"
+        }
+      ],
+      "options": { "showHeader": true }
+    }
+  ]
+}
