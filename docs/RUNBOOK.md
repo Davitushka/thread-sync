@@ -341,7 +341,158 @@ curl -X POST http://localhost:9093/api/v2/silences \
   }'
 ```
 
-## 6. Оценка производительности
+## 6. Runbook по алертам
+
+### `SIEMIngestionStopped` (critical)
+```bash
+# 1. Проверить статус Vector
+docker compose -f deploy/docker/docker-compose.yml ps vector-aggregator
+docker compose -f deploy/docker/docker-compose.yml logs --tail=50 vector-aggregator
+
+# 2. Проверить метрику
+curl -s http://localhost:9598/metrics | grep siem_parser_events_parsed_total
+
+# 3. Перезапустить если нужно
+docker compose -f deploy/docker/docker-compose.yml restart vector-aggregator
+```
+
+### `SIEMHighParseLatency` / `SIEMHighParseErrorRate` (warning)
+```bash
+# p99 latency через Prometheus
+curl -sg 'http://localhost:9090/api/v1/query?query=siem:parse_latency_p99:rate5m' | jq '.data.result'
+
+# Ошибки парсинга — смотрим DLQ
+docker exec siem-redpanda rpk topic consume siem.events.dlq --num 10
+
+# Error rate
+curl -sg 'http://localhost:9090/api/v1/query?query=siem:parser_events_error:rate5m/siem:parser_events_ok:rate5m' | jq
+```
+
+### `SIEMKafkaLagHigh` (warning)
+```bash
+# Текущий lag (recording rule)
+curl -sg 'http://localhost:9090/api/v1/query?query=siem:kafka_consumer_lag:sum' | jq '.data.result'
+
+# Просмотр offset напрямую через Redpanda
+docker exec siem-redpanda rpk group describe clickhouse_siem_events
+
+# Если CH не успевает — увеличить потоки ingestion в 02-kafka_ingest.sql:
+# ALTER TABLE siem.events_kafka MODIFY SETTING kafka_num_consumers = 4;
+```
+
+### `ClickHouseHighDiskUsage` (warning)
+```bash
+# Свободное место
+docker exec siem-clickhouse clickhouse-client \
+  --query "SELECT disk_name, formatReadableSize(free_space), formatReadableSize(total_space) FROM system.disks"
+
+# Принудительная очистка по TTL
+docker exec siem-clickhouse clickhouse-client \
+  --query "ALTER TABLE siem.events MODIFY TTL timestamp + INTERVAL 7 DAY"
+
+# OPTIMIZE + merge
+docker exec siem-clickhouse clickhouse-client --query "OPTIMIZE TABLE siem.events FINAL"
+```
+
+### `VectorAggregatorDown` (critical)
+```bash
+docker compose -f deploy/docker/docker-compose.yml up -d vector-aggregator
+docker compose -f deploy/docker/docker-compose.yml logs --tail=30 vector-aggregator
+```
+
+### `BruteForceDetected` / `AccountTakeoverSuspected` (critical — T1110)
+```bash
+# Найти события по IP в ClickHouse
+docker exec siem-clickhouse clickhouse-client --query "
+  SELECT toStartOfMinute(timestamp) AS t, status_code, count()
+  FROM siem.events
+  WHERE source_ip = '<source_ip>' AND timestamp > now() - INTERVAL 1 HOUR
+  GROUP BY t, status_code ORDER BY t"
+
+# Блокировать IP на уровне docker network (аварийно):
+# docker network disconnect siem-internal <container>
+
+# Дашборд для расследования
+# http://localhost:3000/d/siem-overview?var-source_ip=<ip>
+```
+
+### `RateLimitEvasion` (warning — T1595)
+```bash
+docker exec siem-clickhouse clickhouse-client --query "
+  SELECT url_path, count() AS hits
+  FROM siem.events
+  WHERE source_ip = '<source_ip>' AND timestamp > now() - INTERVAL 5 MINUTE
+  GROUP BY url_path ORDER BY hits DESC LIMIT 20"
+```
+
+### `SQLInjectionAttempt` (critical — T1190)
+```bash
+# Найти паттерны в URL
+docker exec siem-clickhouse clickhouse-client --query "
+  SELECT url_path, status_code, count()
+  FROM siem.events
+  WHERE source_ip = '<source_ip>'
+    AND timestamp > now() - INTERVAL 15 MINUTE
+    AND (url_path LIKE '%union%' OR url_path LIKE '%select%'
+         OR url_path LIKE '%27%' OR url_path LIKE '%3B%')
+  GROUP BY url_path, status_code ORDER BY count() DESC"
+
+# Немедленно: проверить WAF/rate-limit правила на API Gateway
+# Уведомить: security-team@example.com
+```
+
+### `PrivilegeEscalationAttempt` (critical — T1068)
+```bash
+docker exec siem-clickhouse clickhouse-client --query "
+  SELECT user_id, url_path, status_code, timestamp
+  FROM siem.events
+  WHERE source_ip = '<source_ip>'
+    AND url_path LIKE '%admin%'
+  ORDER BY timestamp DESC LIMIT 50"
+
+# Заблокировать сессию пользователя через API приложения (см. docs/ARCHITECTURE.md)
+```
+
+### `DataExfiltrationSuspected` (critical — T1041)
+```bash
+docker exec siem-clickhouse clickhouse-client --query "
+  SELECT user_id, url_path, count() AS downloads
+  FROM siem.events
+  WHERE source_ip = '<source_ip>'
+    AND status_code IN (200, 206)
+    AND (url_path LIKE '%export%' OR url_path LIKE '%download%')
+    AND timestamp > now() - INTERVAL 30 MINUTE
+  GROUP BY user_id, url_path ORDER BY downloads DESC"
+
+# Отозвать токен пользователя user_id немедленно
+# Уведомить DPO если затронуты персональные данные
+```
+
+### `CriticalErrorSpike` (warning — T1499)
+```bash
+docker exec siem-clickhouse clickhouse-client --query "
+  SELECT source_type, severity, count()
+  FROM siem.events
+  WHERE severity IN ('error', 'critical') AND timestamp > now() - INTERVAL 10 MINUTE
+  GROUP BY source_type, severity ORDER BY count() DESC"
+```
+
+### `SIEMEPSAnomaly` (warning — T1499/T1078)
+```bash
+# Текущий и baseline EPS
+curl -sg 'http://localhost:9090/api/v1/query?query=siem:events_total:rate5m' | jq
+curl -sg 'http://localhost:9090/api/v1/query?query=siem:events_baseline:avg1h' | jq
+
+# Разбивка по source_type
+docker exec siem-clickhouse clickhouse-client --query "
+  SELECT source_type, count() AS cnt
+  FROM siem.events WHERE timestamp > now() - INTERVAL 5 MINUTE
+  GROUP BY source_type ORDER BY cnt DESC"
+```
+
+---
+
+## 7. Оценка производительности
 
 ```bash
 # Benchmark: измерить текущий EPS

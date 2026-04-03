@@ -1,0 +1,212 @@
+{
+  "title": "SIEM-Lite — Detection (угрозы)",
+  "uid": "siem-detection",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["siem", "detection", "security"],
+  "graphTooltip": 1,
+  "editable": true,
+  "links": [
+    { "title": "Overview", "type": "link", "url": "/d/siem-overview", "keepTime": true, "icon": "dashboard" },
+    { "title": "Alert Management", "type": "link", "url": "/d/siem-alerts", "keepTime": true, "icon": "dashboard" },
+    { "title": "Operations", "type": "link", "url": "/d/siem-operations", "keepTime": true, "icon": "dashboard" }
+  ],
+  "panels": [
+    {
+      "id": 401,
+      "title": "Активные алерты сейчас (siem.alerts)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
+        "rawSql": "SELECT count() AS Active FROM siem.alerts WHERE status = 'new' AND triggered_at >= now() - INTERVAL 24 HOUR" }],
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{"color":"green","value":null},{"color":"orange","value":1},{"color":"red","value":5}] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 402,
+      "title": "Критические события 24ч",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
+        "rawSql": "SELECT count() AS Critical FROM siem.events WHERE severity = 'critical' AND timestamp >= now() - INTERVAL 24 HOUR" }],
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{"color":"green","value":null},{"color":"red","value":1}] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 403,
+      "title": "Уникальные атакующие IP 24ч",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
+        "rawSql": "SELECT uniqExact(source_ip) AS AttackIPs FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND severity IN ('error','critical') AND source_ip IS NOT NULL" }],
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{"color":"green","value":null},{"color":"orange","value":3},{"color":"red","value":10}] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 404,
+      "title": "Alerts fired (detection-engine / s)",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+        "expr": "sum(rate(detection_alerts_fired_total[5m]))", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 2 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 405,
+      "title": "Detection events processed / s",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+        "expr": "sum(rate(detection_events_processed_total[5m]))", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 0 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 406,
+      "title": "Parse errors (24h)",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+        "expr": "sum(increase(detection_parse_errors_total[24h]))", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{"color":"green","value":null},{"color":"red","value":1}] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+
+    {
+      "id": 410,
+      "title": "Brute-force: попытки 401/403 по IP (5-мин окна)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "description": "T1110 / T1110.001. Количество запросов с кодом 401/403 на auth-пути по 5-минутным окнам. Порог >10 за 2 мин → алерт BruteForceDetected.",
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 0,
+        "rawSql": "SELECT toStartOfFiveMinutes(timestamp) AS t, toString(source_ip) AS ip, count() AS attempts FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND status_code IN (401, 403) AND (url_path LIKE '%auth%' OR url_path LIKE '%login%' OR url_path LIKE '%token%' OR url_path LIKE '%hubs%') GROUP BY t, ip ORDER BY t" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 20 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum","max"] } }
+    },
+
+    {
+      "id": 411,
+      "title": "Brute-force: топ IP (24ч)",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
+        "rawSql": "SELECT toString(source_ip) AS IP, count() AS Attempts, countIf(status_code = 401) AS code_401, countIf(status_code = 403) AS code_403, countIf(status_code = 200) AS Success_200, if(countIf(status_code = 200) > 0, '⚠ TAKEOVER?', '') AS Flag FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND (url_path LIKE '%auth%' OR url_path LIKE '%login%' OR url_path LIKE '%token%') AND source_ip IS NOT NULL GROUP BY source_ip HAVING Attempts > 3 ORDER BY Attempts DESC LIMIT 20",
+        "meta": { "builderOptions": { "fields": [] } } }],
+      "fieldConfig": {
+        "overrides": [
+          { "matcher": {"id":"byName","options":"Attempts"}, "properties": [{"id":"custom.displayMode","value":"color-background"},{"id":"thresholds","value":{"steps":[{"color":"green","value":null},{"color":"orange","value":5},{"color":"red","value":15}]}},{"id":"color","value":{"mode":"thresholds"}}] },
+          { "matcher": {"id":"byName","options":"Flag"}, "properties": [{"id":"custom.displayMode","value":"color-text"},{"id":"color","value":{"fixedColor":"red","mode":"fixed"}}] }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{"displayName":"Attempts","desc":true}] }
+    },
+
+    {
+      "id": 420,
+      "title": "SQL injection: события по времени (T1190)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "description": "T1190. Запросы с SQL-паттернами в url_path: UNION, SELECT, DROP, xp_, encoded quotes.",
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 0,
+        "rawSql": "SELECT toStartOfMinute(timestamp) AS t, count() AS sqli_attempts FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND url_path IS NOT NULL AND (url_path ILIKE '%union%select%' OR url_path ILIKE '%drop%table%' OR url_path LIKE '%xp_%' OR url_path LIKE '%27%' OR url_path LIKE '%3B%' OR url_path LIKE '%22%') GROUP BY t ORDER BY t" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 25 }, "color": { "fixedColor": "red", "mode": "fixed" } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+
+    {
+      "id": 421,
+      "title": "SQL injection: детали событий",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
+        "rawSql": "SELECT formatDateTime(timestamp, '%H:%M:%S') AS Time, toString(source_ip) AS IP, status_code AS Code, left(url_path, 80) AS URL, toString(severity) AS Sev FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND url_path IS NOT NULL AND (url_path ILIKE '%union%' OR url_path ILIKE '%select%' OR url_path ILIKE '%drop%' OR url_path LIKE '%xp_%' OR url_path LIKE '%27%') ORDER BY timestamp DESC LIMIT 30",
+        "meta": { "builderOptions": { "fields": [] } } }],
+      "fieldConfig": { "overrides": [{ "matcher": {"id":"byName","options":"Sev"}, "properties": [{"id":"custom.displayMode","value":"color-background"},{"id":"mappings","value":[{"type":"value","options":{"critical":{"color":"red","index":0},"error":{"color":"orange","index":1}}}]},{"id":"color","value":{"mode":"thresholds"}}] }] },
+      "options": { "showHeader": true }
+    },
+
+    {
+      "id": 430,
+      "title": "Privilege escalation: 401/403 → 200 на admin путях (T1068)",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 20, "w": 14, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "description": "T1068, T1078.003. IP, у которых были отказы на admin-путях (401/403), а затем успех (200/201).",
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
+        "rawSql": "SELECT toString(source_ip) AS IP, user_id, countIf(status_code IN (401,403)) AS denied, countIf(status_code IN (200,201,204)) AS granted, min(timestamp) AS first_attempt, max(timestamp) AS last_success FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND (url_path LIKE '%admin%' OR url_path LIKE '%manage%' OR url_path LIKE '%role%' OR url_path LIKE '%permission%') AND source_ip IS NOT NULL GROUP BY source_ip, user_id HAVING denied > 0 AND granted > 0 ORDER BY granted DESC LIMIT 20",
+        "meta": { "builderOptions": { "fields": [] } } }],
+      "fieldConfig": {
+        "overrides": [
+          { "matcher": {"id":"byName","options":"granted"}, "properties": [{"id":"custom.displayMode","value":"color-background"},{"id":"thresholds","value":{"steps":[{"color":"transparent","value":null},{"color":"red","value":1}]}},{"id":"color","value":{"mode":"thresholds"}}] }
+        ]
+      },
+      "options": { "showHeader": true }
+    },
+
+    {
+      "id": 431,
+      "title": "Privilege escalation: timeline",
+      "type": "timeseries",
+      "gridPos": { "x": 14, "y": 20, "w": 10, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 0,
+        "rawSql": "SELECT toStartOfMinute(timestamp) AS t, countIf(status_code IN (401,403)) AS denied, countIf(status_code IN (200,201)) AS granted FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND (url_path LIKE '%admin%' OR url_path LIKE '%manage%' OR url_path LIKE '%role%' OR url_path LIKE '%permission%') GROUP BY t ORDER BY t" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+
+    {
+      "id": 440,
+      "title": "Data exfiltration: export/download endpoint activity (T1041)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "description": "T1041, T1530. Успешные запросы к export/download/bulk/dump/report эндпоинтам. Аномальный рост может указывать на эксфильтрацию.",
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 0,
+        "rawSql": "SELECT toStartOfMinute(timestamp) AS t, toString(source_ip) AS ip, count() AS downloads FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND status_code IN (200, 206) AND url_path IS NOT NULL AND (url_path LIKE '%export%' OR url_path LIKE '%download%' OR url_path LIKE '%bulk%' OR url_path LIKE '%dump%' OR url_path LIKE '%report%' OR url_path LIKE '%csv%' OR url_path LIKE '%xlsx%') GROUP BY t, ip ORDER BY t" }],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 18 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+
+    {
+      "id": 441,
+      "title": "Data exfiltration: топ IP по загрузкам",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
+        "rawSql": "SELECT toString(source_ip) AS IP, user_id, count() AS Downloads, countIf(url_path LIKE '%export%') AS exports, countIf(url_path LIKE '%download%') AS downloads_cnt, countIf(url_path LIKE '%bulk%' OR url_path LIKE '%dump%') AS bulk FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND status_code IN (200, 206) AND url_path IS NOT NULL AND (url_path LIKE '%export%' OR url_path LIKE '%download%' OR url_path LIKE '%bulk%' OR url_path LIKE '%dump%' OR url_path LIKE '%report%') AND source_ip IS NOT NULL GROUP BY source_ip, user_id ORDER BY Downloads DESC LIMIT 15",
+        "meta": { "builderOptions": { "fields": [] } } }],
+      "fieldConfig": { "overrides": [{ "matcher": {"id":"byName","options":"Downloads"}, "properties": [{"id":"custom.displayMode","value":"color-background"},{"id":"thresholds","value":{"steps":[{"color":"green","value":null},{"color":"orange","value":10},{"color":"red","value":30}]}},{"id":"color","value":{"mode":"thresholds"}}] }] },
+      "options": { "showHeader": true, "sortBy": [{"displayName":"Downloads","desc":true}] }
+    },
+
+    {
+      "id": 450,
+      "title": "Account Takeover: brute-force → успешный вход (T1110)",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "description": "IP с >5 ошибками авторизации за 15 мин И последующим успешным входом (200 на auth-путях) — признак захвата аккаунта.",
+      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
+        "rawSql": "SELECT toString(source_ip) AS IP, user_id AS User, countIf(status_code IN (401,403)) AS Failed, countIf(status_code = 200) AS Success, min(timestamp) AS first_seen, max(timestamp) AS last_seen, if(countIf(status_code=200) > 0 AND countIf(status_code IN (401,403)) >= 5, '🚨 TAKEOVER RISK', '⚠ Monitoring') AS Risk FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND (url_path LIKE '%auth%' OR url_path LIKE '%login%' OR url_path LIKE '%token%') AND source_ip IS NOT NULL GROUP BY source_ip, user_id HAVING Failed > 0 ORDER BY Failed DESC LIMIT 20",
+        "meta": { "builderOptions": { "fields": [] } } }],
+      "fieldConfig": { "overrides": [{ "matcher": {"id":"byName","options":"Risk"}, "properties": [{"id":"custom.displayMode","value":"color-text"}] }, { "matcher": {"id":"byName","options":"Failed"}, "properties": [{"id":"custom.displayMode","value":"color-background"},{"id":"thresholds","value":{"steps":[{"color":"green","value":null},{"color":"orange","value":3},{"color":"red","value":5}]}},{"id":"color","value":{"mode":"thresholds"}}] }] },
+      "options": { "showHeader": true, "sortBy": [{"displayName":"Failed","desc":true}] }
+    }
+  ]
+}
