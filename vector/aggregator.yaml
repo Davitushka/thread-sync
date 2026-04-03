@@ -162,10 +162,16 @@ transforms:
       if !exists(.event_id) {
         .event_id = uuid_v4()
       }
-      if !exists(.source_type) {
+      # HTTP/сид: Serilog SourceType + Level (иначе source_type=unknown, severity=info для всех)
+      if exists(.SourceType) {
+        .source_type = downcase(string!(.SourceType))
+      } else if !exists(.source_type) {
         .source_type = if exists(.source_hint) { string!(.source_hint) } else { "unknown" }
       }
-      if !exists(.severity) {
+      if exists(.Level) {
+        lvl = downcase(string!(.Level))
+        .severity = if lvl == "fatal" { "critical" } else if lvl == "error" { "error" } else if lvl == "warning" || lvl == "warn" { "warning" } else if lvl == "information" || lvl == "info" { "info" } else if lvl == "verbose" || lvl == "debug" { "debug" } else { "info" }
+      } else if !exists(.severity) {
         .severity = "info"
       }
       if !exists(.event_type) {
@@ -184,6 +190,13 @@ transforms:
       }
 
       # IP нормализация
+      if exists(.Properties) && !exists(.source_ip) {
+        if exists(.Properties.ClientIp) {
+          .source_ip = .Properties.ClientIp
+        } else if exists(.Properties.remote_addr) {
+          .source_ip = .Properties.remote_addr
+        }
+      }
       if exists(.client_ip) && !exists(.source_ip) {
         .source_ip = .client_ip
       }
@@ -206,6 +219,10 @@ transforms:
       # Bearer токены и JWT
       if exists(.message) {
         .message = replace(string!(.message), r'(?i)(bearer\s+|token[=:\s]+|authorization[=:\s]+)[A-Za-z0-9\-_\.]+', "Bearer [REDACTED]")
+      }
+      # Сид кладёт поля в Properties — для PII и выходного metadata
+      if exists(.Properties) && !exists(.metadata) {
+        .metadata = .Properties
       }
       # Маскирование в metadata полях
       if exists(.metadata) {
