@@ -1,0 +1,18 @@
+# siem-log-generator — демо-поток в Vector (Rust, без Python в рантайме)
+# docker build -f deploy/docker/Dockerfile.loggen -t siem-log-generator:latest .
+
+FROM rust:1.88-slim-bookworm AS builder
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY log-generator/Cargo.toml log-generator/Cargo.lock ./
+COPY log-generator/src ./src
+RUN cargo build --release --locked
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/siem-log-generator /usr/local/bin/siem-log-generator
+USER nobody:nogroup
+ENTRYPOINT ["/usr/local/bin/siem-log-generator"]

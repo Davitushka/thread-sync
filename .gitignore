@@ -1,6 +1,7 @@
 # Rust
 rust-parser/target/
 rust-parser/Cargo.lock
+log-generator/target/
 
 # Secrets — НИКОГДА не коммитим в репозиторий
 # Файлы секретов в корне (устаревшие пути)

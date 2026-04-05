@@ -315,40 +315,32 @@ services:
           memory: 512M
 
   # ════════════════════════════════════════════════════════════════
-  # Демо-генератор логов — постоянно кормит Vector → Kafka → ClickHouse,
-  # чтобы Grafana (последние 24ч) не была пустой без внешнего ingestion.
-  # Отключить: закомментировать сервис или docker compose stop siem-log-generator
+  # Демо-генератор логов (Rust siem-log-generator) → Vector → Kafka → ClickHouse
+  # Переменные: SIEM_LOGGEN_* (см. log-generator/src/main.rs)
+  # Отключить: docker compose stop siem-log-generator
   # ════════════════════════════════════════════════════════════════
   log-generator:
-    image: python:3.12-slim
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.loggen
     container_name: siem-log-generator
     restart: unless-stopped
     networks:
       - siem-internal
-    working_dir: /seed
-    volumes:
-      - ../../scripts/seed-data:/seed:ro
     environment:
       <<: *common-env
-      PYTHONUNBUFFERED: "1"
-      # Нагрузка: примерно SEED_EPS событий/с в течение SEED_BURST_SEC, пауза SEED_SLEEP_SEC
-      SEED_EPS: "18"
-      SEED_BURST_SEC: "90"
-      SEED_SLEEP_SEC: "8"
+      RUST_LOG: siem_log_generator=info
+      SIEM_LOGGEN_URL: http://vector-aggregator:8080/logs
+      SIEM_LOGGEN_EPS: "18"
+      SIEM_LOGGEN_BURST_SEC: "90"
+      SIEM_LOGGEN_SLEEP_SEC: "8"
+      SIEM_LOGGEN_THREAT_RATIO: "0.05"
+      SIEM_LOGGEN_BATCH_SIZE: "100"
     depends_on:
       redpanda:
         condition: service_healthy
       vector-aggregator:
         condition: service_healthy
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        pip install --no-cache-dir -q -r requirements.txt
-        while true; do
-          python generate_logs.py --eps "$$SEED_EPS" --duration "$$SEED_BURST_SEC" --no-ui \
-            --url http://vector-aggregator:8080/logs --config config.yaml || true
-          sleep "$$SEED_SLEEP_SEC"
-        done
     deploy:
       resources:
         limits:

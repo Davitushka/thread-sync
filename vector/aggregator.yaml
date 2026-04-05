@@ -178,6 +178,23 @@ transforms:
         .event_type = "generic"
       }
 
+      # Serilog JSON с HTTP-сидов (PascalCase) — иначе message/host пустые, время = now()
+      if exists(.Timestamp) && !exists(.timestamp) {
+        .timestamp = .Timestamp
+      }
+      if exists(.Message) && !exists(.message) {
+        .message = string!(.Message)
+      }
+      if exists(.Host) && !exists(.agent_host) {
+        .agent_host = .Host
+      }
+      if exists(.Properties) && exists(.Properties.UserId) && !exists(.user_id) {
+        uid = .Properties.UserId
+        if uid != null {
+          .user_id = string!(uid)
+        }
+      }
+
       # Нормализация @timestamp (VRL 0.43+: нет to_timestamp — parse_timestamp / тип)
       ts_val = if exists(.timestamp) { .timestamp } else if exists(.ingest_ts) { .ingest_ts } else { now() }
       if is_timestamp(ts_val) {
@@ -240,10 +257,10 @@ transforms:
       meta_out = if exists(.metadata) { .metadata } else { {} }
       av_out = if exists(.agent_version) { string!(.agent_version) } else { "0.43.0" }
       raw_src = if exists(.source_hint) { .source_hint } else { null }
-      sc_out = if exists(.status_code) { .status_code } else if exists(.StatusCode) { .StatusCode } else { null }
-      path_out = if exists(.url_path) { .url_path } else if exists(.RequestPath) { .RequestPath } else { null }
-      meth_out = if exists(.http_method) { .http_method } else if exists(.RequestMethod) { .RequestMethod } else { null }
-      dur_out = if exists(.duration_ms) { .duration_ms } else if exists(.ElapsedMilliseconds) { .ElapsedMilliseconds } else { null }
+      sc_out = if exists(.status_code) { .status_code } else if exists(.StatusCode) { .StatusCode } else if exists(.Properties) && exists(.Properties.StatusCode) { .Properties.StatusCode } else if exists(.Properties) && exists(.Properties.status) { .Properties.status } else { null }
+      path_out = if exists(.url_path) { .url_path } else if exists(.RequestPath) { .RequestPath } else if exists(.Properties) && exists(.Properties.RequestPath) { .Properties.RequestPath } else if exists(.Properties) && exists(.Properties.path) { .Properties.path } else { null }
+      meth_out = if exists(.http_method) { .http_method } else if exists(.RequestMethod) { .RequestMethod } else if exists(.Properties) && exists(.Properties.RequestMethod) { .Properties.RequestMethod } else if exists(.Properties) && exists(.Properties.method) { .Properties.method } else { null }
+      dur_out = if exists(.duration_ms) { .duration_ms } else if exists(.ElapsedMilliseconds) { .ElapsedMilliseconds } else if exists(.Properties) && exists(.Properties.Elapsed) { .Properties.Elapsed } else if exists(.Properties) && exists(.Properties.duration_ms) { .Properties.duration_ms } else if exists(.Properties) && exists(.Properties.request_time) { .Properties.request_time } else { null }
       . = {
         "@timestamp": .timestamp,
         "event_id": .event_id,
