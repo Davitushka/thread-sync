@@ -48,6 +48,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .tool-card-desc { font-size: 12px; color: var(--text2); line-height: 1.45; margin-bottom: 12px; }
 .tool-card-meta { font-size: 12px; color: var(--text2); margin-bottom: 10px; }
 .tool-card-actions { display:flex; gap: 8px; flex-wrap: wrap; }
+.inline-note { font-size: 12px; color: var(--text2); margin-top: 8px; line-height: 1.45; }
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; padding: 10px 16px; font-size: 12px; text-transform: uppercase; color: var(--text2); border-bottom: 1px solid var(--border); }
 td { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -122,6 +123,27 @@ tr:hover td { background: rgba(29,161,242,.05); }
             <button class="btn" id="stressRestartBtn" onclick="restartStress()">Restart</button>
             <button class="btn danger" id="stressStopBtn" onclick="stopStress()">Stop</button>
           </div>
+          <div class="inline-note">Используйте для наполнения событий, атак и тяжёлых запросов.</div>
+        </div>
+      </div>
+      <div class="tool-card">
+        <div class="panel-header">
+          <span>Fill All Data</span>
+          <span id="fillAllBadge" class="badge created">ready</span>
+        </div>
+        <div class="tool-card-body">
+          <div class="tool-card-title">
+            <strong>Dashboards Seeder</strong>
+            <span id="fillAllStateText" class="refresh-info">manual</span>
+          </div>
+          <div class="tool-card-desc">
+            Одной кнопкой перезапускает `siem-stress` и засевает `siem.alerts`, чтобы быстрее
+            заполнить пустые места в Grafana и в чеклисте панели.
+          </div>
+          <div class="tool-card-actions">
+            <button class="btn accent" id="fillAllBtn" onclick="fillAllData()">Fill All Data</button>
+          </div>
+          <div class="inline-note" id="fillAllResultText">Нажмите кнопку для запуска полного заполнения данных.</div>
         </div>
       </div>
     </div>
@@ -174,9 +196,11 @@ const API = '';
 let services = [];
 let pipeline = null;
 let servicesError = null;
+let dataStatus = null;
 
 function svc(name) { return services.find(s => s.name === name); }
 function stressSvc() { return svc('siem-stress'); }
+function isOneShotService(name) { return name === 'siem-redpanda-init'; }
 function isRunningState(s) {
   return s && (String(s.state || '').toLowerCase() === 'running');
 }
@@ -272,12 +296,19 @@ function renderServices() {
     : `${running}/${services.length} running`;
 
   const html = services.map(s => {
-    const stateClass = s.state === 'running' ? 'running' : s.state === 'exited' ? 'exited' : 'created';
+    const stateClass = String(s.state||'').toLowerCase() === 'running' ? 'running' : String(s.state||'').toLowerCase() === 'exited' ? 'exited' : 'created';
     const healthBadge = s.health
       ? `<span class="badge ${s.health}">${s.health}</span>`
       : '<span style="color:var(--text2)">—</span>';
     const ports = s.ports.length > 0 ? s.ports.join(', ') : '—';
     const isRunning = String(s.state||'').toLowerCase() === 'running';
+    const oneShot = isOneShotService(s.name);
+    const actionButtons = oneShot
+      ? `<span class="refresh-info">one-shot</span>`
+      : (isRunning
+          ? `<button class="btn danger" onclick="doAction('${s.name}','stop')">Stop</button>
+             <button class="btn" onclick="doAction('${s.name}','restart')">Restart</button>`
+          : `<button class="btn success" onclick="doAction('${s.name}','start')">Start</button>`);
 
     return `<tr>
       <td><strong>${s.name}</strong></td>
@@ -287,10 +318,7 @@ function renderServices() {
       <td style="font-family:monospace;font-size:12px">${ports}</td>
       <td style="font-size:12px;color:var(--text2)">${s.status}</td>
       <td class="actions">
-        ${isRunning
-          ? `<button class="btn danger" onclick="doAction('${s.name}','stop')">Stop</button>
-             <button class="btn" onclick="doAction('${s.name}','restart')">Restart</button>`
-          : `<button class="btn success" onclick="doAction('${s.name}','start')">Start</button>`}
+        ${actionButtons}
       </td>
     </tr>`;
   }).join('');
@@ -302,7 +330,14 @@ function renderServices() {
 async function doAction(name, action) {
   try {
     const r = await fetch(`${API}/api/services/${name}/${action}`, {method:'POST'});
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try {
+        const data = await r.json();
+        if (data && data.error) msg = data.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
     setTimeout(refreshAll, 1200);
   } catch(e) {
     alert(`Failed to ${action} ${name}: ${e.message}`);
@@ -338,6 +373,42 @@ async function stopStress() {
   await doAction('siem-stress', 'stop');
 }
 
+async function fillAllData() {
+  const btn = document.getElementById('fillAllBtn');
+  const badge = document.getElementById('fillAllBadge');
+  const stateText = document.getElementById('fillAllStateText');
+  const resultText = document.getElementById('fillAllResultText');
+  btn.disabled = true;
+  badge.className = 'badge starting';
+  badge.textContent = 'running';
+  stateText.textContent = 'seeding data...';
+  resultText.textContent = 'Запуск полного заполнения данных...';
+  try {
+    const r = await fetch(`${API}/api/fill-all-data`, { method: 'POST' });
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try {
+        const data = await r.json();
+        if (data && data.error) msg = data.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const data = await r.json();
+    badge.className = 'badge ok';
+    badge.textContent = 'done';
+    stateText.textContent = `${data.stress_action}, alerts=${data.seeded_alerts}`;
+    resultText.textContent = Array.isArray(data.details) ? data.details.join(' | ') : 'Completed';
+    await refreshAll();
+  } catch (e) {
+    badge.className = 'badge fail';
+    badge.textContent = 'failed';
+    stateText.textContent = 'error';
+    resultText.textContent = `Ошибка: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function fetchPipeline() {
   try {
     const r = await fetch(API+'/api/pipeline');
@@ -347,6 +418,23 @@ async function fetchPipeline() {
     pipeline = { checks: [], healthy: false };
     const grid = document.getElementById('pipelineGrid');
     if (grid) grid.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function fetchDataStatus() {
+  try {
+    const r = await fetch(API+'/api/data-status');
+    dataStatus = await r.json();
+  } catch(e) {
+    dataStatus = {
+      clickhouse_ok: false,
+      events_24h: 0,
+      alerts_7d: 0,
+      events_per_minute_24h: 0,
+      top_ips_24h: 0,
+      source_types_24h: 0,
+      error: e.message
+    };
   }
 }
 
@@ -371,6 +459,7 @@ function renderPipeline() {
 
 async function refreshChecklistTab() {
   if (!pipeline) await fetchPipeline();
+  if (!dataStatus) await fetchDataStatus();
   renderChecklist();
 }
 
@@ -390,7 +479,13 @@ function renderChecklist() {
   const pOk = new Set((pipeline?.checks||[]).filter(c=>c.ok).map(c=>c.name));
   const chUp = pOk.has('ClickHouse');
   const anyTrafficGenRunning = runningHas('siem-log-generator') || runningHas('siem-stress');
-  const eventsDataHint = chUp && anyTrafficGenRunning;
+  const hasEvents = !!(dataStatus && dataStatus.events_24h > 0);
+  const hasAlerts = !!(dataStatus && dataStatus.alerts_7d > 0);
+  const hasMinuteAgg = !!(dataStatus && dataStatus.events_per_minute_24h > 0);
+  const hasTopIpsAgg = !!(dataStatus && dataStatus.top_ips_24h > 0);
+  const hasSourceVariety = !!(dataStatus && dataStatus.source_types_24h >= 2);
+  const eventsDataHint = chUp && hasEvents;
+  const alertsDataHint = chUp && hasAlerts;
 
   const dashboards = [
     { title: 'siem-overview', items: [
@@ -398,16 +493,16 @@ function renderChecklist() {
       { text: 'Redpanda running & healthy', ok: runningOk('siem-redpanda') },
       { text: 'ClickHouse running & healthy', ok: runningOk('siem-clickhouse') },
       { text: 'Traffic generator running (`siem-log-generator` or `siem-stress`)', ok: anyTrafficGenRunning },
-      { text: 'siem.events populated (Kafka → CH MV) — нужен поток + ClickHouse consumer', ok: eventsDataHint },
-      { text: 'siem.events_per_minute_agg (MV заполняется при вставках в siem.events)', ok: eventsDataHint },
-      { text: 'siem.top_ips_agg (MV при событиях с source_ip)', ok: eventsDataHint },
+      { text: `siem.events populated (24h): ${(dataStatus && dataStatus.events_24h) || 0}`, ok: eventsDataHint },
+      { text: `siem.events_per_minute_agg (24h): ${(dataStatus && dataStatus.events_per_minute_24h) || 0}`, ok: hasMinuteAgg },
+      { text: `siem.top_ips_agg (24h): ${(dataStatus && dataStatus.top_ips_24h) || 0}`, ok: hasTopIpsAgg },
       { text: 'Prometheus отвечает (скрейп Vector — в Prometheus /targets)', ok: pOk.has('Prometheus') },
       { text: 'Detection Engine запущен (метрики в Prometheus)', ok: runningHas('detection-engine') },
     ]},
     { title: 'siem-detection', items: [
       { text: 'Detection Engine running', ok: runningHas('detection-engine') },
       { text: 'Correlator running', ok: runningHas('siem-correlator') },
-      { text: 'ClickHouse доступен (поля в событиях — см. Grafana)', ok: chUp },
+      { text: `ClickHouse доступен и events заполнены: ${(dataStatus && dataStatus.events_24h) || 0}`, ok: eventsDataHint },
       { text: 'siem-parser + Alertmanager (путь алертов в siem.alerts)', ok: pOk.has('siem-parser') && pOk.has('Alertmanager') },
       { text: 'detection_events_processed_total (есть при работе detector)', ok: runningHas('detection-engine') },
       { text: 'detection_parse_errors_total', ok: runningHas('detection-engine') },
@@ -426,14 +521,14 @@ function renderChecklist() {
       { text: 'Correlator metrics (:9111)', ok: runningHas('siem-correlator') },
     ]},
     { title: 'siem-alert-management', items: [
-      { text: 'siem.alerts — данные после firing алертов (не только health)', ok: chUp },
+      { text: `siem.alerts за 7 дней: ${(dataStatus && dataStatus.alerts_7d) || 0}`, ok: alertsDataHint },
       { text: 'Alertmanager running', ok: pOk.has('Alertmanager') },
       { text: 'Case Management (webhook)', ok: pOk.has('Case Management') },
     ]},
     { title: 'siem-validation', items: [
       { text: 'Prometheus отвечает', ok: pOk.has('Prometheus') },
       { text: 'ClickHouse HTTP (8123)', ok: chUp },
-      { text: 'Наличие строк в siem.events / siem.alerts — нужен `siem-stress` или `siem-log-generator`', ok: eventsDataHint },
+      { text: `Наличие строк в siem.events / siem.alerts: events=${(dataStatus && dataStatus.events_24h) || 0}, alerts=${(dataStatus && dataStatus.alerts_7d) || 0}`, ok: hasEvents && hasAlerts },
       { text: 'Vector running', ok: runningHas('siem-vector-aggregator') },
       { text: 'Parser /health', ok: pOk.has('siem-parser') },
       { text: 'Detection running', ok: runningHas('detection-engine') },
@@ -469,7 +564,7 @@ function escapeHtml(s) {
 }
 
 async function refreshAll() {
-  await Promise.all([fetchServices(), fetchPipeline()]);
+  await Promise.all([fetchServices(), fetchPipeline(), fetchDataStatus()]);
   document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
   renderChecklist();
   renderStressTool();
