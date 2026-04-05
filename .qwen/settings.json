@@ -16,7 +16,8 @@
       "Bash(timeout *)",
       "Bash(docker port *)",
       "Bash(docker exec *)",
-      "Bash(start *)"
+      "Bash(start *)",
+      "Read(c:\\Users\\Admin\\Prоекты\\siem-lite\\deploy\\k8s/**)"
     ]
   },
   "$version": 3

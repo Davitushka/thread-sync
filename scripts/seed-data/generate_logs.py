@@ -381,6 +381,7 @@ def send_batch(
               show_default=True, help="Path to config.yaml")
 @click.option("--url", default=None, help="Override Vector HTTP endpoint URL")
 @click.option("--dry-run", is_flag=True, help="Print logs to stdout instead of sending")
+@click.option("--no-ui", is_flag=True, help="No Rich live table (Docker / логи)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
 def main(
     eps: int,
@@ -390,6 +391,7 @@ def main(
     config_path: str,
     url: str | None,
     dry_run: bool,
+    no_ui: bool,
     verbose: bool,
 ) -> None:
     logging.basicConfig(
@@ -461,8 +463,9 @@ def main(
         t.add_row("Progress", f"{stats.sent}/{total_events} ({stats.sent * 100 // max(total_events, 1)}%)")
         return t
 
-    console.print(f"[bold]Generating {total_events:,} events at {eps} EPS for {duration}s[/]")
-    console.print(f"[dim]Target: {cfg.vector_url} | threat_ratio={threat_ratio:.1%}[/]")
+    if not no_ui:
+        console.print(f"[bold]Generating {total_events:,} events at {eps} EPS for {duration}s[/]")
+        console.print(f"[dim]Target: {cfg.vector_url} | threat_ratio={threat_ratio:.1%}[/]")
 
     if dry_run:
         for _ in range(min(5, total_events)):
@@ -473,31 +476,58 @@ def main(
 
     batch: list[dict[str, Any]] = []
     deadline = time.monotonic() + duration
+    last_log = 0.0
+
+    def one_iteration(client: httpx.Client) -> None:
+        nonlocal batch, last_log
+        tick = time.monotonic()
+        batch.append(_gen_event())
+
+        if len(batch) >= cfg.batch_size:
+            send_batch(client, cfg.vector_url, batch, stats, cfg.request_timeout_sec)
+            batch.clear()
+            if not no_ui:
+                live.update(make_table())  # type: ignore[misc]
+
+        elapsed_tick = time.monotonic() - tick
+        sleep = interval - elapsed_tick
+        if sleep > 0:
+            time.sleep(sleep)
+
+        if no_ui and time.monotonic() - last_log >= 60:
+            logger.warning(
+                "seed progress sent=%s errors=%s elapsed=%.0fs",
+                stats.sent,
+                stats.errors,
+                stats.elapsed(),
+            )
+            last_log = time.monotonic()
 
     with httpx.Client() as client:
-        with Live(make_table(), refresh_per_second=2, console=console) as live:
+        if no_ui:
             while time.monotonic() < deadline and stats.sent < total_events:
-                tick = time.monotonic()
-                batch.append(_gen_event())
-
-                if len(batch) >= cfg.batch_size:
-                    send_batch(client, cfg.vector_url, batch, stats, cfg.request_timeout_sec)
-                    batch.clear()
-                    live.update(make_table())
-
-                elapsed_tick = time.monotonic() - tick
-                sleep = interval - elapsed_tick
-                if sleep > 0:
-                    time.sleep(sleep)
-
-            # Flush остатка
+                one_iteration(client)
             if batch:
                 send_batch(client, cfg.vector_url, batch, stats, cfg.request_timeout_sec)
+        else:
+            with Live(make_table(), refresh_per_second=2, console=console) as live:
+                while time.monotonic() < deadline and stats.sent < total_events:
+                    one_iteration(client)
+                if batch:
+                    send_batch(client, cfg.vector_url, batch, stats, cfg.request_timeout_sec)
 
-    console.print(f"\n[bold green]Done! Sent {stats.sent:,} events in {stats.elapsed():.1f}s "
-                  f"({stats.eps():.1f} EPS avg)[/]")
-    if stats.errors:
-        console.print(f"[yellow]Errors: {stats.errors}[/]")
+    if not no_ui:
+        console.print(f"\n[bold green]Done! Sent {stats.sent:,} events in {stats.elapsed():.1f}s "
+                      f"({stats.eps():.1f} EPS avg)[/]")
+        if stats.errors:
+            console.print(f"[yellow]Errors: {stats.errors}[/]")
+    else:
+        logger.warning(
+            "seed burst done sent=%s errors=%s duration=%.1fs",
+            stats.sent,
+            stats.errors,
+            stats.elapsed(),
+        )
 
 
 if __name__ == "__main__":
