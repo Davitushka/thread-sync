@@ -156,10 +156,20 @@ fn parse_json(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError
 }
 
 fn extract_http_fields(props: &serde_json::Map<String, Value>, event: &mut NormalizedEvent) {
-    if let Some(method) = props.get("HttpMethod").or_else(|| props.get("Method")).and_then(|v| v.as_str()) {
+    if let Some(method) = props
+        .get("HttpMethod")
+        .or_else(|| props.get("RequestMethod"))
+        .or_else(|| props.get("Method"))
+        .and_then(|v| v.as_str())
+    {
         event.http_method = Some(method.to_string());
     }
-    if let Some(path) = props.get("Path").or_else(|| props.get("Url")).and_then(|v| v.as_str()) {
+    if let Some(path) = props
+        .get("Path")
+        .or_else(|| props.get("RequestPath"))
+        .or_else(|| props.get("Url"))
+        .and_then(|v| v.as_str())
+    {
         event.url_path = Some(sanitize_url_path(path));
     }
     if let Some(status) = props.get("StatusCode").and_then(|v| v.as_u64()) {

@@ -67,6 +67,8 @@ fn parse_dotnet_serilog_warning() {
     assert_eq!(event.source_ip.as_deref(), Some("203.0.113.42"));
     assert_eq!(event.user_id.as_deref(), Some("user123"));
     assert_eq!(event.status_code, Some(401));
+    assert_eq!(event.http_method.as_deref(), Some("POST"));
+    assert_eq!(event.url_path.as_deref(), Some("/api/auth/login"));
     assert_eq!(event.source_type, "dotnet");
     assert_eq!(event.host, "api-01");
 }

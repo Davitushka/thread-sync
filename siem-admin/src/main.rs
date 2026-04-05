@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Path, State};
 use axum::http::{header, StatusCode};
@@ -18,6 +19,7 @@ use uuid::Uuid;
 struct AppState {
     docker: Arc<Docker>,
     http: reqwest::Client,
+    red_alert: Arc<tokio::sync::Mutex<RedAlertRuntime>>,
 }
 
 #[derive(Serialize)]
@@ -75,7 +77,43 @@ struct ParserSeedResponse {
     errors: usize,
 }
 
+#[derive(Default)]
+struct RedAlertRuntime {
+    running: bool,
+    started_at: Option<String>,
+    last_update: Option<String>,
+    last_result: Option<String>,
+    details: Vec<String>,
+    abort: Option<tokio::task::AbortHandle>,
+}
+
+#[derive(Serialize)]
+struct RedAlertStatus {
+    running: bool,
+    started_at: Option<String>,
+    last_update: Option<String>,
+    last_result: Option<String>,
+    details: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct RedAlertActionResult {
+    ok: bool,
+    message: String,
+    status: RedAlertStatus,
+}
+
+#[derive(Default)]
+struct RedAlertRunStats {
+    cycles: usize,
+    events_sent: usize,
+    processed: usize,
+    parse_errors: usize,
+}
+
 const SIEM_PREFIX: &str = "siem-";
+const RED_ALERT_DURATION_SEC: u64 = 300;
+const RED_ALERT_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Имена без префикса `siem-` (как в docker-compose `container_name`).
 const SIEM_CONTAINER_EXCEPTIONS: &[&str] = &["detection-engine", "siem-stress"];
@@ -104,6 +142,7 @@ async fn main() {
     let state = AppState {
         docker: Arc::new(docker),
         http,
+        red_alert: Arc::new(tokio::sync::Mutex::new(RedAlertRuntime::default())),
     };
 
     let app = Router::new()
@@ -113,6 +152,9 @@ async fn main() {
         .route("/api/services/:name/start", post(start_service))
         .route("/api/services/:name/restart", post(restart_service))
         .route("/api/fill-all-data", post(fill_all_data))
+        .route("/api/red-alert", post(start_red_alert))
+        .route("/api/red-alert/stop", post(stop_red_alert))
+        .route("/api/red-alert/status", get(red_alert_status))
         .route("/api/data-status", get(data_status))
         .route("/api/pipeline", get(pipeline_status))
         .layer(CorsLayer::permissive())
@@ -354,6 +396,123 @@ async fn fill_all_data(
     }))
 }
 
+async fn start_red_alert(
+    State(state): State<AppState>,
+) -> Result<Json<RedAlertActionResult>, (StatusCode, Json<ErrorBody>)> {
+    {
+        let runtime = state.red_alert.lock().await;
+        if runtime.running {
+            return Ok(Json(RedAlertActionResult {
+                ok: true,
+                message: "red alert mode already running".to_string(),
+                status: snapshot_red_alert(&runtime),
+            }));
+        }
+    }
+
+    let stress_name = resolve_container_name(&state.docker, "siem-stress")
+        .await
+        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "service not found: siem-stress"))?;
+
+    let stress_action = restart_stress_container(&state, &stress_name).await?;
+    let seeded_alerts = seed_alerts_into_clickhouse(&state.http)
+        .await
+        .map_err(|e| json_error(StatusCode::BAD_GATEWAY, e))?;
+
+    let started_at = now_iso();
+    {
+        let mut runtime = state.red_alert.lock().await;
+        runtime.running = true;
+        runtime.started_at = Some(started_at.clone());
+        runtime.last_update = Some(started_at.clone());
+        runtime.last_result = Some(format!(
+            "red alert started: siem-stress {}, seeded {} alerts",
+            stress_action, seeded_alerts
+        ));
+        runtime.details = vec![
+            format!("siem-stress {}", stress_action),
+            format!("seeded {} alerts into siem.alerts", seeded_alerts),
+            format!(
+                "running sustained parser attack traffic for {} seconds",
+                RED_ALERT_DURATION_SEC
+            ),
+        ];
+    }
+
+    let task_state = state.clone();
+    let join = tokio::spawn(async move {
+        let result = run_red_alert_mode(task_state.clone()).await;
+        let mut runtime = task_state.red_alert.lock().await;
+        runtime.running = false;
+        runtime.abort = None;
+        runtime.last_update = Some(now_iso());
+        match result {
+            Ok(stats) => {
+                runtime.last_result = Some(format!(
+                    "completed: cycles={}, sent={}, processed={}, parse_errors={}",
+                    stats.cycles, stats.events_sent, stats.processed, stats.parse_errors
+                ));
+                runtime.details.push(format!(
+                    "completed red alert: {} cycles, {} parser events sent",
+                    stats.cycles, stats.events_sent
+                ));
+                runtime.details.push(format!(
+                    "parser accepted {}, parser errors {}",
+                    stats.processed, stats.parse_errors
+                ));
+            }
+            Err(error) => {
+                runtime.last_result = Some(format!("failed: {}", error));
+                runtime.details.push(format!("red alert failed: {}", error));
+            }
+        }
+    });
+
+    {
+        let mut runtime = state.red_alert.lock().await;
+        runtime.abort = Some(join.abort_handle());
+        runtime.last_update = Some(now_iso());
+        runtime.details.push("red alert task spawned".to_string());
+        return Ok(Json(RedAlertActionResult {
+            ok: true,
+            message: "red alert mode started".to_string(),
+            status: snapshot_red_alert(&runtime),
+        }));
+    }
+}
+
+async fn stop_red_alert(
+    State(state): State<AppState>,
+) -> Result<Json<RedAlertActionResult>, (StatusCode, Json<ErrorBody>)> {
+    let mut runtime = state.red_alert.lock().await;
+    if !runtime.running {
+        return Ok(Json(RedAlertActionResult {
+            ok: true,
+            message: "red alert mode is not running".to_string(),
+            status: snapshot_red_alert(&runtime),
+        }));
+    }
+
+    if let Some(handle) = runtime.abort.take() {
+        handle.abort();
+    }
+    runtime.running = false;
+    runtime.last_update = Some(now_iso());
+    runtime.last_result = Some("stopped by user".to_string());
+    runtime.details.push("red alert stopped by user".to_string());
+
+    Ok(Json(RedAlertActionResult {
+        ok: true,
+        message: "red alert mode stopped".to_string(),
+        status: snapshot_red_alert(&runtime),
+    }))
+}
+
+async fn red_alert_status(State(state): State<AppState>) -> Json<RedAlertStatus> {
+    let runtime = state.red_alert.lock().await;
+    Json(snapshot_red_alert(&runtime))
+}
+
 async fn data_status(State(state): State<AppState>) -> Json<DataStatus> {
     let queries = [
         (
@@ -455,7 +614,7 @@ async fn seed_parser_metrics_and_events(http: &reqwest::Client) -> Result<Parser
                     "Detected SQL injection payload in request",
                     "198.51.100.20",
                     "GET",
-                    "/api/search?q=UNION SELECT username,password FROM users",
+                    "/api/search/union/select/users",
                     500,
                     355.9,
                     "api_guest",
@@ -507,6 +666,12 @@ fn build_parser_seed_http_event(
         "Timestamp": timestamp,
         "Level": level,
         "Message": message,
+        "ClientIp": ip,
+        "RequestMethod": method,
+        "RequestPath": path,
+        "StatusCode": status_code,
+        "Elapsed": elapsed_ms,
+        "UserId": user_id,
         "Properties": {
             "ClientIp": ip,
             "RequestMethod": method,
@@ -519,12 +684,347 @@ fn build_parser_seed_http_event(
     .to_string()
 }
 
+fn build_parser_seed_http_event_with_role(
+    timestamp: &str,
+    level: &str,
+    message: &str,
+    ip: &str,
+    method: &str,
+    path: &str,
+    status_code: u16,
+    elapsed_ms: f64,
+    user_id: &str,
+    user_role: &str,
+    user_agent: &str,
+) -> String {
+    serde_json::json!({
+        "Timestamp": timestamp,
+        "Level": level,
+        "Message": message,
+        "SourceType": "dotnet",
+        "Host": "api-critical-01",
+        "ClientIp": ip,
+        "RequestMethod": method,
+        "RequestPath": path,
+        "StatusCode": status_code,
+        "Elapsed": elapsed_ms,
+        "UserId": user_id,
+        "Properties": {
+            "ClientIp": ip,
+            "RequestMethod": method,
+            "RequestPath": path,
+            "StatusCode": status_code,
+            "Elapsed": elapsed_ms,
+            "UserId": user_id,
+            "UserRole": user_role,
+            "UserAgent": user_agent,
+            "CorrelationId": Uuid::new_v4().to_string(),
+        }
+    })
+    .to_string()
+}
+
 async fn seed_alerts_into_clickhouse(http: &reqwest::Client) -> Result<usize, String> {
     let total = 50usize;
     let columns = clickhouse_table_columns(http, "siem.alerts").await?;
     let sql = build_seed_alerts_sql(total, &columns);
     execute_clickhouse_query(http, sql).await?;
     Ok(total)
+}
+
+async fn restart_stress_container(
+    state: &AppState,
+    stress_name: &str,
+) -> Result<String, (StatusCode, Json<ErrorBody>)> {
+    match state
+        .docker
+        .restart_container(stress_name, Some(RestartContainerOptions { t: 15 }))
+        .await
+    {
+        Ok(_) => Ok("restarted".to_string()),
+        Err(_) => {
+            state
+                .docker
+                .start_container(stress_name, None::<StartContainerOptions<String>>)
+                .await
+                .map_err(|e| {
+                    json_error(
+                        StatusCode::BAD_GATEWAY,
+                        format!("start failed for {}: {}", stress_name, e),
+                    )
+                })?;
+            Ok("started".to_string())
+        }
+    }
+}
+
+fn snapshot_red_alert(runtime: &RedAlertRuntime) -> RedAlertStatus {
+    RedAlertStatus {
+        running: runtime.running,
+        started_at: runtime.started_at.clone(),
+        last_update: runtime.last_update.clone(),
+        last_result: runtime.last_result.clone(),
+        details: runtime.details.clone(),
+    }
+}
+
+fn now_iso() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+async fn run_red_alert_mode(state: AppState) -> Result<RedAlertRunStats, String> {
+    let deadline = Instant::now() + Duration::from_secs(RED_ALERT_DURATION_SEC);
+    let mut stats = RedAlertRunStats::default();
+
+    while Instant::now() < deadline {
+        let response = send_red_alert_batch(&state.http).await?;
+        stats.cycles += 1;
+        stats.events_sent += 69;
+        stats.processed += response.processed;
+        stats.parse_errors += response.errors;
+
+        let mut runtime = state.red_alert.lock().await;
+        runtime.last_update = Some(now_iso());
+        runtime.last_result = Some(format!(
+            "running: cycles={}, sent={}, processed={}, parse_errors={}",
+            stats.cycles, stats.events_sent, stats.processed, stats.parse_errors
+        ));
+        runtime.details.retain(|line| {
+            !line.starts_with("live counters:")
+                && !line.starts_with("last parser batch:")
+        });
+        runtime.details.push(format!(
+            "last parser batch: processed={}, errors={}",
+            response.processed, response.errors
+        ));
+        runtime.details.push(format!(
+            "live counters: cycles={}, sent={}, processed={}, parse_errors={}",
+            stats.cycles, stats.events_sent, stats.processed, stats.parse_errors
+        ));
+        drop(runtime);
+
+        tokio::time::sleep(RED_ALERT_INTERVAL).await;
+    }
+
+    Ok(stats)
+}
+
+async fn send_red_alert_batch(http: &reqwest::Client) -> Result<ParserSeedResponse, String> {
+    let body = serde_json::json!({
+        "events": build_red_alert_events()
+            .into_iter()
+            .map(|raw| parser_seed_event(raw, "dotnet", "api-critical-01"))
+            .collect::<Vec<_>>()
+    });
+
+    let resp = http
+        .post("http://siem-parser:7000/parse")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("parser request failed: {}", e))?;
+
+    let status = resp.status();
+    let response_body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("siem-parser returned {}: {}", status, response_body));
+    }
+
+    serde_json::from_str::<ParserSeedResponse>(&response_body)
+        .map_err(|e| format!("failed to parse siem-parser response: {}", e))
+}
+
+fn build_red_alert_events() -> Vec<String> {
+    let mut events = Vec::with_capacity(69);
+    let base = Utc::now();
+    let attacker = "203.0.113.5";
+    let takeover_ip = "203.0.113.12";
+    let admin_ip = "192.168.1.10";
+    let exfil_ip = "198.51.100.20";
+
+    for idx in 0..12 {
+        let ts = (base + chrono::Duration::milliseconds(idx * 25))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Error",
+            &format!("Authentication failed for user admin from {}", attacker),
+            attacker,
+            "POST",
+            "/api/auth/login",
+            401,
+            32.0 + idx as f64,
+            "admin",
+            "anonymous",
+            "Hydra/9.5",
+        ));
+    }
+
+    for idx in 0..6 {
+        let ts = (base + chrono::Duration::milliseconds(500 + idx * 25))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Error",
+            &format!("HTTP GET /api/search responded 500 in {:.2}ms; detected payload UNION SELECT username,password FROM users", 280.0 + idx as f64),
+            attacker,
+            "GET",
+            "/api/search/union/select/users",
+            500,
+            280.0 + idx as f64,
+            "guest_user",
+            "user",
+            "sqlmap/1.7.8",
+        ));
+    }
+
+    for idx in 0..8 {
+        let ts = (base + chrono::Duration::milliseconds(800 + idx * 25))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Error",
+            &format!("Unauthorized access attempt to /api/admin/config by user user_{:03}", idx + 1),
+            admin_ip,
+            "GET",
+            "/api/admin/config",
+            403,
+            75.0 + idx as f64,
+            &format!("user_{:03}", idx + 1),
+            "user",
+            "Mozilla/5.0",
+        ));
+    }
+
+    for idx in 0..4 {
+        let ts = (base + chrono::Duration::milliseconds(1050 + idx * 25))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Information",
+            "HTTP GET /api/admin/config responded 200 in 28.10ms",
+            admin_ip,
+            "GET",
+            "/api/admin/config",
+            200,
+            28.1 + idx as f64,
+            "svc-admin",
+            "admin",
+            "Mozilla/5.0",
+        ));
+    }
+
+    for idx in 0..10 {
+        let ts = (base + chrono::Duration::milliseconds(1200 + idx * 25))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Fatal",
+            &format!("Large download from /api/downloads/dump-{}.zip", idx),
+            exfil_ip,
+            "GET",
+            &format!("/api/downloads/dump-{}.zip", idx),
+            206,
+            420.0 + idx as f64,
+            "export_user",
+            "analyst",
+            "curl/8.6.0",
+        ));
+    }
+
+    for idx in 0..5 {
+        let ts = (base + chrono::Duration::milliseconds(1500 + idx * 25))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Fatal",
+            &format!("Export completed for /api/reports/export-{}.csv", idx),
+            exfil_ip,
+            "GET",
+            &format!("/api/reports/export-{}.csv", idx),
+            200,
+            180.0 + idx as f64,
+            "export_user",
+            "analyst",
+            "curl/8.6.0",
+        ));
+    }
+
+    for idx in 0..9 {
+        let ts = (base + chrono::Duration::milliseconds(1700 + idx * 20))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Warning",
+            &format!("Authentication failed for user admin from {}", takeover_ip),
+            takeover_ip,
+            "POST",
+            "/api/auth/token",
+            403,
+            27.0 + idx as f64,
+            "admin",
+            "anonymous",
+            "Hydra/9.5",
+        ));
+    }
+
+    for idx in 0..3 {
+        let ts = (base + chrono::Duration::milliseconds(1900 + idx * 20))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Information",
+            "HTTP POST /api/auth/login responded 200 in 18.30ms",
+            takeover_ip,
+            "POST",
+            "/api/auth/login",
+            200,
+            18.3 + idx as f64,
+            "admin",
+            "admin",
+            "Mozilla/5.0",
+        ));
+    }
+
+    for idx in 0..8 {
+        let ts = (base + chrono::Duration::milliseconds(2050 + idx * 15))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Warning",
+            &format!("Rate limit exceeded: {} requests in 60s from 203.0.113.88", 550 + idx),
+            "203.0.113.88",
+            "GET",
+            "/api/search",
+            429,
+            9.0 + idx as f64,
+            "none",
+            "anonymous",
+            "attack-bot/1.0",
+        ));
+    }
+
+    for idx in 0..3 {
+        let ts = (base + chrono::Duration::milliseconds(2200 + idx * 20))
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        events.push(build_parser_seed_http_event_with_role(
+            &ts,
+            "Error",
+            &format!("HTTP GET /api/orders responded 500 in {:.2}ms", 12_500.0 + idx as f64 * 1000.0),
+            attacker,
+            "GET",
+            "/api/orders",
+            500,
+            12_500.0 + idx as f64 * 1000.0,
+            "svc-orders",
+            "service",
+            "Mozilla/5.0",
+        ));
+    }
+
+    events.push("{bad json".to_string());
+    assert_eq!(events.len(), 69);
+    events
 }
 
 fn build_seed_alerts_sql(total: usize, columns: &[String]) -> String {

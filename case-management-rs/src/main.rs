@@ -186,7 +186,7 @@ async fn main() {
     };
 
     let app = Router::new()
-        .route("/health", get(handlers::health))
+        .route("/health", get(handlers::health).head(handlers::health))
         .route("/api/v1/cases", get(handlers::list_cases).post(handlers::create_case))
         .route(
             "/api/v1/cases/:id",

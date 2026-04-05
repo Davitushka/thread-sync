@@ -146,6 +146,29 @@ tr:hover td { background: rgba(29,161,242,.05); }
           <div class="inline-note" id="fillAllResultText">Нажмите кнопку для запуска полного заполнения данных.</div>
         </div>
       </div>
+      <div class="tool-card">
+        <div class="panel-header">
+          <span>Critical Surge</span>
+          <span id="redAlertBadge" class="badge created">idle</span>
+        </div>
+        <div class="tool-card-body">
+          <div class="tool-card-title">
+            <strong>Red Alert Mode</strong>
+            <span id="redAlertStateText" class="refresh-info">manual</span>
+          </div>
+          <div class="tool-card-desc">
+            Агрессивный сценарий на несколько минут: перезапускает `siem-stress`, засевает алерты и
+            непрерывно шлёт через `siem-parser` brute-force, SQLi, privilege escalation,
+            account takeover, exfiltration и parser errors, чтобы Grafana и Alertmanager
+            выглядели как реальный инцидент.
+          </div>
+          <div class="tool-card-actions">
+            <button class="btn danger" id="redAlertStartBtn" onclick="startRedAlert()">Start Critical Surge</button>
+            <button class="btn" id="redAlertStopBtn" onclick="stopRedAlert()">Stop</button>
+          </div>
+          <div class="inline-note" id="redAlertResultText">Используйте для демонстрации максимально тревожного состояния стека.</div>
+        </div>
+      </div>
     </div>
     <div class="panel">
       <div class="panel-header">
@@ -197,6 +220,7 @@ let services = [];
 let pipeline = null;
 let servicesError = null;
 let dataStatus = null;
+let redAlert = null;
 
 function svc(name) { return services.find(s => s.name === name); }
 function stressSvc() { return svc('siem-stress'); }
@@ -287,6 +311,41 @@ function renderStressTool() {
     restartBtn.disabled = false;
     stopBtn.disabled = !isRunningState(s);
   }
+}
+
+function renderRedAlertTool() {
+  const badge = document.getElementById('redAlertBadge');
+  const stateText = document.getElementById('redAlertStateText');
+  const resultText = document.getElementById('redAlertResultText');
+  const startBtn = document.getElementById('redAlertStartBtn');
+  const stopBtn = document.getElementById('redAlertStopBtn');
+
+  if (!redAlert) {
+    badge.className = 'badge created';
+    badge.textContent = 'unknown';
+    stateText.textContent = 'status not loaded';
+    resultText.textContent = 'Загрузка статуса тревожного режима...';
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    return;
+  }
+
+  if (redAlert.running) {
+    badge.className = 'badge fail';
+    badge.textContent = 'active';
+    stateText.textContent = redAlert.started_at ? `running since ${redAlert.started_at}` : 'running';
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+  } else {
+    badge.className = 'badge created';
+    badge.textContent = 'idle';
+    stateText.textContent = redAlert.last_result || 'manual';
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  }
+
+  const details = Array.isArray(redAlert.details) ? redAlert.details.slice(-3) : [];
+  resultText.textContent = details.length > 0 ? details.join(' | ') : (redAlert.last_result || 'Готов к запуску.');
 }
 
 function renderServices() {
@@ -406,6 +465,77 @@ async function fillAllData() {
     resultText.textContent = `Ошибка: ${e.message}`;
   } finally {
     btn.disabled = false;
+  }
+}
+
+async function fetchRedAlertStatus() {
+  try {
+    const r = await fetch(API + '/api/red-alert/status');
+    redAlert = await r.json();
+  } catch (e) {
+    redAlert = {
+      running: false,
+      started_at: null,
+      last_update: null,
+      last_result: `Ошибка загрузки: ${e.message}`,
+      details: []
+    };
+  }
+}
+
+async function startRedAlert() {
+  const startBtn = document.getElementById('redAlertStartBtn');
+  const badge = document.getElementById('redAlertBadge');
+  const stateText = document.getElementById('redAlertStateText');
+  const resultText = document.getElementById('redAlertResultText');
+  startBtn.disabled = true;
+  badge.className = 'badge starting';
+  badge.textContent = 'arming';
+  stateText.textContent = 'starting critical surge...';
+  resultText.textContent = 'Запуск тревожного сценария...';
+  try {
+    const r = await fetch(`${API}/api/red-alert`, { method: 'POST' });
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try {
+        const data = await r.json();
+        if (data && data.error) msg = data.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const data = await r.json();
+    redAlert = data.status;
+    renderRedAlertTool();
+    await refreshAll();
+  } catch (e) {
+    badge.className = 'badge fail';
+    badge.textContent = 'failed';
+    stateText.textContent = 'error';
+    resultText.textContent = `Ошибка: ${e.message}`;
+  } finally {
+    if (redAlert && !redAlert.running) startBtn.disabled = false;
+  }
+}
+
+async function stopRedAlert() {
+  const stopBtn = document.getElementById('redAlertStopBtn');
+  stopBtn.disabled = true;
+  try {
+    const r = await fetch(`${API}/api/red-alert/stop`, { method: 'POST' });
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try {
+        const data = await r.json();
+        if (data && data.error) msg = data.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const data = await r.json();
+    redAlert = data.status;
+    renderRedAlertTool();
+    await refreshAll();
+  } catch (e) {
+    alert(`Failed to stop critical surge: ${e.message}`);
   }
 }
 
@@ -564,10 +694,11 @@ function escapeHtml(s) {
 }
 
 async function refreshAll() {
-  await Promise.all([fetchServices(), fetchPipeline(), fetchDataStatus()]);
+  await Promise.all([fetchServices(), fetchPipeline(), fetchDataStatus(), fetchRedAlertStatus()]);
   document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
   renderChecklist();
   renderStressTool();
+  renderRedAlertTool();
 }
 
 refreshAll();

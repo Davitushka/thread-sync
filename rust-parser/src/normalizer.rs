@@ -42,6 +42,34 @@ impl NormalizationPipeline {
         metrics::EVENTS_PARSED_TOTAL
             .with_label_values(&[source_type, "auto", status])
             .inc();
+        if let Ok(event) = &result {
+            let status_code = event
+                .status_code
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            let url_path_value = event
+                .url_path
+                .clone()
+                .or_else(|| metric_url_path_from_metadata(event))
+                .or_else(|| metric_url_path_from_message(event))
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "none".to_string());
+            let source_ip = event
+                .source_ip
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .unwrap_or("none");
+            let severity = event.severity.to_string();
+            metrics::SIEM_EVENTS_TOTAL
+                .with_label_values(&[
+                    event.source_type.as_str(),
+                    severity.as_str(),
+                    status_code.as_str(),
+                    url_path_value.as_str(),
+                    source_ip,
+                ])
+                .inc();
+        }
         metrics::PARSE_DURATION_SECONDS
             .with_label_values(&[source_type])
             .observe(elapsed.as_secs_f64());
@@ -90,6 +118,27 @@ impl NormalizationPipeline {
     }
 }
 
+fn metric_url_path_from_metadata(event: &NormalizedEvent) -> Option<String> {
+    event
+        .metadata
+        .get("RequestPath")
+        .or_else(|| event.metadata.get("Path"))
+        .or_else(|| event.metadata.get("Url"))
+        .and_then(|value| value.as_str())
+        .map(|value| value.split('?').next().unwrap_or(value).to_string())
+}
+
+fn metric_url_path_from_message(event: &NormalizedEvent) -> Option<String> {
+    event.message.split_whitespace().find_map(|token| {
+        let trimmed = token.trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']'));
+        if trimmed.starts_with('/') {
+            Some(trimmed.split('?').next().unwrap_or(trimmed).to_string())
+        } else {
+            None
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,5 +181,28 @@ mod tests {
         let elapsed = start.elapsed();
         // В тесте без GeoIP и с простым JSON — должно быть <1ms
         assert!(elapsed.as_millis() < 10, "Processing took {}ms, expected <10ms in test", elapsed.as_millis());
+    }
+
+    #[test]
+    fn metadata_request_path_fallback_is_sanitized() {
+        let mut event = crate::schema::NormalizedEvent::new("dotnet");
+        event.metadata.insert(
+            "RequestPath".to_string(),
+            serde_json::Value::String("/api/auth/login?token=secret".to_string()),
+        );
+        assert_eq!(
+            metric_url_path_from_metadata(&event).as_deref(),
+            Some("/api/auth/login")
+        );
+    }
+
+    #[test]
+    fn message_request_path_fallback_extracts_path() {
+        let mut event = crate::schema::NormalizedEvent::new("dotnet");
+        event.message = "Authentication failed on /api/auth/login from 203.0.113.5".to_string();
+        assert_eq!(
+            metric_url_path_from_message(&event).as_deref(),
+            Some("/api/auth/login")
+        );
     }
 }

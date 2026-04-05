@@ -16,6 +16,15 @@ pub static EVENTS_PARSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .expect("metric registration failed")
 });
 
+pub static SIEM_EVENTS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        "siem_events_total",
+        "Normalized SIEM events for security alert rules",
+        &["source_type", "severity", "status_code", "url_path", "source_ip"]
+    )
+    .expect("metric registration failed")
+});
+
 pub static PARSE_DURATION_SECONDS: Lazy<HistogramVec> = Lazy::new(|| {
     register_histogram_vec!(
         "siem_parser_parse_duration_seconds",
@@ -56,6 +65,7 @@ pub static KAFKA_PRODUCED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
 /// Инициализирует метрики (вызывает Lazy::force).
 pub fn init() {
     Lazy::force(&EVENTS_PARSED_TOTAL);
+    Lazy::force(&SIEM_EVENTS_TOTAL);
     Lazy::force(&PARSE_DURATION_SECONDS);
     Lazy::force(&PII_MASKS_TOTAL);
     Lazy::force(&EVENTS_IN_FLIGHT);
