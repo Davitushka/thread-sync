@@ -83,7 +83,7 @@
     {
       "id": 103,
       "title": "Disk Usage (%)",
-      "description": "Хост Disk: (1 - Available/Size) * 100 для /. Порог: зелёный <70%, оранжевый 70-85%, красный >85%.",
+      "description": "Хост Disk usage. Сначала пробует Linux mountpoint=/, на Docker Desktop/WSL fallback'ится к /var/lib, /mnt/docker-desktop-disk и /mnt/host/*.",
       "type": "gauge",
       "gridPos": { "x": 12, "y": 3, "w": 4, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -91,7 +91,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "(1 - (node_filesystem_avail_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"})) * 100",
+          "expr": "(max((1 - (node_filesystem_avail_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"})) * 100)) or (max((1 - (node_filesystem_avail_bytes{job=\"node-exporter\",fstype!=\"tmpfs\",mountpoint=~\"/var/lib|/mnt/docker-desktop-disk|/mnt/host/[a-z]\"} / node_filesystem_size_bytes{job=\"node-exporter\",fstype!=\"tmpfs\",mountpoint=~\"/var/lib|/mnt/docker-desktop-disk|/mnt/host/[a-z]\"})) * 100)) or vector(0)",
           "instant": true
         }
       ],
@@ -378,8 +378,8 @@
 
     {
       "id": 208,
-      "title": "Host IP Addresses",
-      "description": "IP адреса хоста (из node-exporter).",
+      "title": "Host Network Interfaces",
+      "description": "На Docker Desktop/WSL node-exporter часто не отдаёт address label. Показываем активные интерфейсы как fallback вместо пустой таблицы.",
       "type": "table",
       "gridPos": { "x": 16, "y": 25, "w": 8, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -387,14 +387,14 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "node_network_address_info{job=\"node-exporter\"}",
+          "expr": "max by(device) (node_network_address_assign_type{job=\"node-exporter\",device!~\"lo|docker0|br-.*|veth.*\"})",
           "format": "table",
           "instant": true
         }
       ],
       "transformations": [
-        { "id": "filterFieldsByName", "options": { "include": { "pattern": "^(name|address|Value)$" } } },
-        { "id": "organize", "options": { "renameByName": { "name": "Interface", "address": "IP Address" } } }
+        { "id": "filterFieldsByName", "options": { "include": { "pattern": "^(device|Value)$" } } },
+        { "id": "organize", "options": { "renameByName": { "device": "Interface", "Value": "Assign Type" } } }
       ],
       "options": { "showHeader": true }
     },
@@ -451,7 +451,7 @@
     {
       "id": 302,
       "title": "Rust Parser Latency p99 (ms)",
-      "description": "siem-parser p99 latency парсинга. SLA: <5ms. Порог: зелёный <5ms, оранжевый 5-10ms, красный >10ms.",
+      "description": "siem-parser p99 latency. Используется накопленный histogram, чтобы панель не была пустой после короткого прогрева /parse.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 35, "w": 8, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -459,7 +459,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "histogram_quantile(0.99, rate(siem_parser_parse_duration_seconds_bucket{job=\"siem-parser\"}[2m])) * 1000",
+          "expr": "histogram_quantile(0.99, sum by (le) (siem_parser_parse_duration_seconds_bucket{job=\"siem-parser\"})) * 1000 or vector(0)",
           "legendFormat": "p99 latency"
         }
       ],
@@ -530,7 +530,7 @@
     {
       "id": 306,
       "title": "Parse Error Rate (%)",
-      "description": "Доля событий с ошибкой парсинга. Порог: зелёный <1%, оранжевый 1-5%, красный >5%.",
+      "description": "Доля событий с ошибкой парсинга за последние 15 минут. При отсутствии вызовов /parse панель показывает 0, а не No data.",
       "type": "gauge",
       "gridPos": { "x": 4, "y": 41, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -538,7 +538,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "(siem:parser_events_error:rate5m / (siem:parser_events_ok:rate5m + siem:parser_events_error:rate5m)) * 100",
+          "expr": "((sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"error\"}[15m])) or vector(0)) / clamp_min((sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"ok\"}[15m])) or vector(0)) + (sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"error\"}[15m])) or vector(0)), 1)) * 100",
           "instant": true
         }
       ],
@@ -609,12 +609,12 @@
     {
       "id": 310,
       "title": "Parse Errors (24h)",
-      "description": "Количество событий с ошибкой парсинга за 24 часа.",
+      "description": "Количество событий с ошибкой парсинга за 24 часа. При отсутствии ошибок/трафика показывает 0.",
       "type": "stat",
       "gridPos": { "x": 20, "y": 41, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(increase(siem_parser_events_parsed_total{status=\"error\"}[24h]))", "instant": true }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"error\"}[24h])) or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {

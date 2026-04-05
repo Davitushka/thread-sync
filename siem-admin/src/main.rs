@@ -9,8 +9,8 @@ use bollard::container::{
     ListContainersOptions, RestartContainerOptions, StartContainerOptions, StopContainerOptions,
 };
 use bollard::Docker;
-use chrono::Utc;
-use serde::Serialize;
+use chrono::{SecondsFormat, Utc};
+use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
@@ -67,6 +67,12 @@ struct DataStatus {
 #[derive(Serialize)]
 struct ErrorBody {
     error: String,
+}
+
+#[derive(Deserialize)]
+struct ParserSeedResponse {
+    processed: usize,
+    errors: usize,
 }
 
 const SIEM_PREFIX: &str = "siem-";
@@ -329,6 +335,17 @@ async fn fill_all_data(
         .map_err(|e| json_error(StatusCode::BAD_GATEWAY, e))?;
     details.push(format!("seeded {} alerts into siem.alerts", seeded_alerts));
 
+    let parser_seed = seed_parser_metrics_and_events(&state.http)
+        .await
+        .map_err(|e| json_error(StatusCode::BAD_GATEWAY, e))?;
+    details.push(format!(
+        "seeded parser path: processed={}, errors={}",
+        parser_seed.processed, parser_seed.errors
+    ));
+    details.push(
+        "parser seed also injects critical + export/download events for Grafana".to_string(),
+    );
+
     Ok(Json(FillAllDataResult {
         ok: true,
         stress_action,
@@ -390,6 +407,116 @@ async fn data_status(State(state): State<AppState>) -> Json<DataStatus> {
         source_types_24h: *values.get("source_types_24h").unwrap_or(&0),
         error: None,
     })
+}
+
+async fn seed_parser_metrics_and_events(http: &reqwest::Client) -> Result<ParserSeedResponse, String> {
+    let export_ts = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+    let download_ts = (Utc::now() + chrono::Duration::seconds(1))
+        .to_rfc3339_opts(SecondsFormat::Millis, true);
+    let sqli_ts = (Utc::now() + chrono::Duration::seconds(2))
+        .to_rfc3339_opts(SecondsFormat::Millis, true);
+
+    let body = serde_json::json!({
+        "events": [
+            parser_seed_event(
+                build_parser_seed_http_event(
+                    &export_ts,
+                    "Fatal",
+                    "Export completed for /api/reports/export.csv",
+                    "203.0.113.200",
+                    "GET",
+                    "/api/reports/export.csv",
+                    200,
+                    182.4,
+                    "export_user",
+                ),
+                "dotnet",
+                "api-01",
+            ),
+            parser_seed_event(
+                build_parser_seed_http_event(
+                    &download_ts,
+                    "Fatal",
+                    "Large download from /api/downloads/dump.zip",
+                    "203.0.113.200",
+                    "GET",
+                    "/api/downloads/dump.zip",
+                    206,
+                    245.7,
+                    "export_user",
+                ),
+                "dotnet",
+                "api-02",
+            ),
+            parser_seed_event(
+                build_parser_seed_http_event(
+                    &sqli_ts,
+                    "Fatal",
+                    "Detected SQL injection payload in request",
+                    "198.51.100.20",
+                    "GET",
+                    "/api/search?q=UNION SELECT username,password FROM users",
+                    500,
+                    355.9,
+                    "api_guest",
+                ),
+                "dotnet",
+                "api-03",
+            ),
+            parser_seed_event("{bad json".to_string(), "dotnet", "api-04"),
+        ]
+    });
+
+    let resp = http
+        .post("http://siem-parser:7000/parse")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("parser request failed: {}", e))?;
+
+    let status = resp.status();
+    let response_body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("siem-parser returned {}: {}", status, response_body));
+    }
+
+    serde_json::from_str::<ParserSeedResponse>(&response_body)
+        .map_err(|e| format!("failed to parse siem-parser response: {}", e))
+}
+
+fn parser_seed_event(raw: String, source_type: &str, host: &str) -> serde_json::Value {
+    serde_json::json!({
+        "raw": raw,
+        "source_type": source_type,
+        "host": host,
+    })
+}
+
+fn build_parser_seed_http_event(
+    timestamp: &str,
+    level: &str,
+    message: &str,
+    ip: &str,
+    method: &str,
+    path: &str,
+    status_code: u16,
+    elapsed_ms: f64,
+    user_id: &str,
+) -> String {
+    serde_json::json!({
+        "Timestamp": timestamp,
+        "Level": level,
+        "Message": message,
+        "Properties": {
+            "ClientIp": ip,
+            "RequestMethod": method,
+            "RequestPath": path,
+            "StatusCode": status_code,
+            "Elapsed": elapsed_ms,
+            "UserId": user_id,
+        }
+    })
+    .to_string()
 }
 
 async fn seed_alerts_into_clickhouse(http: &reqwest::Client) -> Result<usize, String> {
