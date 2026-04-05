@@ -239,6 +239,58 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # ── SIEM Admin Panel (Rust) ─────────────────────────────────────────────
+  siem-admin:
+    name: SIEM Admin (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: siem-admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.88'
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: siem-admin
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --release --locked
+
+  docker-admin:
+    name: Docker Build (siem-admin)
+    runs-on: ubuntu-latest
+    needs: siem-admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.admin
+          push: false
+          tags: siem-admin:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # ── Log generator (Rust) ───────────────────────────────────────────────
   log-generator-rs:
     name: Log generator (Rust)
@@ -349,7 +401,7 @@ jobs:
   grafana-validation:
     name: Grafana Validation (E2E)
     runs-on: ubuntu-latest
-    needs: [docker-parser, docker-detection, docker-casemgmt, docker-loggen, compose-validate]
+    needs: [docker-parser, docker-detection, docker-casemgmt, docker-loggen, docker-admin, compose-validate]
 
     steps:
       - uses: actions/checkout@v4

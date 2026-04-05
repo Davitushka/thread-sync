@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIEM-Lite Control Panel</title>
+<style>
+:root {
+  --bg: #0f1923;
+  --surface: #1a2733;
+  --surface2: #243447;
+  --border: #2d4a5e;
+  --text: #e0e6ed;
+  --text2: #8899a6;
+  --accent: #1da1f2;
+  --green: #17bf63;
+  --red: #e0245e;
+  --yellow: #ffad1f;
+  --orange: #f45d22;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+.header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header h1 span { color: var(--accent); }
+.header-right { display: flex; align-items: center; gap: 12px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.status-dot.yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface2); color: var(--text); cursor: pointer; font-size: 13px; transition: all .15s; }
+.btn:hover { background: var(--border); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+.btn.success { background: var(--green); border-color: var(--green); color: #fff; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+.tab { padding: 8px 18px; border-radius: 8px 8px 0 0; background: var(--surface); color: var(--text2); cursor: pointer; border: 1px solid transparent; border-bottom: none; font-size: 14px; }
+.tab.active { background: var(--surface2); color: var(--text); border-color: var(--border); }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.panel-header { padding: 12px 16px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; padding: 10px 16px; font-size: 12px; text-transform: uppercase; color: var(--text2); border-bottom: 1px solid var(--border); }
+td { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(29,161,242,.05); }
+.badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.badge.running { background: rgba(23,191,99,.15); color: var(--green); }
+.badge.exited { background: rgba(224,36,94,.15); color: var(--red); }
+.badge.created { background: rgba(255,173,31,.15); color: var(--yellow); }
+.badge.healthy { background: rgba(23,191,99,.15); color: var(--green); }
+.badge.unhealthy { background: rgba(224,36,94,.15); color: var(--red); }
+.badge.starting { background: rgba(255,173,31,.15); color: var(--yellow); }
+.badge.ok { background: rgba(23,191,99,.15); color: var(--green); }
+.badge.fail { background: rgba(224,36,94,.15); color: var(--red); }
+.actions { display: flex; gap: 6px; }
+.pipeline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; padding: 16px; }
+.check-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+.check-card h3 { font-size: 14px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.check-card p { font-size: 12px; color: var(--text2); word-break: break-all; }
+.checklist { padding: 16px; }
+.checklist-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.checklist-item:last-child { border-bottom: none; }
+.check-icon { font-size: 16px; width: 20px; text-align: center; }
+.check-icon.pass { color: var(--green); }
+.check-icon.fail { color: var(--red); }
+.check-icon.warn { color: var(--yellow); }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.refresh-info { font-size: 12px; color: var(--text2); }
+#loading { text-align: center; padding: 60px; color: var(--text2); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>SIEM-Lite</span> Control Panel</h1>
+  <div class="header-right">
+    <span class="refresh-info" id="lastUpdate">—</span>
+    <button class="btn accent" onclick="refreshAll()">Refresh</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" data-tab="services" onclick="switchTab('services')">Services</div>
+    <div class="tab" data-tab="pipeline" onclick="switchTab('pipeline')">Pipeline Health</div>
+    <div class="tab" data-tab="checklist" onclick="switchTab('checklist')">Dashboard Checklist</div>
+  </div>
+
+  <!-- Services Tab -->
+  <div id="tab-services">
+    <div class="panel">
+      <div class="panel-header">
+        <span>Docker Services</span>
+        <span id="serviceCount" class="refresh-info"></span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Service</th><th>State</th><th>Health</th><th>Image</th><th>Ports</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="servicesBody">
+          <tr><td colspan="7" id="loading"><div class="spinner"></div> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pipeline Tab -->
+  <div id="tab-pipeline" style="display:none">
+    <div class="panel">
+      <div class="panel-header">
+        <span>Pipeline Health Checks</span>
+        <span id="pipelineOverall"></span>
+      </div>
+      <div class="pipeline-grid" id="pipelineGrid">
+        <div style="padding:20px;text-align:center;color:var(--text2)"><div class="spinner"></div> Checking...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Checklist Tab -->
+  <div id="tab-checklist" style="display:none">
+    <div class="panel">
+      <div class="panel-header"><span>Grafana Dashboard Requirements</span></div>
+      <div id="checklistContent" class="checklist">
+        <div style="padding:20px;text-align:center;color:var(--text2)"><div class="spinner"></div> Analyzing...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let services = [];
+let pipeline = null;
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
+  ['services','pipeline','checklist'].forEach(t => {
+    document.getElementById('tab-'+t).style.display = t===tab ? '' : 'none';
+  });
+  if (tab === 'pipeline' && !pipeline) fetchPipeline();
+  if (tab === 'checklist') renderChecklist();
+}
+
+async function fetchServices() {
+  try {
+    const r = await fetch(API+'/api/services');
+    services = await r.json();
+    renderServices();
+  } catch(e) {
+    document.getElementById('servicesBody').innerHTML =
+      `<tr><td colspan="7" style="color:var(--red)">Error: ${e.message}</td></tr>`;
+  }
+}
+
+function renderServices() {
+  const running = services.filter(s => s.state === 'running').length;
+  document.getElementById('serviceCount').textContent = `${running}/${services.length} running`;
+
+  const html = services.map(s => {
+    const stateClass = s.state === 'running' ? 'running' : s.state === 'exited' ? 'exited' : 'created';
+    const healthBadge = s.health
+      ? `<span class="badge ${s.health}">${s.health}</span>`
+      : '<span style="color:var(--text2)">—</span>';
+    const ports = s.ports.length > 0 ? s.ports.join(', ') : '—';
+    const isRunning = s.state === 'running';
+
+    return `<tr>
+      <td><strong>${s.name}</strong></td>
+      <td><span class="badge ${stateClass}">${s.state}</span></td>
+      <td>${healthBadge}</td>
+      <td style="color:var(--text2);font-size:12px">${s.image.split(':')[0].split('/').pop()}</td>
+      <td style="font-family:monospace;font-size:12px">${ports}</td>
+      <td style="font-size:12px;color:var(--text2)">${s.status}</td>
+      <td class="actions">
+        ${isRunning
+          ? `<button class="btn danger" onclick="doAction('${s.name}','stop')">Stop</button>
+             <button class="btn" onclick="doAction('${s.name}','restart')">Restart</button>`
+          : `<button class="btn success" onclick="doAction('${s.name}','start')">Start</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('servicesBody').innerHTML = html || '<tr><td colspan="7" style="color:var(--text2)">No SIEM containers found</td></tr>';
+}
+
+async function doAction(name, action) {
+  try {
+    const r = await fetch(`${API}/api/services/${name}/${action}`, {method:'POST'});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    setTimeout(fetchServices, 1000);
+  } catch(e) {
+    alert(`Failed to ${action} ${name}: ${e.message}`);
+  }
+}
+
+async function fetchPipeline() {
+  try {
+    const r = await fetch(API+'/api/pipeline');
+    pipeline = await r.json();
+    renderPipeline();
+  } catch(e) {
+    document.getElementById('pipelineGrid').innerHTML =
+      `<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`;
+  }
+}
+
+function renderPipeline() {
+  if (!pipeline) return;
+  const overallBadge = pipeline.healthy
+    ? '<span class="badge ok">ALL OK</span>'
+    : '<span class="badge fail">ISSUES DETECTED</span>';
+  document.getElementById('pipelineOverall').innerHTML = overallBadge;
+
+  const html = pipeline.checks.map(c => {
+    const icon = c.ok ? '✓' : '✗';
+    const color = c.ok ? 'var(--green)' : 'var(--red)';
+    return `<div class="check-card" style="border-left: 3px solid ${color}">
+      <h3><span style="color:${color};font-size:18px">${icon}</span> ${c.name}</h3>
+      <p>${c.detail}</p>
+    </div>`;
+  }).join('');
+
+  document.getElementById('pipelineGrid').innerHTML = html;
+}
+
+function renderChecklist() {
+  const running = new Set(services.filter(s=>s.state==='running').map(s=>s.name));
+  const healthy = new Set(services.filter(s=>s.health==='healthy').map(s=>s.name));
+  const pOk = new Set((pipeline?.checks||[]).filter(c=>c.ok).map(c=>c.name));
+
+  const dashboards = [
+    { title: 'siem-overview', items: [
+      { text: 'Vector Aggregator running', ok: running.has('siem-vector-aggregator') },
+      { text: 'Redpanda running & healthy', ok: healthy.has('siem-redpanda') },
+      { text: 'ClickHouse running & healthy', ok: healthy.has('siem-clickhouse') },
+      { text: 'Log Generator running (continuous data)', ok: running.has('siem-log-generator') },
+      { text: 'siem.events populated (Kafka → CH MV)', ok: pOk.has('ClickHouse') },
+      { text: 'siem.events_per_minute_agg (materialized view)', ok: pOk.has('ClickHouse') },
+      { text: 'siem.top_ips_agg (materialized view)', ok: pOk.has('ClickHouse') },
+      { text: 'Prometheus scraping Vector metrics', ok: pOk.has('Prometheus') },
+      { text: 'Detection Engine metrics in Prometheus', ok: running.has('detection-engine') },
+    ]},
+    { title: 'siem-detection', items: [
+      { text: 'Detection Engine running', ok: running.has('detection-engine') },
+      { text: 'Correlator running', ok: running.has('siem-correlator') },
+      { text: 'siem.events has status_code, url_path, source_ip', ok: pOk.has('ClickHouse') },
+      { text: 'siem.alerts populated (Alertmanager → Parser webhook)', ok: pOk.has('siem-parser') },
+      { text: 'detection_events_processed_total in Prometheus', ok: running.has('detection-engine') },
+      { text: 'detection_parse_errors_total in Prometheus', ok: running.has('detection-engine') },
+    ]},
+    { title: 'siem-infrastructure', items: [
+      { text: 'node-exporter running (CPU/RAM/Disk metrics)', ok: running.has('siem-node-exporter') },
+      { text: 'cAdvisor running (container metrics)', ok: running.has('siem-cadvisor') },
+      { text: 'Prometheus running & scraping infra targets', ok: pOk.has('Prometheus') },
+    ]},
+    { title: 'siem-operations', items: [
+      { text: 'All services UP in Prometheus', ok: pOk.has('Prometheus') },
+      { text: 'Vector metrics (vector_component_received_events_total)', ok: running.has('siem-vector-aggregator') },
+      { text: 'Redpanda metrics (partitions, consumer lag)', ok: running.has('siem-redpanda') },
+      { text: 'ClickHouse metrics (:9363)', ok: pOk.has('ClickHouse') },
+      { text: 'Detection Engine metrics', ok: running.has('detection-engine') },
+      { text: 'Correlator metrics', ok: running.has('siem-correlator') },
+    ]},
+    { title: 'siem-alert-management', items: [
+      { text: 'siem.alerts has data (status, severity, triggered_at)', ok: pOk.has('siem-parser') },
+      { text: 'Alertmanager running', ok: pOk.has('Alertmanager') },
+      { text: 'Case Management running (webhook receiver)', ok: pOk.has('Case Management') },
+    ]},
+    { title: 'siem-validation', items: [
+      { text: 'Prometheus: all scrape targets UP', ok: pOk.has('Prometheus') },
+      { text: 'ClickHouse: siem.events has data', ok: pOk.has('ClickHouse') },
+      { text: 'ClickHouse: siem.alerts has data', ok: pOk.has('ClickHouse') },
+      { text: 'Vector: HTTP ingest metrics', ok: running.has('siem-vector-aggregator') },
+      { text: 'Parser: in-flight metrics', ok: pOk.has('siem-parser') },
+      { text: 'Detection: event/error counters', ok: running.has('detection-engine') },
+    ]},
+  ];
+
+  let html = '';
+  for (const db of dashboards) {
+    const allOk = db.items.every(i => i.ok);
+    const passCount = db.items.filter(i => i.ok).length;
+    html += `<div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+        <span class="status-dot ${allOk?'green':'yellow'}"></span>
+        <strong>${db.title}</strong>
+        <span class="refresh-info">${passCount}/${db.items.length}</span>
+      </div>`;
+    for (const item of db.items) {
+      const icon = item.ok ? '✓' : '✗';
+      const cls = item.ok ? 'pass' : 'fail';
+      html += `<div class="checklist-item">
+        <span class="check-icon ${cls}">${icon}</span>
+        <span>${item.text}</span>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  document.getElementById('checklistContent').innerHTML = html;
+}
+
+async function refreshAll() {
+  await Promise.all([fetchServices(), fetchPipeline()]);
+  document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+  renderChecklist();
+}
+
+refreshAll();
+setInterval(refreshAll, 15000);
+</script>
+</body>
+</html>

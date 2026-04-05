@@ -1,0 +1,25 @@
+# siem-admin: SIEM Control Panel (Docker management UI)
+FROM rust:1.88-slim-bookworm AS builder
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY siem-admin/Cargo.toml siem-admin/Cargo.lock* ./
+RUN mkdir -p src && echo "fn main(){}" > src/main.rs
+RUN cargo build --release 2>&1 || true
+RUN rm -rf src
+COPY siem-admin/src ./src
+COPY siem-admin/static ./static
+RUN touch src/main.rs
+RUN cargo build --release 2>&1
+RUN test -x target/release/siem-admin
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates wget \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /build/target/release/siem-admin /usr/local/bin/siem-admin
+EXPOSE 8089
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8089/api/services > /dev/null || exit 1
+ENTRYPOINT ["/usr/local/bin/siem-admin"]

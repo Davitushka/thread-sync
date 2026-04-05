@@ -650,3 +650,29 @@ services:
         limits:
           cpus: "0.5"
           memory: 256M
+
+  # ════════════════════════════════════════════════════════════════
+  # SIEM Admin Panel — управление сервисами через Docker API
+  # UI: http://localhost:8089
+  # ════════════════════════════════════════════════════════════════
+  siem-admin:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.admin
+    container_name: siem-admin
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "8089:8089"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      <<: *common-env
+      RUST_LOG: siem_admin=info
+      ADMIN_ADDR: "0.0.0.0:8089"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
