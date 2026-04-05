@@ -1,0 +1,998 @@
+{
+  "timestamp": "2026-04-03T16:25:34.470998+00:00",
+  "summary": {
+    "total_checks": 141,
+    "passed": 111,
+    "failed": 0,
+    "warnings": 30
+  },
+  "checks": [
+    {
+      "category": "Grafana API",
+      "name": "Health endpoint",
+      "status": "OK",
+      "detail": "HTTP 200",
+      "latency_ms": 0.0
+    },
+    {
+      "category": "Datasources",
+      "name": "ClickHouse (clickhouse-siem)",
+      "status": "OK",
+      "detail": "healthy (16ms)",
+      "latency_ms": 15.0
+    },
+    {
+      "category": "Datasources",
+      "name": "Prometheus (prometheus-siem)",
+      "status": "OK",
+      "detail": "healthy (0ms)",
+      "latency_ms": 15.0
+    },
+    {
+      "category": "Datasources",
+      "name": "Loki (loki-siem)",
+      "status": "OK",
+      "detail": "healthy (16ms)",
+      "latency_ms": 15.0
+    },
+    {
+      "category": "Datasources",
+      "name": "Alertmanager (alertmanager-siem)",
+      "status": "WARN",
+      "detail": "health=500",
+      "latency_ms": 15.0
+    },
+    {
+      "category": "Dashboards",
+      "name": "SIEM-Lite Overview (siem-overview)",
+      "status": "OK",
+      "detail": "15 panels",
+      "latency_ms": 0
+    },
+    {
+      "category": "Dashboards",
+      "name": "SIEM-Lite — Detection (угрозы) (siem-detection)",
+      "status": "OK",
+      "detail": "15 panels",
+      "latency_ms": 0
+    },
+    {
+      "category": "Dashboards",
+      "name": "SIEM-Lite — Alert Management (siem-alerts)",
+      "status": "OK",
+      "detail": "12 panels",
+      "latency_ms": 0
+    },
+    {
+      "category": "Dashboards",
+      "name": "SIEM-Lite — проверки компонентов (siem-validation)",
+      "status": "OK",
+      "detail": "11 panels",
+      "latency_ms": 0
+    },
+    {
+      "category": "Dashboards",
+      "name": "SIEM-Lite — операции (стек) (siem-operations)",
+      "status": "OK",
+      "detail": "19 panels",
+      "latency_ms": 0
+    },
+    {
+      "category": "Dashboards",
+      "name": "SIEM-Lite — Infrastructure (siem-infrastructure)",
+      "status": "OK",
+      "detail": "29 panels",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Events per Minute",
+      "status": "OK",
+      "detail": "SQL → data returned (63ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Events by Severity (24h)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Top Source IPs (24h)",
+      "status": "OK",
+      "detail": "SQL → data returned (46ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Recent Security Events",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Total Events (24h)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Critical Events (24h)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Error Rate (24h)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Events by Source",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Threat Trends by Severity (1h buckets)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → HTTP Status Code Distribution",
+      "status": "OK",
+      "detail": "SQL → data returned (62ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → GeoIP / по IP (без MaxMind — строки «без GeoIP»)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Avg Response Time (ms)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Recent Alerts",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Задержка записи (timestamp → ingest_ts)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Приём событий (EPS): Vector HTTP + siem-parser",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite Overview → Приём событий (EPS): Vector HTTP + siem-parser",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Активные алерты сейчас (siem.alerts)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Критические события 24ч",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Уникальные атакующие IP 24ч",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Alerts fired (detection-engine / s)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Detection events processed / s",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Parse errors (24h)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Brute-force: попытки 401/403 по IP (5-мин окна)",
+      "status": "OK",
+      "detail": "SQL → data returned (46ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Brute-force: топ IP (24ч)",
+      "status": "OK",
+      "detail": "SQL → data returned (63ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → SQL injection: события по времени (T1190)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → SQL injection: детали событий",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Privilege escalation: 401/403 → 200 на admin путях (T1068)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Privilege escalation: timeline",
+      "status": "OK",
+      "detail": "SQL → data returned (62ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Data exfiltration: export/download endpoint activity (T1041)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Data exfiltration: топ IP по загрузкам",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Detection (угрозы) → Account Takeover: brute-force → успешный вход (T1110)",
+      "status": "OK",
+      "detail": "SQL → data returned (62ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → Новые (new)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → В работе (acknowledged)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → Закрыты (resolved)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → False positive",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → Среднее время закрытия (мин)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → % False Positive",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → Алерты по времени (7 дней)",
+      "status": "OK",
+      "detail": "SQL → data returned (46ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → По правилам (7 дней)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → Все активные алерты",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → False Positive по правилам (тренд)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → Prometheus: firing alerts сейчас",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Alert Management → Частота алертов по правилам (heatmap-proxy: часы × правила)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Prometheus: цели scrape (1 = UP)",
+      "status": "OK",
+      "detail": "PromQL → 8 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Проверки данных (ClickHouse)",
+      "status": "OK",
+      "detail": "SQL → data returned (62ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Vector: события HTTP /logs → нормализация → Kafka",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Vector: события HTTP /logs → нормализация → Kafka",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → siem-parser: разбор и выгрузка в Kafka (при вызовах /parse)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → siem-parser: разбор и выгрузка в Kafka (при вызовах /parse)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Detection: обработка событий из Kafka",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Detection: обработка событий из Kafka",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Detection: обработка событий из Kafka",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Redpanda: сжатые байты (общая активность брокера)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Redpanda: сжатые байты (общая активность брокера)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → ClickHouse: строки в siem.events по часам",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Контроль: ошибки парсинга detection",
+      "status": "OK",
+      "detail": "PromQL → 1 results (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Контроль: дроп алертов (полный канал)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — проверки компонентов → Недавние алерты (ClickHouse)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Vector",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Parser",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Redpanda",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → ClickHouse",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Detection",
+      "status": "OK",
+      "detail": "PromQL → 1 results (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Correlator",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Alertmanager",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Prometheus",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → ClickHouse: события профиля (запросы / с)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → ClickHouse: события профиля (запросы / с)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → ClickHouse: события профиля (запросы / с)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Redpanda: записей / с в topic siem.events",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Redpanda: offset consumer group → ClickHouse (siem.events)",
+      "status": "OK",
+      "detail": "PromQL → 12 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Vector: HTTP ingest → Kafka sink (события / с)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Vector: HTTP ingest → Kafka sink (события / с)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Detection: обработка и алерты / с",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Detection: обработка и алерты / с",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Detection: обработка и алерты / с",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → siem-parser: /parse → Kafka (при вызовах)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → siem-parser: /parse → Kafka (при вызовах)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Prometheus: firing alerts",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Ошибки парсинга detection (24ч)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Дропы алертов (24ч)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — операции (стек) → Недавние алерты (ClickHouse)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → CPU Usage (%)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Memory Usage (%)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Disk Usage (%)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Network I/O (bytes/sec)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Network I/O (bytes/sec)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → System Load (1m, 5m, 15m)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → System Load (1m, 5m, 15m)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → System Load (1m, 5m, 15m)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Uptime",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → CPU Temperature (°C)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Disk I/O (reads/writes per sec)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Disk I/O (reads/writes per sec)",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Container CPU Usage (%)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Container Memory Usage (bytes)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Container Network RX/TX",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Container Network RX/TX",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Top 5 Containers by CPU",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Container Count (Running)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → OOM Kills (24h)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Total Container CPU (%)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Total Container Memory (bytes)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Host IP Addresses",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Component UP/DOWN Status",
+      "status": "OK",
+      "detail": "PromQL → 10 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Vector Throughput (events/sec)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Vector Throughput (events/sec)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Rust Parser Latency p99 (ms)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Redpanda Consumer Lag",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → ClickHouse Queries/s",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → ClickHouse Queries/s",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → ClickHouse Queries/s",
+      "status": "OK",
+      "detail": "PromQL → 1 results (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Detection Alerts/sec",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Parse Error Rate (%)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Active Prometheus Alerts",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Detection Events/sec",
+      "status": "OK",
+      "detail": "PromQL → 1 results (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Total Events Ingested (24h)",
+      "status": "OK",
+      "detail": "SQL → data returned (47ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Panel Queries",
+      "name": "SIEM-Lite — Infrastructure → Parse Errors (24h)",
+      "status": "WARN",
+      "detail": "PromQL → empty result (no data yet)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Service Endpoints",
+      "name": "Grafana (3000)",
+      "status": "OK",
+      "detail": "HTTP 200 (32ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Service Endpoints",
+      "name": "Prometheus (9090)",
+      "status": "OK",
+      "detail": "HTTP 200 (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Service Endpoints",
+      "name": "ClickHouse (8123)",
+      "status": "OK",
+      "detail": "HTTP 200 (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Service Endpoints",
+      "name": "Loki (3100)",
+      "status": "OK",
+      "detail": "HTTP 200 (0ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Service Endpoints",
+      "name": "Alertmanager (9093)",
+      "status": "OK",
+      "detail": "HTTP 200 (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Service Endpoints",
+      "name": "Rust Parser (7000)",
+      "status": "OK",
+      "detail": "HTTP 200 (15ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Service Endpoints",
+      "name": "Vector Agg (9598)",
+      "status": "OK",
+      "detail": "HTTP 200 (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Service Endpoints",
+      "name": "Redpanda (9644)",
+      "status": "OK",
+      "detail": "HTTP 200 (16ms)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Prometheus Alerts",
+      "name": "Firing alerts count",
+      "status": "OK",
+      "detail": "1 firing, 1 total",
+      "latency_ms": 0
+    },
+    {
+      "category": "Prometheus Alerts",
+      "name": "  → SIEMIngestionStopped",
+      "status": "OK",
+      "detail": "severity=critical",
+      "latency_ms": 0
+    },
+    {
+      "category": "Provisioning",
+      "name": "datasources.yaml",
+      "status": "OK",
+      "detail": "valid YAML (889 chars)",
+      "latency_ms": 0
+    },
+    {
+      "category": "Provisioning",
+      "name": "dashboards.yaml",
+      "status": "OK",
+      "detail": "valid YAML (248 chars)",
+      "latency_ms": 0
+    }
+  ]
+}

@@ -154,6 +154,9 @@ EXPECTED_DATASOURCES = {
     "alertmanager-siem": "Alertmanager",
 }
 
+# Grafana API endpoint для дашбордов (версия 10.x vs 11.x)
+DASHBOARD_LIST_ENDPOINTS = ["/api/search?query=&type=dash-db", "/api/dashboards/uids"]
+
 SERVICE_ENDPOINTS = [
     ("Grafana", "http://localhost:3000/api/health"),
     ("Prometheus", "http://localhost:9090/-/healthy"),
@@ -161,7 +164,7 @@ SERVICE_ENDPOINTS = [
     ("Loki", "http://localhost:3100/ready"),
     ("Alertmanager", "http://localhost:9093/-/healthy"),
     ("Rust Parser", "http://localhost:7000/health"),
-    ("Vector Agg", "http://localhost:8686"),
+    ("Vector Agg", "http://localhost:9598/metrics"),  # Prometheus metrics endpoint
     ("Redpanda", "http://localhost:9644/v1/status/ready"),
 ]
 
@@ -222,31 +225,47 @@ def check_datasources(client: GrafanaClient, result: ValidationResult, skip_heal
 def check_dashboards(client: GrafanaClient, result: ValidationResult) -> list[dict]:
     """Проверка что все ожидаемые дашборды существуют."""
     dashboards = []
-    try:
-        resp = client.get("/api/dashboards/uids")
-        if resp.status_code != 200:
-            result.record("Dashboards", "List dashboards", "FAIL", f"HTTP {resp.status_code}")
-            return dashboards
+    resp = None
 
-        existing = {d["uid"]: d for d in resp.json()}
+    # Пробуем разные endpoints для разных версий Grafana
+    for endpoint in DASHBOARD_LIST_ENDPOINTS:
+        try:
+            resp = client.get(endpoint)
+            if resp.status_code == 200:
+                break
+        except Exception:
+            continue
 
-        for uid in EXPECTED_DASHBOARDS:
-            if uid in existing:
-                d = existing[uid]
-                # Get full dashboard to count panels
-                full_resp = client.get(f"/api/dashboards/uid/{uid}")
-                panel_count = 0
-                if full_resp.status_code == 200:
-                    dashboard_data = full_resp.json().get("dashboard", {})
-                    panel_count = len(dashboard_data.get("panels", []))
+    if resp is None or resp.status_code != 200:
+        result.record("Dashboards", "List dashboards", "FAIL", f"HTTP {resp.status_code if resp else 'no response'}")
+        return dashboards
 
-                result.record("Dashboards", f"{d['title']} ({uid})", "OK", f"{panel_count} panels")
-                dashboards.append({"uid": uid, "title": d["title"], "panel_count": panel_count, "data": full_resp.json().get("dashboard", {}) if full_resp.status_code == 200 else {}})
-            else:
-                result.record("Dashboards", uid, "FAIL", "not found")
+    # Разные форматы ответа для разных endpoints
+    raw_data = resp.json()
+    if isinstance(raw_data, list) and raw_data and "uid" in raw_data[0]:
+        # /api/search format: [{"uid": "...", "title": "...", "type": "dash-db"}]
+        existing = {d["uid"]: d for d in raw_data if d.get("type") == "dash-db"}
+    elif isinstance(raw_data, list):
+        # /api/dashboards/uids format: [{"uid": "...", "title": "..."}]
+        existing = {d["uid"]: d for d in raw_data}
+    else:
+        result.record("Dashboards", "List dashboards", "FAIL", "Unexpected response format")
+        return dashboards
 
-    except Exception as e:
-        result.record("Dashboards", "List dashboards", "FAIL", str(e))
+    for uid in EXPECTED_DASHBOARDS:
+        if uid in existing:
+            d = existing[uid]
+            # Get full dashboard to count panels
+            full_resp = client.get(f"/api/dashboards/uid/{uid}")
+            panel_count = 0
+            if full_resp.status_code == 200:
+                dashboard_data = full_resp.json().get("dashboard", {})
+                panel_count = len(dashboard_data.get("panels", []))
+
+            result.record("Dashboards", f"{d['title']} ({uid})", "OK", f"{panel_count} panels")
+            dashboards.append({"uid": uid, "title": d["title"], "panel_count": panel_count, "data": full_resp.json().get("dashboard", {}) if full_resp.status_code == 200 else {}})
+        else:
+            result.record("Dashboards", uid, "FAIL", "not found")
 
     return dashboards
 
@@ -287,7 +306,11 @@ def check_panel_queries(client: GrafanaClient, dashboards: list[dict], ds_map: d
 
                 if ds_uid == "prometheus-siem" and query_type == "PromQL":
                     try:
-                        resp = client.get(f"/api/datasources/proxy/uid/{ds_uid}/api/v1/query", params={"query": query, "time": str(int(time.time()))})
+                        # Используем requests напрямую с params
+                        url = f"{client.base_url}/api/datasources/proxy/uid/{ds_uid}/api/v1/query"
+                        start = time.monotonic()
+                        resp = client.session.get(url, params={"query": query, "time": str(int(time.time()))}, timeout=client.timeout)
+                        resp._latency_ms = (time.monotonic() - start) * 1000  # type: ignore[attr-defined]
                         if resp.status_code == 200:
                             data = resp.json()
                             if data.get("status") == "success":
@@ -335,7 +358,13 @@ def check_service_endpoints(result: ValidationResult, timeout: int = 10) -> None
     for name, url in SERVICE_ENDPOINTS:
         try:
             resp = http_get(url, timeout=timeout)
-            if resp.status_code in (200, 204):
+            # Для /metrics endpoints принимаем любой 2xx
+            if "/metrics" in url:
+                if 200 <= resp.status_code < 300:
+                    result.record("Service Endpoints", f"{name} ({url.split(':')[-1].split('/')[0]})", "OK", f"HTTP {resp.status_code} ({resp._latency_ms:.0f}ms)")
+                else:
+                    result.record("Service Endpoints", f"{name} ({url.split(':')[-1].split('/')[0]})", "WARN", f"HTTP {resp.status_code}")
+            elif resp.status_code in (200, 204):
                 result.record("Service Endpoints", f"{name} ({url.split(':')[-1].split('/')[0]})", "OK", f"HTTP {resp.status_code} ({resp._latency_ms:.0f}ms)")
             else:
                 result.record("Service Endpoints", f"{name} ({url.split(':')[-1].split('/')[0]})", "WARN", f"HTTP {resp.status_code}")
@@ -396,7 +425,7 @@ def print_result_entry(entry: dict[str, Any]) -> None:
     status_color = Fore.GREEN if entry["status"] == "OK" else (Fore.RED if entry["status"] == "FAIL" else Fore.YELLOW)
     detail = f" — {entry['detail']}" if entry["detail"] else ""
     latency = f" ({entry['latency_ms']}ms)" if entry.get("latency_ms", 0) > 0 else ""
-    print(f"  {symbol} {Fore.WHITE}{entry['name']}{Style.RESET_ALL}{status_color} [{entry['status']}]{Style.RESET_ALL}{detail}{Fore.GRAY}{latency}{Style.RESET_ALL}")
+    print(f"  {symbol} {Fore.WHITE}{entry['name']}{Style.RESET_ALL}{status_color} [{entry['status']}]{Style.RESET_ALL}{detail}{Style.DIM}{latency}{Style.RESET_ALL}")
 
 
 def print_summary(result: ValidationResult) -> None:
@@ -518,7 +547,7 @@ def main():
     # ── Save report ──────────────────────────────────────────────────────────
     if args.output:
         report_data = result.to_dict()
-        with open(args.output, "w") as f:
+        with open(args.output, "w", encoding="utf-8") as f:
             json.dump(report_data, f, indent=2, ensure_ascii=False)
         print(f"{INFO} Report saved to {Fore.WHITE}{args.output}{Style.RESET_ALL}\n")
 

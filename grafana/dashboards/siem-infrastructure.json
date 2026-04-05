@@ -172,18 +172,18 @@
 
     {
       "id": 107,
-      "title": "CPU Temperature (°C)",
-      "description": "Температура CPU хоста (если доступна через node-exporter). Может быть null если датчик не поддерживается.",
+      "title": "CPU IOWait (%)",
+      "description": "Доля времени CPU, потраченная на ожидание диска. Высокий iowait = узкое место в дисковой подсистеме.",
       "type": "gauge",
       "gridPos": { "x": 12, "y": 9, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "node_hwmon_temp_celsius{job=\"node-exporter\"}", "instant": true }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "avg by(instance) (rate(node_cpu_seconds_total{mode=\"iowait\",job=\"node-exporter\"}[2m])) * 100", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "celsius",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 75 }] },
+          "unit": "percent",
+          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 25 }] },
           "color": { "mode": "thresholds" },
           "min": 0,
           "max": 100
@@ -211,7 +211,7 @@
     {
       "id": 200,
       "title": "Container CPU Usage (%)",
-      "description": "Per-container CPU usage через cAdvisor. Сортировка по убыванию.",
+      "description": "Per-container CPU usage через cAdvisor. На Windows/Docker Desktop метрики могут быть агрегированными.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 13, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -219,8 +219,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum by(name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\",image!=\"\"}[2m])) * 100",
-          "legendFormat": "{{name}}"
+          "expr": "sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100",
+          "legendFormat": "{{container}}"
         }
       ],
       "fieldConfig": {
@@ -236,7 +236,7 @@
     {
       "id": 201,
       "title": "Container Memory Usage (bytes)",
-      "description": "Per-container RAM usage через cAdvisor.",
+      "description": "Per-container RAM usage через cAdvisor. На Windows метрики могут быть без разбивки по контейнерам.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 13, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -244,8 +244,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "container_memory_usage_bytes{job=\"cadvisor\",name!=\"\",image!=\"\"}",
-          "legendFormat": "{{name}}"
+          "expr": "container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"} or container_memory_usage_bytes{job=\"cadvisor\"}",
+          "legendFormat": "{{container}}"
         }
       ],
       "fieldConfig": {
@@ -256,7 +256,7 @@
     {
       "id": 202,
       "title": "Container Network RX/TX",
-      "description": "Сетевой трафик контейнеров (суммарно по всем интерфейсам).",
+      "description": "Сетевой трафик контейнеров. На Windows может показывать агрегированные данные.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 19, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -264,14 +264,14 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum by(name) (rate(container_network_receive_bytes_total{job=\"cadvisor\",name!=\"\",image!=\"\",interface!~\"(lo|docker|veth).*\"}[2m]))",
-          "legendFormat": "{{name}} RX"
+          "expr": "sum by(container) (rate(container_network_receive_bytes_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) or sum(rate(container_network_receive_bytes_total{job=\"cadvisor\"}[2m]))",
+          "legendFormat": "RX"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum by(name) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",name!=\"\",image!=\"\",interface!~\"(lo|docker|veth).*\"}[2m]))",
-          "legendFormat": "{{name}} TX"
+          "expr": "sum by(container) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) or sum(rate(container_network_transmit_bytes_total{job=\"cadvisor\"}[2m]))",
+          "legendFormat": "TX"
         }
       ],
       "fieldConfig": {
@@ -282,7 +282,7 @@
     {
       "id": 203,
       "title": "Top 5 Containers by CPU",
-      "description": "Топ-5 контейнеров по среднему CPU за 5 минут.",
+      "description": "Топ-5 контейнеров по среднему CPU за 5 минут. На Windows может показывать одну агрегированную метрику.",
       "type": "barchart",
       "gridPos": { "x": 12, "y": 19, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -290,7 +290,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "topk(5, sum by(name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\",image!=\"\"}[5m]))) * 100",
+          "expr": "topk(5, sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[5m])) * 100) or topk(5, sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[5m])) * 100)",
           "format": "table",
           "instant": true
         }
@@ -313,7 +313,7 @@
       "gridPos": { "x": 0, "y": 25, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",name!=\"\",image!=\"\"})", "instant": true }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or count(container_memory_usage_bytes{job=\"cadvisor\"})", "instant": true }
       ],
       "fieldConfig": { "defaults": { "color": { "fixedColor": "blue", "mode": "fixed" } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
@@ -327,7 +327,7 @@
       "gridPos": { "x": 4, "y": 25, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(increase(container_oom_events_total{job=\"cadvisor\",name!=\"\",image!=\"\"}[24h]))", "instant": true }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(increase(container_oom_events_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[24h])) or sum(increase(container_oom_events_total{job=\"cadvisor\"}[24h]))", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
@@ -346,7 +346,7 @@
       "gridPos": { "x": 8, "y": 25, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name!=\"\",image!=\"\"}[2m])) * 100", "instant": true }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
@@ -368,7 +368,7 @@
       "gridPos": { "x": 12, "y": 25, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(container_memory_usage_bytes{job=\"cadvisor\",name!=\"\",image!=\"\"})", "instant": true }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or sum(container_memory_usage_bytes{job=\"cadvisor\"})", "instant": true }
       ],
       "fieldConfig": {
         "defaults": { "unit": "bytes", "color": { "fixedColor": "purple", "mode": "fixed" } }

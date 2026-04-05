@@ -3,7 +3,20 @@
     "allow": [
       "Bash(docker compose *)",
       "Bash(cargo generate-lockfile)",
-      "Bash(mkdir *)"
+      "Bash(mkdir *)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(docker ps *)",
+      "Bash(findstr *)",
+      "Bash(curl *)",
+      "Bash(type *)",
+      "Bash(powershell *)",
+      "Bash(docker restart *)",
+      "Bash(convertto-json)",
+      "Bash(timeout *)",
+      "Bash(docker port *)",
+      "Bash(docker exec *)",
+      "Bash(start *)"
     ]
   },
   "$version": 3

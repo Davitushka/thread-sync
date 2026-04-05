@@ -55,7 +55,7 @@
       "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-        "expr": "sum(rate(detection_alerts_fired_total[5m]))", "instant": true }],
+        "expr": "sum(rate(detection_events_processed_total[5m]))", "instant": true }],
       "fieldConfig": { "defaults": { "unit": "cps", "decimals": 2 } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
     },

@@ -352,12 +352,6 @@
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
           "expr": "rate(detection_events_processed_total{job=\"detection-engine\"}[2m])",
           "legendFormat": "detection-engine ev/s"
-        },
-        {
-          "refId": "C",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum(rate(detection_alerts_fired_total[2m]))",
-          "legendFormat": "alerts fired / s"
         }
       ],
       "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
@@ -365,7 +359,7 @@
     },
     {
       "id": 315,
-      "title": "siem-parser: /parse → Kafka (при вызовах)",
+      "title": "siem-parser: events in flight (при вызовах /parse)",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 22, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -373,14 +367,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum(rate(siem_parser_events_parsed_total[2m]))",
-          "legendFormat": "parsed / s"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum(rate(siem_parser_kafka_produced_total[2m]))",
-          "legendFormat": "kafka produced / s"
+          "expr": "siem_parser_events_in_flight",
+          "legendFormat": "events in flight"
         }
       ],
       "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },

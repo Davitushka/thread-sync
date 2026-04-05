@@ -300,8 +300,8 @@
     },
     {
       "id": 15,
-      "title": "Приём событий (EPS): Vector HTTP + siem-parser",
-      "description": "Зелёная линия — типичный путь сидов (Vector /logs). Оранжевая — только при вызовах POST /parse.",
+      "title": "Приём событий (EPS): Vector HTTP + Detection",
+      "description": "Зелёная линия — типичный путь сидов (Vector /logs). Оранжевая — обработка событий detection-engine.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 44, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
@@ -315,8 +315,8 @@
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum(rate(siem_parser_events_parsed_total[1m]))",
-          "legendFormat": "siem-parser parsed /s"
+          "expr": "sum(rate(detection_events_processed_total[1m]))",
+          "legendFormat": "detection-engine ev/s"
         }
       ],
       "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
