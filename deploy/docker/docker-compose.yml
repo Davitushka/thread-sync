@@ -652,7 +652,10 @@ services:
           memory: 256M
 
   # ════════════════════════════════════════════════════════════════
-  # SIEM Admin Panel — управление сервисами через Docker API
+  # SIEM Admin Panel — опциональная панель управления
+  # Не запускается по умолчанию, чтобы основной сценарий оставался
+  # таким же, как раньше: Grafana/Prometheus и весь SIEM-стек.
+  # Запуск: docker compose --profile admin up -d siem-admin
   # UI: http://localhost:8089
   # ════════════════════════════════════════════════════════════════
   siem-admin:
@@ -661,6 +664,7 @@ services:
       dockerfile: deploy/docker/Dockerfile.admin
     container_name: siem-admin
     restart: unless-stopped
+    profiles: ["admin"]
     networks:
       - siem-internal
     ports:

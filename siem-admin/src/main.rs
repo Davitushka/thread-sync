@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -44,6 +43,13 @@ struct PipelineStatus {
 
 const SIEM_PREFIX: &str = "siem-";
 
+/// Имена без префикса `siem-` (как в docker-compose `container_name`).
+const SIEM_CONTAINER_EXCEPTIONS: &[&str] = &["detection-engine"];
+
+fn is_siem_container(name: &str) -> bool {
+    name.starts_with(SIEM_PREFIX) || SIEM_CONTAINER_EXCEPTIONS.contains(&name)
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -57,7 +63,7 @@ async fn main() {
         .expect("failed to connect to Docker socket");
 
     let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap();
 
@@ -106,12 +112,9 @@ async fn shutdown_signal() {
 async fn list_services(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ServiceInfo>>, StatusCode> {
-    let mut filters = HashMap::new();
-    filters.insert("name".to_string(), vec![SIEM_PREFIX.to_string()]);
-
+    // Не используем filters.name=siem-: на части Docker Engine API фильтр даёт пустой список.
     let opts = ListContainersOptions {
         all: true,
-        filters,
         ..Default::default()
     };
 
@@ -123,13 +126,17 @@ async fn list_services(
 
     let mut services: Vec<ServiceInfo> = containers
         .into_iter()
-        .map(|c| {
+        .filter_map(|c| {
             let name = c
                 .names
                 .as_ref()
                 .and_then(|n| n.first())
                 .map(|n| n.trim_start_matches('/').to_string())
                 .unwrap_or_default();
+
+            if !is_siem_container(&name) {
+                return None;
+            }
 
             let ports = c
                 .ports
@@ -157,7 +164,7 @@ async fn list_services(
                     }
                 });
 
-            ServiceInfo {
+            Some(ServiceInfo {
                 name,
                 container_id: c.id.unwrap_or_default().chars().take(12).collect(),
                 state: c.state.unwrap_or_default(),
@@ -166,7 +173,7 @@ async fn list_services(
                 image: c.image.unwrap_or_default(),
                 ports,
                 created: c.created.unwrap_or(0),
-            }
+            })
         })
         .collect();
 
@@ -217,19 +224,21 @@ async fn restart_service(
 }
 
 fn resolve_container(name: &str) -> String {
-    if name.starts_with(SIEM_PREFIX) {
+    if SIEM_CONTAINER_EXCEPTIONS.contains(&name) || name.starts_with(SIEM_PREFIX) {
         name.to_string()
     } else {
-        format!("{}{}", SIEM_PREFIX, name)
+        format!("{SIEM_PREFIX}{name}")
     }
 }
 
 async fn pipeline_status(
     State(state): State<AppState>,
 ) -> Json<PipelineStatus> {
+    // Метрики надёжнее «готовности» API: /health у Vector и /v1/status/ready у Redpanda
+    // на части версий/сборок отвечают иначе; :9598 и :9644 /metrics стабильны.
     let endpoints: Vec<(&str, &str)> = vec![
-        ("Vector Aggregator", "http://siem-vector-aggregator:8686/health"),
-        ("Redpanda", "http://siem-redpanda:9644/v1/status/ready"),
+        ("Vector Aggregator", "http://siem-vector-aggregator:9598/metrics"),
+        ("Redpanda", "http://siem-redpanda:9644/metrics"),
         ("ClickHouse", "http://siem-clickhouse:8123/?query=SELECT%201"),
         ("siem-parser", "http://siem-parser:7000/health"),
         ("Detection Engine", "http://detection-engine:9110/health"),

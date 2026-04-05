@@ -17,7 +17,8 @@
       "Bash(docker port *)",
       "Bash(docker exec *)",
       "Bash(start *)",
-      "Read(c:\\Users\\Admin\\Prоекты\\siem-lite\\deploy\\k8s/**)"
+      "Read(c:\\Users\\Admin\\Prоекты\\siem-lite\\deploy\\k8s/**)",
+      "Bash(dir *)"
     ]
   },
   "$version": 3

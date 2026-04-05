@@ -122,6 +122,10 @@ tr:hover td { background: rgba(29,161,242,.05); }
 
   <!-- Checklist Tab -->
   <div id="tab-checklist" style="display:none">
+    <div id="checklistBanner" class="panel" style="display:none;margin-bottom:16px;border-color:var(--orange)">
+      <div class="panel-header" style="color:var(--yellow)">Внимание</div>
+      <div style="padding:14px 16px;font-size:13px;line-height:1.5" id="checklistBannerText"></div>
+    </div>
     <div class="panel">
       <div class="panel-header"><span>Grafana Dashboard Requirements</span></div>
       <div id="checklistContent" class="checklist">
@@ -135,31 +139,58 @@ tr:hover td { background: rgba(29,161,242,.05); }
 const API = '';
 let services = [];
 let pipeline = null;
+let servicesError = null;
 
-function switchTab(tab) {
+function svc(name) { return services.find(s => s.name === name); }
+function isRunningState(s) {
+  return s && (String(s.state || '').toLowerCase() === 'running');
+}
+function runningHas(name) { return isRunningState(svc(name)); }
+/** Контейнер в Up и не помечен (unhealthy) в строке статуса Docker */
+function runningOk(name) {
+  const s = svc(name);
+  if (!isRunningState(s)) return false;
+  const st = String(s.status || '').toLowerCase();
+  if (st.includes('unhealthy')) return false;
+  return true;
+}
+
+async function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
   ['services','pipeline','checklist'].forEach(t => {
     document.getElementById('tab-'+t).style.display = t===tab ? '' : 'none';
   });
-  if (tab === 'pipeline' && !pipeline) fetchPipeline();
-  if (tab === 'checklist') renderChecklist();
+  if (tab === 'pipeline' && !pipeline) await fetchPipeline();
+  if (tab === 'checklist') await refreshChecklistTab();
 }
 
 async function fetchServices() {
+  servicesError = null;
   try {
     const r = await fetch(API+'/api/services');
-    services = await r.json();
+    if (!r.ok) {
+      servicesError = `HTTP ${r.status}`;
+      services = [];
+      renderServices();
+      return;
+    }
+    const data = await r.json();
+    services = Array.isArray(data) ? data : [];
     renderServices();
   } catch(e) {
+    servicesError = e.message;
+    services = [];
     document.getElementById('servicesBody').innerHTML =
       `<tr><td colspan="7" style="color:var(--red)">Error: ${e.message}</td></tr>`;
   }
 }
 
 function renderServices() {
-  const running = services.filter(s => s.state === 'running').length;
-  document.getElementById('serviceCount').textContent = `${running}/${services.length} running`;
+  const running = services.filter(s => String(s.state||'').toLowerCase() === 'running').length;
+  document.getElementById('serviceCount').textContent = servicesError
+    ? `ошибка: ${servicesError}`
+    : `${running}/${services.length} running`;
 
   const html = services.map(s => {
     const stateClass = s.state === 'running' ? 'running' : s.state === 'exited' ? 'exited' : 'created';
@@ -167,7 +198,7 @@ function renderServices() {
       ? `<span class="badge ${s.health}">${s.health}</span>`
       : '<span style="color:var(--text2)">—</span>';
     const ports = s.ports.length > 0 ? s.ports.join(', ') : '—';
-    const isRunning = s.state === 'running';
+    const isRunning = String(s.state||'').toLowerCase() === 'running';
 
     return `<tr>
       <td><strong>${s.name}</strong></td>
@@ -204,8 +235,9 @@ async function fetchPipeline() {
     pipeline = await r.json();
     renderPipeline();
   } catch(e) {
-    document.getElementById('pipelineGrid').innerHTML =
-      `<div style="color:var(--red);padding:20px">Error: ${e.message}</div>`;
+    pipeline = { checks: [], healthy: false };
+    const grid = document.getElementById('pipelineGrid');
+    if (grid) grid.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -228,56 +260,73 @@ function renderPipeline() {
   document.getElementById('pipelineGrid').innerHTML = html;
 }
 
+async function refreshChecklistTab() {
+  if (!pipeline) await fetchPipeline();
+  renderChecklist();
+}
+
 function renderChecklist() {
-  const running = new Set(services.filter(s=>s.state==='running').map(s=>s.name));
-  const healthy = new Set(services.filter(s=>s.health==='healthy').map(s=>s.name));
+  const banner = document.getElementById('checklistBanner');
+  const bannerText = document.getElementById('checklistBannerText');
+  if (servicesError) {
+    banner.style.display = '';
+    bannerText.innerHTML = 'Не удалось получить список контейнеров: <code>' + escapeHtml(servicesError) + '</code>. Проверьте, что контейнер <code>siem-admin</code> смонтировал Docker socket и стек запущен.';
+  } else if (services.length === 0) {
+    banner.style.display = '';
+    bannerText.innerHTML = 'Список контейнеров пуст. Запустите стек: <code>docker compose -f deploy/docker/docker-compose.yml up -d</code>, затем нажмите Refresh.';
+  } else {
+    banner.style.display = 'none';
+  }
+
   const pOk = new Set((pipeline?.checks||[]).filter(c=>c.ok).map(c=>c.name));
+  const chUp = pOk.has('ClickHouse');
+  const eventsDataHint = chUp && runningHas('siem-log-generator');
 
   const dashboards = [
     { title: 'siem-overview', items: [
-      { text: 'Vector Aggregator running', ok: running.has('siem-vector-aggregator') },
-      { text: 'Redpanda running & healthy', ok: healthy.has('siem-redpanda') },
-      { text: 'ClickHouse running & healthy', ok: healthy.has('siem-clickhouse') },
-      { text: 'Log Generator running (continuous data)', ok: running.has('siem-log-generator') },
-      { text: 'siem.events populated (Kafka → CH MV)', ok: pOk.has('ClickHouse') },
-      { text: 'siem.events_per_minute_agg (materialized view)', ok: pOk.has('ClickHouse') },
-      { text: 'siem.top_ips_agg (materialized view)', ok: pOk.has('ClickHouse') },
-      { text: 'Prometheus scraping Vector metrics', ok: pOk.has('Prometheus') },
-      { text: 'Detection Engine metrics in Prometheus', ok: running.has('detection-engine') },
+      { text: 'Vector Aggregator running', ok: runningHas('siem-vector-aggregator') },
+      { text: 'Redpanda running & healthy', ok: runningOk('siem-redpanda') },
+      { text: 'ClickHouse running & healthy', ok: runningOk('siem-clickhouse') },
+      { text: 'Log Generator running (continuous data)', ok: runningHas('siem-log-generator') },
+      { text: 'siem.events populated (Kafka → CH MV) — нужен поток + ClickHouse consumer', ok: eventsDataHint },
+      { text: 'siem.events_per_minute_agg (MV заполняется при вставках в siem.events)', ok: eventsDataHint },
+      { text: 'siem.top_ips_agg (MV при событиях с source_ip)', ok: eventsDataHint },
+      { text: 'Prometheus отвечает (скрейп Vector — в Prometheus /targets)', ok: pOk.has('Prometheus') },
+      { text: 'Detection Engine запущен (метрики в Prometheus)', ok: runningHas('detection-engine') },
     ]},
     { title: 'siem-detection', items: [
-      { text: 'Detection Engine running', ok: running.has('detection-engine') },
-      { text: 'Correlator running', ok: running.has('siem-correlator') },
-      { text: 'siem.events has status_code, url_path, source_ip', ok: pOk.has('ClickHouse') },
-      { text: 'siem.alerts populated (Alertmanager → Parser webhook)', ok: pOk.has('siem-parser') },
-      { text: 'detection_events_processed_total in Prometheus', ok: running.has('detection-engine') },
-      { text: 'detection_parse_errors_total in Prometheus', ok: running.has('detection-engine') },
+      { text: 'Detection Engine running', ok: runningHas('detection-engine') },
+      { text: 'Correlator running', ok: runningHas('siem-correlator') },
+      { text: 'ClickHouse доступен (поля в событиях — см. Grafana)', ok: chUp },
+      { text: 'siem-parser + Alertmanager (путь алертов в siem.alerts)', ok: pOk.has('siem-parser') && pOk.has('Alertmanager') },
+      { text: 'detection_events_processed_total (есть при работе detector)', ok: runningHas('detection-engine') },
+      { text: 'detection_parse_errors_total', ok: runningHas('detection-engine') },
     ]},
     { title: 'siem-infrastructure', items: [
-      { text: 'node-exporter running (CPU/RAM/Disk metrics)', ok: running.has('siem-node-exporter') },
-      { text: 'cAdvisor running (container metrics)', ok: running.has('siem-cadvisor') },
-      { text: 'Prometheus running & scraping infra targets', ok: pOk.has('Prometheus') },
+      { text: 'node-exporter running (CPU/RAM/Disk metrics)', ok: runningHas('siem-node-exporter') },
+      { text: 'cAdvisor running (container metrics)', ok: runningHas('siem-cadvisor') },
+      { text: 'Prometheus running', ok: pOk.has('Prometheus') },
     ]},
     { title: 'siem-operations', items: [
-      { text: 'All services UP in Prometheus', ok: pOk.has('Prometheus') },
-      { text: 'Vector metrics (vector_component_received_events_total)', ok: running.has('siem-vector-aggregator') },
-      { text: 'Redpanda metrics (partitions, consumer lag)', ok: running.has('siem-redpanda') },
+      { text: 'Prometheus /-/healthy', ok: pOk.has('Prometheus') },
+      { text: 'Vector metrics (vector_component_* на :9598)', ok: runningHas('siem-vector-aggregator') },
+      { text: 'Redpanda metrics (:9644)', ok: runningHas('siem-redpanda') },
       { text: 'ClickHouse metrics (:9363)', ok: pOk.has('ClickHouse') },
-      { text: 'Detection Engine metrics', ok: running.has('detection-engine') },
-      { text: 'Correlator metrics', ok: running.has('siem-correlator') },
+      { text: 'Detection Engine metrics (:9110)', ok: runningHas('detection-engine') },
+      { text: 'Correlator metrics (:9111)', ok: runningHas('siem-correlator') },
     ]},
     { title: 'siem-alert-management', items: [
-      { text: 'siem.alerts has data (status, severity, triggered_at)', ok: pOk.has('siem-parser') },
+      { text: 'siem.alerts — данные после firing алертов (не только health)', ok: chUp },
       { text: 'Alertmanager running', ok: pOk.has('Alertmanager') },
-      { text: 'Case Management running (webhook receiver)', ok: pOk.has('Case Management') },
+      { text: 'Case Management (webhook)', ok: pOk.has('Case Management') },
     ]},
     { title: 'siem-validation', items: [
-      { text: 'Prometheus: all scrape targets UP', ok: pOk.has('Prometheus') },
-      { text: 'ClickHouse: siem.events has data', ok: pOk.has('ClickHouse') },
-      { text: 'ClickHouse: siem.alerts has data', ok: pOk.has('ClickHouse') },
-      { text: 'Vector: HTTP ingest metrics', ok: running.has('siem-vector-aggregator') },
-      { text: 'Parser: in-flight metrics', ok: pOk.has('siem-parser') },
-      { text: 'Detection: event/error counters', ok: running.has('detection-engine') },
+      { text: 'Prometheus отвечает', ok: pOk.has('Prometheus') },
+      { text: 'ClickHouse HTTP (8123)', ok: chUp },
+      { text: 'Наличие строк в siem.events / siem.alerts — проверьте в Grafana Explore', ok: eventsDataHint },
+      { text: 'Vector running', ok: runningHas('siem-vector-aggregator') },
+      { text: 'Parser /health', ok: pOk.has('siem-parser') },
+      { text: 'Detection running', ok: runningHas('detection-engine') },
     ]},
   ];
 
@@ -303,6 +352,10 @@ function renderChecklist() {
   }
 
   document.getElementById('checklistContent').innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 async function refreshAll() {
