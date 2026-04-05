@@ -2,6 +2,8 @@
 rust-parser/target/
 rust-parser/Cargo.lock
 log-generator/target/
+detection-engine-rs/target/
+case-management-rs/target/
 
 # Secrets — НИКОГДА не коммитим в репозиторий
 # Файлы секретов в корне (устаревшие пути)
@@ -43,9 +45,9 @@ Thumbs.db
 # Frontend (case-management UI)
 case-management/web/node_modules/
 
-# Go build artifacts
+# Go build artifacts (legacy, kept for reference)
 detection-engine/detection-engine
 detection-engine/correlator
 detection-engine/*.exe
-detection-engine/detector.exe
-detection-engine/correlator.exe
+case-management/casemgmt
+case-management/*.exe

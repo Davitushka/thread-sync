@@ -1,0 +1,38 @@
+# detection-engine-rs: detector + correlator binaries (Rust, rdkafka + Redis)
+FROM rust:1.88-slim-bookworm AS deps
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake pkg-config \
+    libssl-dev libsasl2-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY detection-engine-rs/Cargo.toml detection-engine-rs/Cargo.lock* ./
+RUN mkdir -p src/bin src/rules \
+    && echo "pub mod alert; pub mod engine; pub mod event; pub mod metrics; pub mod rules; pub mod state_store;" > src/lib.rs \
+    && echo "fn main(){}" > src/bin/detector.rs \
+    && echo "fn main(){}" > src/bin/correlator.rs \
+    && echo "" > src/alert.rs && echo "" > src/engine.rs && echo "" > src/event.rs \
+    && echo "" > src/metrics.rs && echo "" > src/state_store.rs \
+    && echo "" > src/rules/mod.rs
+RUN cargo build --release 2>&1 || true
+RUN rm -rf src
+
+FROM deps AS builder
+COPY detection-engine-rs/src ./src
+RUN touch src/lib.rs src/bin/detector.rs src/bin/correlator.rs
+RUN cargo build --release --bin detector --bin correlator 2>&1
+RUN test -x target/release/detector && test -x target/release/correlator
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 libsasl2-2 ca-certificates wget \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /build/target/release/detector /usr/local/bin/detector
+COPY --from=builder /build/target/release/correlator /usr/local/bin/correlator
+EXPOSE 9110 9111
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://localhost:9110/health || exit 1
+USER nobody:nogroup
+ENTRYPOINT ["/usr/local/bin/detector"]

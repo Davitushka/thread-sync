@@ -197,8 +197,9 @@ services:
       - "8088:8088"
     environment:
       <<: *common-env
+      RUST_LOG: case_management_rs=info
       CASEMGMT_DATABASE_URL: postgres://siem_soc:PostgresCases123!@postgres:5432/soc_cases?sslmode=disable
-      CASEMGMT_HTTP_ADDR: ":8088"
+      CASEMGMT_HTTP_ADDR: "0.0.0.0:8088"
       CASEMGMT_GRAFANA_EXTERNAL_URL: "http://localhost:3000"
       CASEMGMT_AUTO_CASE_FROM_ALERTS: "true"
       CASEMGMT_AUTO_CASE_MIN_SEVERITY: "medium"
@@ -510,17 +511,18 @@ services:
           cpus: "1"
           memory: 512M
 
-  # ── Detection Engine ─────────────────────────────────────────────────────
+  # ── Detection Engine (Rust) ──────────────────────────────────────────────
   detection-engine:
     build:
-      context: ../../detection-engine
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.detection
     container_name: detection-engine
     restart: unless-stopped
     networks:
       - siem-internal
     environment:
       <<: *common-env
+      RUST_LOG: detection_engine_rs=info,detector=info
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       KAFKA_TOPIC: siem.events
       KAFKA_GROUP_ID: detection-engine
@@ -609,11 +611,11 @@ services:
           cpus: "0.3"
           memory: 128M
 
-  # ── Correlator ────────────────────────────────────────────────────────────
+  # ── Correlator (Rust) ────────────────────────────────────────────────────
   correlator:
     build:
-      context: ../../detection-engine
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.detection
     container_name: siem-correlator
     restart: unless-stopped
     entrypoint: ["/usr/local/bin/correlator"]
@@ -621,6 +623,7 @@ services:
       - siem-internal
     environment:
       <<: *common-env
+      RUST_LOG: detection_engine_rs=info,correlator=info
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       KAFKA_TOPIC: siem.events
       KAFKA_GROUP_ID: correlator
