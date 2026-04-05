@@ -222,24 +222,24 @@ VALUES
 -- 5. Тестовый алерт в siem.alerts
 -- ============================================================
 INSERT INTO siem.alerts
-  (alert_id, triggered_at, rule_id, rule_title, severity, description,
+  (alert_id, fingerprint, triggered_at, rule_id, rule_title, severity, description,
    source_ip, user_id, event_ids, mitre_tags, status)
 VALUES
-    (generateUUIDv4(), now() - INTERVAL 5 MINUTE,
+    (generateUUIDv4(), 'seed-brute-1', now() - INTERVAL 5 MINUTE,
      'brute_force_api', 'Brute-force on API auth', 'critical',
      '18 failed auth attempts in 2 minutes from 185.220.101.1',
      toIPv4('185.220.101.1'), 'user-3',
      [],
      ['T1110', 'T1110.001'],
      'new'),
-    (generateUUIDv4(), now() - INTERVAL 2 MINUTE,
+    (generateUUIDv4(), 'seed-sqli-1', now() - INTERVAL 2 MINUTE,
      'sql_injection', 'SQL injection attempt', 'critical',
      'SQL keywords in URL from 91.108.4.200: UNION SELECT, DROP TABLE, xp_cmdshell',
      toIPv4('91.108.4.200'), NULL,
      [],
      ['T1190'],
      'new'),
-    (generateUUIDv4(), now() - INTERVAL 1 MINUTE,
+    (generateUUIDv4(), 'seed-priv-1', now() - INTERVAL 1 MINUTE,
      'privilege_escalation', 'Privilege escalation attempt', 'high',
      'IP 45.55.210.33 accessed /api/admin after 401 denial',
      toIPv4('45.55.210.33'), 'user-2',

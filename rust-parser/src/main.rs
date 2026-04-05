@@ -58,6 +58,7 @@ struct AlertmanagerAlert {
     ends_at: Option<String>,
     #[serde(rename = "generatorURL")]
     generator_url: Option<String>,
+    #[serde(default)]
     fingerprint: Option<String>,
 }
 
@@ -316,13 +317,16 @@ async fn handle_alerts_ingest(
             .filter(|s| !s.is_empty())
             .collect();
 
-        // Генерируем UUID v4 для каждого алерта — ClickHouse ожидает тип UUID.
-        // Fingerprint Alertmanager является 64-bit hex, не UUID-совместим, поэтому
-        // просто генерируем новый UUID v4 при каждом срабатывании.
+        // UUID v4 для строки в ClickHouse; fingerprint Alertmanager храним отдельно для кейсов/SOC.
         let alert_id = Uuid::new_v4().to_string();
+        let fingerprint = alert
+            .fingerprint
+            .clone()
+            .unwrap_or_default();
 
         let mut row = serde_json::json!({
             "alert_id": alert_id,
+            "fingerprint": fingerprint,
             "triggered_at": alert.starts_at,
             "rule_id": rule_id,
             "rule_title": rule_title,

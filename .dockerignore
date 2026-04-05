@@ -1,0 +1,5 @@
+.git
+**/node_modules
+rust-parser/target
+**/__pycache__
+.pytest_cache

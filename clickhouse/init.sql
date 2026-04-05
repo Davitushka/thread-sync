@@ -214,6 +214,7 @@ GROUP BY hour, source_ip;
 CREATE TABLE IF NOT EXISTS siem.alerts
 (
     alert_id        UUID                    DEFAULT generateUUIDv4(),
+    fingerprint     String                  DEFAULT '' COMMENT 'Alertmanager fingerprint (SOC linkage)',
     triggered_at    DateTime64(3, 'UTC'),
     rule_id         String,
     rule_title      String,

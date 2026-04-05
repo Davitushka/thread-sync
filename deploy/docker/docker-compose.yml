@@ -38,6 +38,8 @@ volumes:
     driver: local
   geoip-data:
     driver: local
+  postgres-data:
+    driver: local
 
 secrets:
   smtp_password:
@@ -155,6 +157,64 @@ services:
       nofile:
         soft: 262144
         hard: 262144
+
+  # ════════════════════════════════════════════════════════════════
+  # PostgreSQL — кейсы SOC (case-management)
+  # ════════════════════════════════════════════════════════════════
+  postgres:
+    image: postgres:16-alpine
+    container_name: siem-postgres
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "5432:5432"
+    environment:
+      <<: *common-env
+      POSTGRES_USER: siem_soc
+      POSTGRES_PASSWORD: PostgresCases123!
+      POSTGRES_DB: soc_cases
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U siem_soc -d soc_cases"]
+
+  # ════════════════════════════════════════════════════════════════
+  # Case management — API + UI (кейсы, Alertmanager webhook)
+  # ════════════════════════════════════════════════════════════════
+  case-management:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.casemgmt
+    container_name: siem-case-management
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "8088:8088"
+    environment:
+      <<: *common-env
+      CASEMGMT_DATABASE_URL: postgres://siem_soc:PostgresCases123!@postgres:5432/soc_cases?sslmode=disable
+      CASEMGMT_HTTP_ADDR: ":8088"
+      CASEMGMT_GRAFANA_EXTERNAL_URL: "http://localhost:3000"
+      CASEMGMT_AUTO_CASE_FROM_ALERTS: "true"
+      CASEMGMT_AUTO_CASE_MIN_SEVERITY: "medium"
+      CASEMGMT_DEFAULT_ACTOR: "alertmanager"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8088/health"]
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
   # ════════════════════════════════════════════════════════════════
   # Redis — состояние для detection-engine / correlator
@@ -331,6 +391,9 @@ services:
       - smtp_password
       - slack_webhook_url
       - pagerduty_key
+    depends_on:
+      case-management:
+        condition: service_started
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yaml'
       - '--storage.path=/alertmanager'
