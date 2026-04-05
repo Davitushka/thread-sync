@@ -40,6 +40,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .tab.active { background: var(--surface2); color: var(--text); border-color: var(--border); }
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .panel-header { padding: 12px 16px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+.tool-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tool-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.tool-card-body { padding: 14px 16px; }
+.tool-card-title { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom: 8px; }
+.tool-card-title strong { font-size: 14px; }
+.tool-card-desc { font-size: 12px; color: var(--text2); line-height: 1.45; margin-bottom: 12px; }
+.tool-card-meta { font-size: 12px; color: var(--text2); margin-bottom: 10px; }
+.tool-card-actions { display:flex; gap: 8px; flex-wrap: wrap; }
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; padding: 10px 16px; font-size: 12px; text-transform: uppercase; color: var(--text2); border-bottom: 1px solid var(--border); }
 td { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -91,6 +99,32 @@ tr:hover td { background: rgba(29,161,242,.05); }
 
   <!-- Services Tab -->
   <div id="tab-services">
+    <div class="tool-grid">
+      <div class="tool-card">
+        <div class="panel-header">
+          <span>Load Generator</span>
+          <span id="stressBadge" class="badge created">unknown</span>
+        </div>
+        <div class="tool-card-body">
+          <div class="tool-card-title">
+            <strong>`siem-stress`</strong>
+            <span id="stressStateText" class="refresh-info">not loaded</span>
+          </div>
+          <div class="tool-card-desc">
+            Генерирует нормальный трафик, brute-force, SQL injection, privilege escalation,
+            rate-limit bursts и slow queries для наполнения Grafana-дашбордов.
+          </div>
+          <div class="tool-card-meta" id="stressModeText">
+            Режим по умолчанию: <code>all</code>, запуск на 300 секунд.
+          </div>
+          <div class="tool-card-actions">
+            <button class="btn success" id="stressRunBtn" onclick="runStress()">Run</button>
+            <button class="btn" id="stressRestartBtn" onclick="restartStress()">Restart</button>
+            <button class="btn danger" id="stressStopBtn" onclick="stopStress()">Stop</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="panel">
       <div class="panel-header">
         <span>Docker Services</span>
@@ -142,6 +176,7 @@ let pipeline = null;
 let servicesError = null;
 
 function svc(name) { return services.find(s => s.name === name); }
+function stressSvc() { return svc('siem-stress'); }
 function isRunningState(s) {
   return s && (String(s.state || '').toLowerCase() === 'running');
 }
@@ -186,6 +221,50 @@ async function fetchServices() {
   }
 }
 
+function renderStressTool() {
+  const s = stressSvc();
+  const badge = document.getElementById('stressBadge');
+  const stateText = document.getElementById('stressStateText');
+  const runBtn = document.getElementById('stressRunBtn');
+  const restartBtn = document.getElementById('stressRestartBtn');
+  const stopBtn = document.getElementById('stressStopBtn');
+
+  if (!s) {
+    badge.className = 'badge created';
+    badge.textContent = 'missing';
+    stateText.textContent = 'container not created yet';
+    runBtn.disabled = true;
+    restartBtn.disabled = true;
+    stopBtn.disabled = true;
+    return;
+  }
+
+  const state = String(s.state || '').toLowerCase();
+  const status = String(s.status || '');
+  if (state === 'running') {
+    badge.className = 'badge running';
+    badge.textContent = 'running';
+    stateText.textContent = status || 'running';
+    runBtn.disabled = true;
+    restartBtn.disabled = false;
+    stopBtn.disabled = false;
+  } else if (state === 'exited') {
+    badge.className = 'badge created';
+    badge.textContent = 'ready';
+    stateText.textContent = status || 'completed and ready to rerun';
+    runBtn.disabled = false;
+    restartBtn.disabled = false;
+    stopBtn.disabled = true;
+  } else {
+    badge.className = 'badge created';
+    badge.textContent = state || 'unknown';
+    stateText.textContent = status || 'not running';
+    runBtn.disabled = false;
+    restartBtn.disabled = false;
+    stopBtn.disabled = !isRunningState(s);
+  }
+}
+
 function renderServices() {
   const running = services.filter(s => String(s.state||'').toLowerCase() === 'running').length;
   document.getElementById('serviceCount').textContent = servicesError
@@ -217,16 +296,46 @@ function renderServices() {
   }).join('');
 
   document.getElementById('servicesBody').innerHTML = html || '<tr><td colspan="7" style="color:var(--text2)">No SIEM containers found</td></tr>';
+  renderStressTool();
 }
 
 async function doAction(name, action) {
   try {
     const r = await fetch(`${API}/api/services/${name}/${action}`, {method:'POST'});
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    setTimeout(fetchServices, 1000);
+    setTimeout(refreshAll, 1200);
   } catch(e) {
     alert(`Failed to ${action} ${name}: ${e.message}`);
   }
+}
+
+function requireStressService() {
+  const s = stressSvc();
+  if (!s) {
+    alert('Контейнер siem-stress не найден. Сначала выполните docker compose up -d siem-stress.');
+    return null;
+  }
+  return s;
+}
+
+async function runStress() {
+  const s = requireStressService();
+  if (!s) return;
+  const action = isRunningState(s) ? 'restart' : 'start';
+  await doAction('siem-stress', action);
+}
+
+async function restartStress() {
+  const s = requireStressService();
+  if (!s) return;
+  await doAction('siem-stress', 'restart');
+}
+
+async function stopStress() {
+  const s = requireStressService();
+  if (!s) return;
+  if (!isRunningState(s)) return;
+  await doAction('siem-stress', 'stop');
 }
 
 async function fetchPipeline() {
@@ -280,14 +389,15 @@ function renderChecklist() {
 
   const pOk = new Set((pipeline?.checks||[]).filter(c=>c.ok).map(c=>c.name));
   const chUp = pOk.has('ClickHouse');
-  const eventsDataHint = chUp && runningHas('siem-log-generator');
+  const anyTrafficGenRunning = runningHas('siem-log-generator') || runningHas('siem-stress');
+  const eventsDataHint = chUp && anyTrafficGenRunning;
 
   const dashboards = [
     { title: 'siem-overview', items: [
       { text: 'Vector Aggregator running', ok: runningHas('siem-vector-aggregator') },
       { text: 'Redpanda running & healthy', ok: runningOk('siem-redpanda') },
       { text: 'ClickHouse running & healthy', ok: runningOk('siem-clickhouse') },
-      { text: 'Log Generator running (continuous data)', ok: runningHas('siem-log-generator') },
+      { text: 'Traffic generator running (`siem-log-generator` or `siem-stress`)', ok: anyTrafficGenRunning },
       { text: 'siem.events populated (Kafka → CH MV) — нужен поток + ClickHouse consumer', ok: eventsDataHint },
       { text: 'siem.events_per_minute_agg (MV заполняется при вставках в siem.events)', ok: eventsDataHint },
       { text: 'siem.top_ips_agg (MV при событиях с source_ip)', ok: eventsDataHint },
@@ -323,7 +433,7 @@ function renderChecklist() {
     { title: 'siem-validation', items: [
       { text: 'Prometheus отвечает', ok: pOk.has('Prometheus') },
       { text: 'ClickHouse HTTP (8123)', ok: chUp },
-      { text: 'Наличие строк в siem.events / siem.alerts — проверьте в Grafana Explore', ok: eventsDataHint },
+      { text: 'Наличие строк в siem.events / siem.alerts — нужен `siem-stress` или `siem-log-generator`', ok: eventsDataHint },
       { text: 'Vector running', ok: runningHas('siem-vector-aggregator') },
       { text: 'Parser /health', ok: pOk.has('siem-parser') },
       { text: 'Detection running', ok: runningHas('detection-engine') },
@@ -362,6 +472,7 @@ async function refreshAll() {
   await Promise.all([fetchServices(), fetchPipeline()]);
   document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
   renderChecklist();
+  renderStressTool();
 }
 
 refreshAll();

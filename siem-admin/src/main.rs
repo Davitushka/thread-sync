@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::{header, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bollard::container::{ListContainersOptions, StartContainerOptions, StopContainerOptions};
@@ -44,7 +44,7 @@ struct PipelineStatus {
 const SIEM_PREFIX: &str = "siem-";
 
 /// Имена без префикса `siem-` (как в docker-compose `container_name`).
-const SIEM_CONTAINER_EXCEPTIONS: &[&str] = &["detection-engine"];
+const SIEM_CONTAINER_EXCEPTIONS: &[&str] = &["detection-engine", "siem-stress"];
 
 fn is_siem_container(name: &str) -> bool {
     name.starts_with(SIEM_PREFIX) || SIEM_CONTAINER_EXCEPTIONS.contains(&name)
@@ -113,7 +113,7 @@ async fn list_services(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ServiceInfo>>, StatusCode> {
     // Не используем filters.name=siem-: на части Docker Engine API фильтр даёт пустой список.
-    let opts = ListContainersOptions {
+    let opts = ListContainersOptions::<String> {
         all: true,
         ..Default::default()
     };
