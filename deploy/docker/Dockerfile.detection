@@ -5,7 +5,7 @@ WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake pkg-config \
-    libssl-dev libsasl2-dev ca-certificates \
+    libssl-dev libsasl2-dev libcurl4-openssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY detection-engine-rs/Cargo.toml detection-engine-rs/Cargo.lock* ./
@@ -27,7 +27,7 @@ RUN test -x target/release/detector && test -x target/release/correlator
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libssl3 libsasl2-2 ca-certificates wget \
+    libssl3 libsasl2-2 libcurl4 ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /build/target/release/detector /usr/local/bin/detector
 COPY --from=builder /build/target/release/correlator /usr/local/bin/correlator
