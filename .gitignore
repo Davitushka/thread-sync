@@ -5,6 +5,7 @@ log-generator/target/
 detection-engine-rs/target/
 case-management-rs/target/
 siem-admin/target/
+stress/target/
 
 # Secrets — НИКОГДА не коммитим в репозиторий
 # Файлы секретов в корне (устаревшие пути)

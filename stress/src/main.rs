@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
+use chrono::{SecondsFormat, Utc};
 use rand::Rng;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
@@ -162,13 +162,6 @@ fn ts_now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
-fn ts_past(max_days: i64) -> String {
-    let mut rng = rand::thread_rng();
-    let mins = rng.gen_range(0..(max_days * 24 * 60).max(1));
-    (Utc::now() - ChronoDuration::minutes(mins))
-        .to_rfc3339_opts(SecondsFormat::Millis, true)
-}
-
 fn pick<'a, R: Rng>(rng: &mut R, items: &'a [&'a str]) -> &'a str {
     items[rng.gen_range(0..items.len())]
 }
@@ -207,6 +200,7 @@ fn level_for_status(status_code: i32) -> &'static str {
 fn build_dotnet_event(
     timestamp: String,
     level: &str,
+    event_type: &str,
     message: String,
     host: &str,
     ip: &str,
@@ -235,6 +229,7 @@ fn build_dotnet_event(
     json!({
         "Timestamp": timestamp,
         "Level": level,
+        "event_type": event_type,
         "Message": message,
         "SourceType": "dotnet",
         "Host": host,
@@ -255,6 +250,7 @@ fn build_postgres_event(
     json!({
         "Timestamp": timestamp,
         "Level": level,
+        "event_type": "database",
         "Message": message,
         "SourceType": "postgresql",
         "Host": host,
@@ -281,6 +277,7 @@ fn build_redis_event(
     json!({
         "Timestamp": timestamp,
         "Level": level,
+        "event_type": "cache",
         "Message": message,
         "SourceType": "redis",
         "Host": host,
@@ -309,8 +306,9 @@ fn build_nginx_event(
         r#"{ip} - - [{timestamp}] "{method} {path} HTTP/1.1" {status} {bytes_sent}"#
     );
     json!({
-        "Timestamp": ts_now(),
+        "Timestamp": timestamp,
         "Level": level,
+        "event_type": "network",
         "Message": msg,
         "SourceType": "nginx",
         "Host": host,
@@ -348,6 +346,7 @@ fn gen_normal<R: Rng>(rng: &mut R) -> Vec<Value> {
             vec![build_dotnet_event(
                 ts_now(),
                 level_for_status(status_code),
+                "application",
                 format!("HTTP {method} {path} responded {status_code} in {elapsed:.2}ms"),
                 host,
                 ip,
@@ -438,6 +437,7 @@ fn gen_brute_force<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> 
         build_dotnet_event(
             ts_now(),
             if status_code == 403 { "Error" } else { "Warning" },
+            "auth",
             format!("Authentication failed for user admin from {ip}"),
             pick(rng, PRODUCT_HOSTS),
             ip,
@@ -488,6 +488,7 @@ fn gen_sql_injection<R: Rng>(rng: &mut R) -> Vec<Value> {
         build_dotnet_event(
             ts_now(),
             "Error",
+            "application",
             format!("HTTP GET {path} responded {status_code} in {elapsed:.2}ms; detected payload {message}"),
             pick(rng, PRODUCT_HOSTS),
             ip,
@@ -535,6 +536,7 @@ fn gen_privilege_escalation<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Ve
         build_dotnet_event(
             ts_now(),
             "Error",
+            "application",
             format!("Unauthorized access attempt to {path} by user {user}"),
             pick(rng, PRODUCT_HOSTS),
             ip,
@@ -581,6 +583,7 @@ fn gen_rate_limit<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> {
         build_dotnet_event(
             ts_now(),
             "Warning",
+            "application",
             format!("Rate limit exceeded: {count} requests in 60s from {ip}"),
             pick(rng, PRODUCT_HOSTS),
             ip,
@@ -645,6 +648,7 @@ fn gen_heavy_queries<R: Rng>(rng: &mut R) -> Vec<Value> {
         build_dotnet_event(
             ts_now(),
             if duration_ms > 12000.0 { "Error" } else { "Warning" },
+            "application",
             format!("HTTP GET {path} responded 200 in {duration_ms:.2}ms"),
             pick(rng, PRODUCT_HOSTS),
             ip,
@@ -670,7 +674,7 @@ fn gen_mode_events<R: Rng>(rng: &mut R, mode: Mode, state: &mut RuntimeState) ->
         Mode::RateLimit => gen_rate_limit(rng, state),
         Mode::HeavyQueries => gen_heavy_queries(rng),
         Mode::All => {
-            let roll: u32 = rng.gen_range(0..65);
+            let roll: u32 = rng.gen_range(0..70);
             if roll < 50 {
                 gen_normal(rng)
             } else if roll < 55 {
@@ -680,9 +684,9 @@ fn gen_mode_events<R: Rng>(rng: &mut R, mode: Mode, state: &mut RuntimeState) ->
             } else if roll < 60 {
                 gen_privilege_escalation(rng, state)
             } else if roll < 65 {
-                gen_heavy_queries(rng)
-            } else {
                 gen_rate_limit(rng, state)
+            } else {
+                gen_heavy_queries(rng)
             }
         }
     }

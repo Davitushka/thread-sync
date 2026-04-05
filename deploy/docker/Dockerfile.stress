@@ -1,0 +1,18 @@
+# siem-stress — генератор нагрузки и атак для заполнения Grafana-дашбордов
+# docker build -f deploy/docker/Dockerfile.stress -t siem-stress:latest .
+
+FROM rust:1.88-slim-bookworm AS builder
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY stress/Cargo.toml stress/Cargo.lock ./
+COPY stress/src ./src
+RUN cargo build --release --locked
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/siem-stress /usr/local/bin/siem-stress
+USER nobody:nogroup
+ENTRYPOINT ["/usr/local/bin/siem-stress"]

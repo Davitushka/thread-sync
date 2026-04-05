@@ -168,7 +168,7 @@ def main():
 
     response = requests.post(
         CLICKHOUSE_URL,
-        params={"query": sql},
+        data=sql,
         auth=(CLICKHOUSE_USER, CLICKHOUSE_PASSWORD),
         timeout=30,
     )
