@@ -1,0 +1,53 @@
+{
+  "title": "SIEM-Lite — Correlator (метрики)",
+  "uid": "siem-correlator-metrics",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["siem", "correlator", "prometheus"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Подсказка",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 2 },
+      "options": {
+        "mode": "markdown",
+        "content": "Метрики **`correlator`** (порт **9111**). Если панели пустые — проверьте таргет в Prometheus и логи контейнера **correlator**."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "Correlator UP",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 2, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [{ "refId": "A", "expr": "up{job=\"correlator\"}", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 3,
+      "title": "Correlator: события и алерты / с",
+      "description": "Счётчики из correlator: correlator_events_processed_total, parse_errors, alerts_forwarded.",
+      "type": "timeseries",
+      "gridPos": { "x": 4, "y": 2, "w": 20, "h": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(correlator_events_processed_total{job=\"correlator\"}[2m])", "legendFormat": "events/s" },
+        { "refId": "B", "expr": "rate(correlator_parse_errors_total{job=\"correlator\"}[2m])", "legendFormat": "parse_err/s" },
+        { "refId": "C", "expr": "rate(correlator_alerts_forwarded_total{job=\"correlator\"}[2m])", "legendFormat": "alerts_fwd/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    }
+  ]
+}

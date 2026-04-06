@@ -4,19 +4,53 @@
   "version": 6,
   "refresh": "30s",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
-  "tags": ["siem", "security", "overview"],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "tags": [
+    "siem",
+    "security",
+    "overview"
+  ],
   "panels": [
+    {
+      "id": 0,
+      "title": "Как заполнить данные",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Если графики пустые\n\nЗаполните **ClickHouse** демо-данными: выполните **`bash scripts/seed-data/bootstrap_clickhouse.sh`** (WSL/Linux или контейнер с примонтированным репозиторием), либо поднимите стек с **`--profile seed`**, либо в **SIEM Admin** нажмите **Fill All Data**.\n\nПанели **Prometheus** (Vector, detection, `siem_events_total`) и панели **SQL** наполняются разными путями — см. **`docs/DATA_PROMETHEUS_GRAFANA.md`** и дашборд **Проверки компонентов**."
+      },
+      "transparent": true
+    },
     {
       "id": 1,
       "title": "Events per Minute",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 0, "w": 16, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 16,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT minute AS t, countMerge(event_count) AS events FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR GROUP BY minute ORDER BY minute",
           "format": 0
         }
@@ -24,79 +58,322 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "lineWidth": 2, "fillOpacity": 10, "gradientMode": "opacity" },
-          "color": { "mode": "palette-classic" }
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "opacity"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
         }
       },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 2,
       "title": "Events by Severity (24h)",
       "description": "Bar chart: корректно работает с ответом ClickHouse plugin. Donut ранее сводил всё в одну серию «cnt».",
       "type": "barchart",
-      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 16,
+        "y": 3,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT toString(severity) AS severity, countMerge(event_count) AS Events FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR GROUP BY severity ORDER BY Events DESC",
           "format": 1
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "color": { "mode": "palette-classic" } },
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "critical" }, "properties": [{ "id": "color", "value": { "fixedColor": "#E02F44", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "fixedColor": "#FA6400", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "warning" }, "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "info" }, "properties": [{ "id": "color", "value": { "fixedColor": "#3274D9", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "debug" }, "properties": [{ "id": "color", "value": { "fixedColor": "#8E8E8E", "mode": "fixed" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "critical"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#E02F44",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FA6400",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "warning"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FF9830",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "info"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#3274D9",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "debug"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E8E8E",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "orientation": "vertical", "xTickLabelRotation": 25, "barWidth": 0.65, "showValue": "auto", "xField": "severity", "colorByField": "severity" }
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 25,
+        "barWidth": 0.65,
+        "showValue": "auto",
+        "xField": "severity",
+        "colorByField": "severity"
+      }
     },
     {
       "id": 3,
       "title": "Top Source IPs (24h)",
       "type": "table",
-      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT toString(source_ip) AS IP, countMerge(event_count) AS Events, countMerge(error_count) AS Threats FROM siem.top_ips_agg WHERE hour >= now() - INTERVAL 24 HOUR AND source_ip IS NOT NULL GROUP BY source_ip ORDER BY Threats DESC, Events DESC LIMIT 20",
           "format": 1
         }
       ],
       "fieldConfig": {
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Threats" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 20 }] } }, { "id": "color", "value": { "mode": "thresholds" } }] },
-          { "matcher": { "id": "byName", "options": "Critical" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "thresholds", "value": { "steps": [{ "color": "transparent", "value": null }, { "color": "red", "value": 1 }] } }, { "id": "color", "value": { "mode": "thresholds" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Threats"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 5
+                    },
+                    {
+                      "color": "red",
+                      "value": 20
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Critical"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "transparent",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "sortBy": [{ "displayName": "Threats", "desc": true }] }
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Threats",
+            "desc": true
+          }
+        ]
+      }
     },
     {
       "id": 4,
       "title": "Recent Security Events",
       "description": "warning/error/critical по всем источникам; также **redis** (любой уровень), чтобы видеть кэш в том же потоке.",
       "type": "table",
-      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT formatDateTime(timestamp, '%H:%M:%S') AS Time, toString(source_type) AS Source, toString(severity) AS Severity, left(message, 55) AS Message, toString(source_ip) AS IP FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND (severity IN ('error','critical','warning') OR source_type = 'redis') ORDER BY timestamp DESC LIMIT 50",
           "format": 1
         }
       ],
       "fieldConfig": {
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Severity" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "mappings", "value": [{ "type": "value", "options": { "critical": { "color": "red", "index": 0 }, "error": { "color": "orange", "index": 1 }, "warning": { "color": "yellow", "index": 2 } } }] }, { "id": "color", "value": { "mode": "thresholds" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Severity"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "error": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "warning": {
+                        "color": "yellow",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
         ]
       }
     },
@@ -104,129 +381,386 @@
       "id": 5,
       "title": "Total Events (24h)",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 16, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT countMerge(event_count) AS Total FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR",
           "format": 1
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "text": {} }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "text": {}
+      }
     },
     {
       "id": 6,
       "title": "Critical Events (24h)",
       "type": "stat",
-      "gridPos": { "x": 4, "y": 16, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 4,
+        "y": 19,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT count() AS Critical FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND severity = 'critical'",
           "format": 1
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 8,
       "title": "Error Rate (24h)",
       "description": "Доля событий с severity error+critical. В ClickHouse целочисленное деление даёт 0 — используем Float64.",
       "type": "stat",
-      "gridPos": { "x": 8, "y": 16, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 19,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT round(toFloat64(countMergeIf(event_count, toUInt8(severity) >= 3)) / nullIf(countMerge(event_count), 0) * 100, 2) AS error_pct FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR",
           "format": 1
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 15 }] } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 7,
       "title": "Events by Source",
       "description": "Ось X задаётся явно (xField), иначе Grafana может свести ответ в одну цифру.",
       "type": "barchart",
-      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT toString(source_type) AS Source, countMerge(event_count) AS Events FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR GROUP BY source_type ORDER BY Events DESC",
           "format": 1
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "color": { "mode": "palette-classic" } },
-        "overrides": [{ "matcher": { "id": "byName", "options": "Events" }, "properties": [{ "id": "custom.axisPlacement", "value": "auto" }] }]
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Events"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "auto"
+              }
+            ]
+          }
+        ]
       },
-      "options": { "orientation": "vertical", "xTickLabelRotation": 20, "barWidth": 0.65, "showValue": "auto", "xField": "Source", "colorByField": "Source" }
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 20,
+        "barWidth": 0.65,
+        "showValue": "auto",
+        "xField": "Source",
+        "colorByField": "Source"
+      }
     },
     {
       "id": 9,
       "title": "Threat Trends by Severity (1h buckets)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT toStartOfHour(minute) AS t, countMergeIf(event_count, severity = 'critical') AS critical, countMergeIf(event_count, severity = 'error') AS error, countMergeIf(event_count, severity = 'warning') AS warning FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 7 DAY GROUP BY t ORDER BY t",
           "format": 0
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } },
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "critical" }, "properties": [{ "id": "color", "value": { "fixedColor": "#E02F44", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "error" },    "properties": [{ "id": "color", "value": { "fixedColor": "#FA6400", "mode": "fixed" } }] },
-          { "matcher": { "id": "byName", "options": "warning" },  "properties": [{ "id": "color", "value": { "fixedColor": "#FF9830", "mode": "fixed" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "critical"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#E02F44",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FA6400",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "warning"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FF9830",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "max"] } }
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum",
+            "max"
+          ]
+        }
+      }
     },
     {
       "id": 10,
       "title": "HTTP Status Code Distribution",
       "description": "События без HTTP (PG, Redis, …) попадают в «non-HTTP / N/A», чтобы панель не была пустой. Реальные коды — отдельные столбцы.",
       "type": "barchart",
-      "gridPos": { "x": 0, "y": 28, "w": 8, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT Code, count() AS Events\nFROM (\n  SELECT\n    multiIf(\n      status_code IS NULL OR status_code = 0,\n      'non-HTTP / N/A',\n      toString(status_code)\n    ) AS Code\n  FROM siem.events\n  WHERE timestamp >= now() - INTERVAL 24 HOUR\n)\nGROUP BY Code\nORDER BY Events DESC\nLIMIT 20",
           "format": 1
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "palette-classic" } } },
-      "options": { "orientation": "vertical", "xTickLabelRotation": 0, "barWidth": 0.6, "showValue": "auto", "xField": "Code" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        }
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 0,
+        "barWidth": 0.6,
+        "showValue": "auto",
+        "xField": "Code"
+      }
     },
     {
       "id": 11,
-      "title": "GeoIP / по IP (без MaxMind — строки «без GeoIP»)",
-      "description": "Поток Vector→CH не обогащает GeoIP. Строки «(без GeoIP) …» — агрегат по source_ip. После siem-parser появятся страны.",
+      "title": "GeoIP / страна или IP",
+      "description": "Для GeoIP enrichment настройте siem-parser с MaxMind GeoIP или добавьте GeoIP модуль в Vector. Сейчас показывает агрегацию по IP.",
       "type": "table",
-      "gridPos": { "x": 8, "y": 28, "w": 8, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 31,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-          "rawSql": "SELECT\n  multiIf(\n    geo_country_name IS NOT NULL AND length(trimBoth(toString(geo_country_name))) > 0,\n      toString(geo_country_name),\n    concat('(без GeoIP) ', toString(source_ip))\n  ) AS Location,\n  count() AS Events,\n  countIf(severity IN ('error','critical')) AS Threats\nFROM siem.events\nWHERE timestamp >= now() - INTERVAL 24 HOUR\n  AND source_ip IS NOT NULL\nGROUP BY Location\nORDER BY Events DESC\nLIMIT 25",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "rawSql": "SELECT\n  multiIf(\n    geo_country_name IS NOT NULL AND length(trimBoth(toString(geo_country_name))) > 0,\n      toString(geo_country_name),\n    concat(toString(source_ip), ' (GeoIP не настроен)')\n  ) AS Location,\n  count() AS Events,\n  countIf(severity IN ('error','critical')) AS Threats\nFROM siem.events\nWHERE timestamp >= now() - INTERVAL 24 HOUR\n  AND source_ip IS NOT NULL\nGROUP BY Location\nORDER BY Events DESC\nLIMIT 25",
           "format": 1
         }
       ]
@@ -236,20 +770,60 @@
       "title": "Avg Response Time (ms)",
       "description": "Только события с duration_ms > 0 (.NET/nginx). Пустые минуты — норма.",
       "type": "timeseries",
-      "gridPos": { "x": 16, "y": 28, "w": 8, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 16,
+        "y": 31,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT toStartOfMinute(timestamp) AS t, round(avg(duration_ms), 2) AS avg_ms, round(quantile(0.95)(duration_ms), 2) AS p95_ms FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND duration_ms IS NOT NULL AND duration_ms > 0 GROUP BY t ORDER BY t",
           "format": 0
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } },
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "p95_ms" }, "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 5], "fill": "dash" } }, { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95_ms"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    5
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       }
     },
@@ -257,70 +831,249 @@
       "id": 13,
       "title": "Recent Alerts",
       "type": "table",
-      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT formatDateTime(triggered_at, '%Y-%m-%d %H:%M:%S') AS Time, rule_title AS Rule, severity AS Severity, toString(source_ip) AS SourceIP, left(description, 80) AS Description, status AS Status FROM siem.alerts ORDER BY triggered_at DESC LIMIT 50",
           "format": 1
         }
       ],
       "fieldConfig": {
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Severity" }, "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "mappings", "value": [{ "type": "value", "options": { "critical": { "color": "red", "index": 0 }, "high": { "color": "orange", "index": 1 }, "medium": { "color": "yellow", "index": 2 }, "low": { "color": "green", "index": 3 } } }] }, { "id": "color", "value": { "mode": "thresholds" } }] },
-          { "matcher": { "id": "byName", "options": "Status" },   "properties": [{ "id": "custom.displayMode", "value": "color-background" }, { "id": "mappings", "value": [{ "type": "value", "options": { "new": { "color": "red", "index": 0 }, "acknowledged": { "color": "yellow", "index": 1 }, "resolved": { "color": "green", "index": 2 } } }] }, { "id": "color", "value": { "mode": "thresholds" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Severity"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "high": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "medium": {
+                        "color": "yellow",
+                        "index": 2
+                      },
+                      "low": {
+                        "color": "green",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "new": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "acknowledged": {
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "resolved": {
+                        "color": "green",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "sortBy": [{ "displayName": "Time", "desc": true }] }
+      "options": {
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      }
     },
     {
       "id": 14,
       "title": "Задержка записи (timestamp → ingest_ts)",
       "description": "Реальный лаг для потока Vector→Kafka→ClickHouse. Метрики siem-parser здесь не используются (парсер — отдельный путь POST /parse).",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 44, "w": 12, "h": 6 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT\n  toStartOfMinute(ingest_ts) AS t,\n  round(avg(greatest(dateDiff('millisecond', timestamp, ingest_ts), 0)), 1) AS avg_lag_ms,\n  round(quantile(0.95)(greatest(dateDiff('millisecond', timestamp, ingest_ts), 0)), 1) AS p95_lag_ms\nFROM siem.events\nWHERE timestamp >= now() - INTERVAL 24 HOUR\nGROUP BY t\nHAVING count() > 0\nORDER BY t",
           "format": 0
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "ms", "custom": { "lineWidth": 2, "fillOpacity": 15 } },
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "p95_lag_ms" }, "properties": [{ "id": "custom.lineStyle", "value": { "dash": [10, 5], "fill": "dash" } }, { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95_lag_ms"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    5
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 15,
       "title": "Приём событий (EPS): Vector HTTP + Detection",
       "description": "Зелёная линия — типичный путь сидов (Vector /logs). Оранжевая — обработка событий detection-engine.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 44, "w": 12, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 47,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "sum(rate(vector_component_received_events_total{component_id=\"http_ingest\"}[1m]))",
           "legendFormat": "Vector HTTP /logs ev/s"
         },
         {
           "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "sum(rate(detection_events_processed_total[1m]))",
           "legendFormat": "detection-engine ev/s"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     }
   ]
 }

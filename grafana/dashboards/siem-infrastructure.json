@@ -4,221 +4,565 @@
   "version": 1,
   "refresh": "30s",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["siem", "infrastructure", "monitoring"],
+  "tags": [
+    "siem",
+    "infrastructure",
+    "monitoring"
+  ],
   "graphTooltip": 1,
   "editable": true,
   "links": [
-    { "title": "Overview", "type": "link", "url": "/d/siem-overview", "keepTime": true, "icon": "dashboard" },
-    { "title": "Detection", "type": "link", "url": "/d/siem-detection", "keepTime": true, "icon": "dashboard" },
-    { "title": "Operations", "type": "link", "url": "/d/siem-operations", "keepTime": true, "icon": "dashboard" },
-    { "title": "Validation", "type": "link", "url": "/d/siem-validation", "keepTime": true, "icon": "dashboard" }
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/siem-overview",
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "title": "Detection",
+      "type": "link",
+      "url": "/d/siem-detection",
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "title": "Operations",
+      "type": "link",
+      "url": "/d/siem-operations",
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "title": "Validation",
+      "type": "link",
+      "url": "/d/siem-validation",
+      "keepTime": true,
+      "icon": "dashboard"
+    }
   ],
   "panels": [
     {
+      "id": 99,
+      "title": "Windows / Docker Desktop",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 2
+      },
+      "description": "Предупреждение о node-exporter внутри VM Docker Desktop.",
+      "options": {
+        "mode": "markdown",
+        "content": "> **Ограничение:** на **Windows + Docker Desktop** метрики **node-exporter** отражают Linux-ВМ Docker, **а не** вашу хост-машину Windows. Для «настоящего» хоста используйте отдельный экспортер на хосте или Hyper-V/WSL2 вне compose."
+      },
+      "transparent": true
+    },
+    {
       "id": 100,
       "type": "text",
-      "title": "",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "title": "Описание дашборда",
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "markdown",
         "content": "## SIEM-Lite Infrastructure Monitoring\n\nХост-машина + контейнеры + компоненты SIEM стека. **node-exporter** (порт 9101) + **cAdvisor** (порт 8081) + метрики компонентов.\n\n- События и дашборды безопасности — [Overview](/d/siem-overview)\n- Операционные метрики — [Operations](/d/siem-operations)\n- Пошаговые проверки — [Validation](/d/siem-validation)"
       },
       "transparent": true
     },
-
     {
       "id": 101,
       "title": "CPU Usage (%)",
-      "description": "Хост CPU: 100 - idle. Окрашены по порогам: зелёный <60%, оранжевый 60-80%, красный >80%.",
+      "description": "Хост CPU: 100 - idle. Окрашены по порогам: зелёный <60%, оранжевый 60-80%, красный >80%. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 3, "w": 8, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\",job=\"node-exporter\"}[2m])) * 100)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "(100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\",job=\"node-exporter\"}[2m])) * 100)) or (100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[2m])) * 100)) or vector(0)",
           "legendFormat": "CPU {{instance}}"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "custom": { "lineWidth": 2, "fillOpacity": 20 },
-          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 80 }] },
-          "color": { "mode": "thresholds" }
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
-
     {
       "id": 102,
       "title": "Memory Usage (%)",
-      "description": "Хост RAM: (1 - Available/Total) * 100. Порог: зелёный <70%, оранжевый 70-85%, красный >85%.",
+      "description": "Хост RAM: (1 - Available/Total) * 100. Порог: зелёный <70%, оранжевый 70-85%, красный >85%. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
       "type": "gauge",
-      "gridPos": { "x": 8, "y": 3, "w": 4, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 4,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "(1 - (node_memory_MemAvailable_bytes{job=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"node-exporter\"})) * 100",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "(1 - (node_memory_MemAvailable_bytes{job=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"node-exporter\"})) * 100 or (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 or vector(0)",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 85 }] },
-          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
           "min": 0,
           "max": 100
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
     },
-
     {
       "id": 103,
       "title": "Disk Usage (%)",
-      "description": "Хост Disk usage. Сначала пробует Linux mountpoint=/, на Docker Desktop/WSL fallback'ится к /var/lib, /mnt/docker-desktop-disk и /mnt/host/*.",
+      "description": "Хост Disk usage. Сначала пробует Linux mountpoint=/, на Docker Desktop/WSL fallback'ится к /var/lib, /mnt/docker-desktop-disk и /mnt/host/*. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
       "type": "gauge",
-      "gridPos": { "x": 12, "y": 3, "w": 4, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 4,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "(max((1 - (node_filesystem_avail_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"})) * 100)) or (max((1 - (node_filesystem_avail_bytes{job=\"node-exporter\",fstype!=\"tmpfs\",mountpoint=~\"/var/lib|/mnt/docker-desktop-disk|/mnt/host/[a-z]\"} / node_filesystem_size_bytes{job=\"node-exporter\",fstype!=\"tmpfs\",mountpoint=~\"/var/lib|/mnt/docker-desktop-disk|/mnt/host/[a-z]\"})) * 100)) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "(max((1 - (node_filesystem_avail_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"})) * 100)) or (max((1 - (node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"})) * 100)) or (max((1 - (node_filesystem_avail_bytes{job=\"node-exporter\",fstype!=\"tmpfs\",mountpoint=~\"/var/lib|/mnt/docker-desktop-disk|/mnt/host/[a-z]\"} / node_filesystem_size_bytes{job=\"node-exporter\",fstype!=\"tmpfs\",mountpoint=~\"/var/lib|/mnt/docker-desktop-disk|/mnt/host/[a-z]\"})) * 100)) or (max((1 - (node_filesystem_avail_bytes{fstype!=\"tmpfs\",mountpoint=~\"/var/lib|/mnt/docker-desktop-disk|/mnt/host/[a-z]\"} / node_filesystem_size_bytes{fstype!=\"tmpfs\",mountpoint=~\"/var/lib|/mnt/docker-desktop-disk|/mnt/host/[a-z]\"})) * 100)) or vector(0)",
           "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 85 }] },
-          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
           "min": 0,
           "max": 100
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
     },
-
     {
       "id": 104,
       "title": "Network I/O (bytes/sec)",
-      "description": "Хост Network: RX (входящий) и TX (исходящий) трафик.",
+      "description": "Хост Network: RX (входящий) и TX (исходящий) трафик. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
       "type": "timeseries",
-      "gridPos": { "x": 16, "y": 3, "w": 8, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 16,
+        "y": 5,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum(rate(node_network_receive_bytes_total{job=\"node-exporter\",device!=\"lo\"}[2m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(rate(node_network_receive_bytes_total{job=\"node-exporter\",device!=\"lo\"}[2m])) or sum(rate(node_network_receive_bytes_total{device!=\"lo\"}[2m])) or vector(0)",
           "legendFormat": "RX (received)"
         },
         {
           "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum(rate(node_network_transmit_bytes_total{job=\"node-exporter\",device!=\"lo\"}[2m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(rate(node_network_transmit_bytes_total{job=\"node-exporter\",device!=\"lo\"}[2m])) or sum(rate(node_network_transmit_bytes_total{device!=\"lo\"}[2m])) or vector(0)",
           "legendFormat": "TX (transmitted)"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
       }
     },
-
     {
       "id": 105,
       "title": "System Load (1m, 5m, 15m)",
-      "description": "Load average хоста. Если > количества CPU — перегрузка.",
+      "description": "Load average хоста. Если > количества CPU — перегрузка. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 9, "w": 8, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "node_load1{job=\"node-exporter\"}", "legendFormat": "1 min", "instant": true },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "node_load5{job=\"node-exporter\"}", "legendFormat": "5 min", "instant": true },
-        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "node_load15{job=\"node-exporter\"}", "legendFormat": "15 min", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "node_load1{job=\"node-exporter\"} or node_load1 or vector(0)",
+          "legendFormat": "1 min",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "node_load5{job=\"node-exporter\"} or node_load5 or vector(0)",
+          "legendFormat": "5 min",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "node_load15{job=\"node-exporter\"} or node_load15 or vector(0)",
+          "legendFormat": "15 min",
+          "instant": true
+        }
       ],
       "fieldConfig": {
         "defaults": {
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 4 }, { "color": "red", "value": 8 }] },
-          "color": { "mode": "thresholds" }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 4
+              },
+              {
+                "color": "red",
+                "value": 8
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
-
     {
       "id": 106,
       "title": "Uptime",
-      "description": "Время работы хоста с момента загрузки.",
+      "description": "Время работы хоста с момента загрузки. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
       "type": "stat",
-      "gridPos": { "x": 8, "y": 9, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 11,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "time() - node_boot_time_seconds{job=\"node-exporter\"}", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "(time() - node_boot_time_seconds{job=\"node-exporter\"}) or (time() - node_boot_time_seconds) or vector(0)",
+          "instant": true
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s", "color": { "fixedColor": "blue", "mode": "fixed" } }
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
-
     {
       "id": 107,
       "title": "CPU IOWait (%)",
-      "description": "Доля времени CPU, потраченная на ожидание диска. Высокий iowait = узкое место в дисковой подсистеме.",
+      "description": "Доля времени CPU, потраченная на ожидание диска. Высокий iowait = узкое место в дисковой подсистеме. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
       "type": "gauge",
-      "gridPos": { "x": 12, "y": 9, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "avg by(instance) (rate(node_cpu_seconds_total{mode=\"iowait\",job=\"node-exporter\"}[2m])) * 100", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "avg by(instance) (rate(node_cpu_seconds_total{mode=\"iowait\",job=\"node-exporter\"}[2m])) * 100 or avg by(instance) (rate(node_cpu_seconds_total{mode=\"iowait\"}[2m])) * 100 or vector(0)",
+          "instant": true
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 25 }] },
-          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 25
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
           "min": 0,
           "max": 100
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
     },
-
     {
       "id": 108,
       "title": "Disk I/O (reads/writes per sec)",
-      "description": "Хост Disk I/O: операции чтения и записи в секунду.",
+      "description": "Хост Disk I/O: операции чтения и записи в секунду. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
       "type": "timeseries",
-      "gridPos": { "x": 16, "y": 9, "w": 8, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 16,
+        "y": 11,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(node_disk_reads_completed_total{job=\"node-exporter\"}[2m]))", "legendFormat": "Reads/s" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(node_disk_writes_completed_total{job=\"node-exporter\"}[2m]))", "legendFormat": "Writes/s" }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(rate(node_disk_reads_completed_total{job=\"node-exporter\"}[2m])) or sum(rate(node_disk_reads_completed_total[2m])) or vector(0)",
+          "legendFormat": "Reads/s"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(rate(node_disk_writes_completed_total{job=\"node-exporter\"}[2m])) or sum(rate(node_disk_writes_completed_total[2m])) or vector(0)",
+          "legendFormat": "Writes/s"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
       }
     },
-
     {
       "id": 200,
       "title": "Container CPU Usage (%)",
       "description": "Per-container CPU usage через cAdvisor. На Windows/Docker Desktop метрики могут быть агрегированными.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100",
           "legendFormat": "{{container}}"
         }
@@ -226,239 +570,618 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "custom": { "lineWidth": 2, "fillOpacity": 15 },
-          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 50 }, { "color": "red", "value": 80 }] },
-          "color": { "mode": "thresholds" }
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
-
     {
       "id": 201,
       "title": "Container Memory Usage (bytes)",
       "description": "Per-container RAM usage через cAdvisor. На Windows метрики могут быть без разбивки по контейнерам.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"} or container_memory_usage_bytes{job=\"cadvisor\"}",
           "legendFormat": "{{container}}"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 15 } }
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
       }
     },
-
     {
       "id": 202,
       "title": "Container Network RX/TX",
       "description": "Сетевой трафик контейнеров. На Windows может показывать агрегированные данные.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "sum by(container) (rate(container_network_receive_bytes_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) or sum(rate(container_network_receive_bytes_total{job=\"cadvisor\"}[2m]))",
           "legendFormat": "RX"
         },
         {
           "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "sum by(container) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) or sum(rate(container_network_transmit_bytes_total{job=\"cadvisor\"}[2m]))",
           "legendFormat": "TX"
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 12 } }
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
       }
     },
-
     {
       "id": 203,
       "title": "Top 5 Containers by CPU",
       "description": "Топ-5 контейнеров по среднему CPU за 5 минут. На Windows может показывать одну агрегированную метрику.",
       "type": "barchart",
-      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "topk(5, sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[5m])) * 100) or topk(5, sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[5m])) * 100)",
           "format": "table",
           "instant": true
         }
       ],
       "transformations": [
-        { "id": "organize", "options": { "renameByName": { "name": "Container", "Value": "CPU %" } } }
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "name": "Container",
+              "Value": "CPU %"
+            }
+          }
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "percent" },
-        "overrides": [{ "matcher": { "id": "byName", "options": "CPU %" }, "properties": [{ "id": "custom.displayMode", "value": "gradient-gauge" }] }]
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU %"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "gradient-gauge"
+              }
+            ]
+          }
+        ]
       },
-      "options": { "orientation": "horizontal", "xField": "Container", "barWidth": 0.7, "showValue": "auto" }
+      "options": {
+        "orientation": "horizontal",
+        "xField": "Container",
+        "barWidth": 0.7,
+        "showValue": "auto"
+      }
     },
-
     {
       "id": 204,
       "title": "Container Count (Running)",
       "description": "Количество запущенных контейнеров (имеющих потребление памяти).",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 25, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or count(container_memory_usage_bytes{job=\"cadvisor\"})", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or count(container_memory_usage_bytes{job=\"cadvisor\"})",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "color": { "fixedColor": "blue", "mode": "fixed" } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
-
     {
       "id": 205,
       "title": "OOM Kills (24h)",
       "description": "Контейнеры, получившие OOM kill за последние 24 часа.",
       "type": "stat",
-      "gridPos": { "x": 4, "y": 25, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 4,
+        "y": 27,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(increase(container_oom_events_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[24h])) or sum(increase(container_oom_events_total{job=\"cadvisor\"}[24h]))", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(increase(container_oom_events_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[24h])) or sum(increase(container_oom_events_total{job=\"cadvisor\"}[24h]))",
+          "instant": true
+        }
       ],
       "fieldConfig": {
         "defaults": {
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }] },
-          "color": { "mode": "thresholds" }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
-
     {
       "id": 206,
       "title": "Total Container CPU (%)",
       "description": "Суммарное CPU всех контейнеров.",
       "type": "gauge",
-      "gridPos": { "x": 8, "y": 25, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 27,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100",
+          "instant": true
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 80 }] },
-          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
           "min": 0,
           "max": 100
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
     },
-
     {
       "id": 207,
       "title": "Total Container Memory (bytes)",
       "description": "Суммарная RAM всех контейнеров.",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 25, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or sum(container_memory_usage_bytes{job=\"cadvisor\"})", "instant": true }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "bytes", "color": { "fixedColor": "purple", "mode": "fixed" } }
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 4,
+        "h": 4
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
-    },
-
-    {
-      "id": 208,
-      "title": "Host Network Interfaces",
-      "description": "На Docker Desktop/WSL node-exporter часто не отдаёт address label. Показываем активные интерфейсы как fallback вместо пустой таблицы.",
-      "type": "table",
-      "gridPos": { "x": 16, "y": 25, "w": 8, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "max by(device) (node_network_address_assign_type{job=\"node-exporter\",device!~\"lo|docker0|br-.*|veth.*\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or sum(container_memory_usage_bytes{job=\"cadvisor\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "fixedColor": "purple",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 208,
+      "title": "Host Network Interfaces",
+      "description": "На Docker Desktop/WSL node-exporter часто не отдаёт address label. Показываем активные интерфейсы как fallback вместо пустой таблицы. На Docker Desktop метрики node-exporter показывают **VM Docker**, не хост Windows; при отсутствии лейбла `job=\"node-exporter\"` запрос ниже использует тот же набор метрик без фильтра по job либо `vector(0)`.",
+      "type": "table",
+      "gridPos": {
+        "x": 16,
+        "y": 27,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "max by(device) (node_network_address_assign_type{job=\"node-exporter\",device!~\"lo|docker0|br-.*|veth.*\"}) or max by(device) (node_network_address_assign_type{device!~\"lo|docker0|br-.*|veth.*\"}) or vector(1)",
           "format": "table",
           "instant": true
         }
       ],
       "transformations": [
-        { "id": "filterFieldsByName", "options": { "include": { "pattern": "^(device|Value)$" } } },
-        { "id": "organize", "options": { "renameByName": { "device": "Interface", "Value": "Assign Type" } } }
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(device|Value)$"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "device": "Interface",
+              "Value": "Assign Type"
+            }
+          }
+        }
       ],
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true
+      }
     },
-
     {
       "id": 300,
       "title": "Component UP/DOWN Status",
       "description": "Статус всех компонентов SIEM стека. Зелёный = UP, красный = DOWN.",
       "type": "table",
-      "gridPos": { "x": 0, "y": 29, "w": 12, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "up{job=~\"vector-aggregator|siem-parser|redpanda|clickhouse|detection-engine|correlator|alertmanager|prometheus|node-exporter|cadvisor|grafana|loki|minio|redis\"}",
           "format": "table",
           "instant": true
         }
       ],
       "transformations": [
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "host": true }, "renameByName": { "job": "Component", "Value": "UP" } } }
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "host": true
+            },
+            "renameByName": {
+              "job": "Component",
+              "Value": "UP"
+            }
+          }
+        }
       ],
       "fieldConfig": {
         "defaults": {
-          "custom": { "align": "auto", "inspect": false },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
-          "color": { "mode": "thresholds" }
+          "custom": {
+            "align": "auto",
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "UP" }, "properties": [
-            { "id": "custom.displayMode", "value": "color-background" },
-            { "id": "mappings", "value": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red", "index": 0 }, "1": { "text": "UP", "color": "green", "index": 1 } } }] }
-          ]}
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "UP"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "DOWN",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "UP",
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
         ]
       },
-      "options": { "showHeader": true, "sortBy": [{ "displayName": "Component", "desc": false }] }
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Component",
+            "desc": false
+          }
+        ]
+      }
     },
-
     {
       "id": 301,
       "title": "Vector Throughput (events/sec)",
       "description": "Vector: входящие события через HTTP ingest и отправка в Kafka.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 29, "w": 12, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(vector_component_received_events_total{job=\"vector-aggregator\",component_id=\"http_ingest\"}[2m])", "legendFormat": "HTTP ingest recv /s" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(vector_component_sent_events_total{job=\"vector-aggregator\",component_id=\"to_redpanda\"}[2m])", "legendFormat": "Kafka sink sent /s" }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "rate(vector_component_received_events_total{job=\"vector-aggregator\",component_id=\"http_ingest\"}[2m])",
+          "legendFormat": "HTTP ingest recv /s"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "rate(vector_component_sent_events_total{job=\"vector-aggregator\",component_id=\"to_redpanda\"}[2m])",
+          "legendFormat": "Kafka sink sent /s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
+      }
     },
-
     {
       "id": 302,
       "title": "Rust Parser Latency p99 (ms)",
       "description": "siem-parser p99 latency. Используется накопленный histogram, чтобы панель не была пустой после короткого прогрева /parse.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 35, "w": 8, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "histogram_quantile(0.99, sum by (le) (siem_parser_parse_duration_seconds_bucket{job=\"siem-parser\"})) * 1000 or vector(0)",
           "legendFormat": "p99 latency"
         }
@@ -466,24 +1189,55 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
-          "custom": { "lineWidth": 2, "fillOpacity": 15 },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 10 }] },
-          "color": { "mode": "thresholds" }
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
-
     {
       "id": 303,
       "title": "Redpanda Consumer Lag",
       "description": "Lag consumer group clickhouse_siem_events. Порог: зелёный <1k, оранжевый 1k-10k, красный >10k.",
       "type": "timeseries",
-      "gridPos": { "x": 8, "y": 35, "w": 8, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 37,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "siem:kafka_consumer_lag:sum",
           "legendFormat": "Total lag"
         }
@@ -491,53 +1245,155 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "lineWidth": 2, "fillOpacity": 15 },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1000 }, { "color": "red", "value": 10000 }] },
-          "color": { "mode": "thresholds" }
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 10000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       }
     },
-
     {
       "id": 304,
       "title": "ClickHouse Queries/s",
       "description": "ClickHouse: скорость SELECT и INSERT запросов.",
       "type": "timeseries",
-      "gridPos": { "x": 16, "y": 35, "w": 8, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 16,
+        "y": 37,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m])", "legendFormat": "SelectQuery /s" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m])", "legendFormat": "InsertQuery /s" },
-        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\"}[2m])", "legendFormat": "FailedQuery /s" }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m])",
+          "legendFormat": "SelectQuery /s"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m])",
+          "legendFormat": "InsertQuery /s"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\"}[2m])",
+          "legendFormat": "FailedQuery /s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      }
     },
-
     {
       "id": 305,
       "title": "Detection Alerts/sec",
       "description": "Detection Engine: скорость срабатывания алертов.",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 41, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(detection_alerts_fired_total[5m]))", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(rate(detection_alerts_fired_total[5m]))",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 2, "color": { "fixedColor": "red", "mode": "fixed" } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "decimals": 2,
+          "color": {
+            "fixedColor": "red",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
-
     {
       "id": 306,
       "title": "Parse Error Rate (%)",
       "description": "Доля событий с ошибкой парсинга за последние 15 минут. При отсутствии вызовов /parse панель показывает 0, а не No data.",
       "type": "gauge",
-      "gridPos": { "x": 4, "y": 41, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 4,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
           "expr": "((sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"error\"}[15m])) or vector(0)) / clamp_min((sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"ok\"}[15m])) or vector(0)) + (sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"error\"}[15m])) or vector(0)), 1)) * 100",
           "instant": true
         }
@@ -545,85 +1401,251 @@
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] },
-          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
           "min": 0,
           "max": 100
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
     },
-
     {
       "id": 307,
       "title": "Active Prometheus Alerts",
       "description": "Количество firing алертов в Prometheus.",
       "type": "stat",
-      "gridPos": { "x": 8, "y": 41, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)",
+          "instant": true
+        }
       ],
       "fieldConfig": {
         "defaults": {
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] },
-          "color": { "mode": "thresholds" }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
-
     {
       "id": 308,
       "title": "Detection Events/sec",
       "description": "Detection Engine: скорость обработки событий из Kafka.",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 41, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(rate(detection_events_processed_total[5m]))", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(rate(detection_events_processed_total[5m]))",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 0, "color": { "fixedColor": "blue", "mode": "fixed" } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "decimals": 0,
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
-
     {
       "id": 309,
       "title": "Total Events Ingested (24h)",
       "description": "Общее количество событий в ClickHouse за 24 часа.",
       "type": "stat",
-      "gridPos": { "x": 16, "y": 41, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 16,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
           "rawSql": "SELECT count() AS Total FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR",
           "format": 1
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "fixedColor": "blue", "mode": "fixed" } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
-
     {
       "id": 310,
       "title": "Parse Errors (24h)",
       "description": "Количество событий с ошибкой парсинга за 24 часа. При отсутствии ошибок/трафика показывает 0.",
       "type": "stat",
-      "gridPos": { "x": 20, "y": 41, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 20,
+        "y": 43,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" }, "expr": "sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"error\"}[24h])) or vector(0)", "instant": true }
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "sum(increase(siem_parser_events_parsed_total{job=\"siem-parser\",status=\"error\"}[24h])) or vector(0)",
+          "instant": true
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 100 }, { "color": "red", "value": 1000 }] },
-          "color": { "mode": "thresholds" }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     }
   ]
 }

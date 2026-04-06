@@ -4,181 +4,836 @@
   "version": 1,
   "refresh": "30s",
   "schemaVersion": 38,
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["siem", "alerts", "management"],
+  "tags": [
+    "siem",
+    "alerts",
+    "management"
+  ],
   "graphTooltip": 1,
   "editable": true,
   "links": [
-    { "title": "SOC Workbench", "type": "link", "url": "/d/siem-soc-workbench", "keepTime": true, "icon": "dashboard" },
-    { "title": "Detection", "type": "link", "url": "/d/siem-detection", "keepTime": true, "icon": "dashboard" },
-    { "title": "Overview", "type": "link", "url": "/d/siem-overview", "keepTime": true, "icon": "dashboard" },
-    { "title": "SOC кейсы", "type": "link", "url": "http://localhost:8088/", "icon": "external link", "targetBlank": true },
-    { "title": "Доверие к данным", "type": "link", "url": "/d/siem-data-quality", "keepTime": true, "icon": "dashboard" }
+    {
+      "title": "SOC Workbench",
+      "type": "link",
+      "url": "/d/siem-soc-workbench",
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "title": "Detection",
+      "type": "link",
+      "url": "/d/siem-detection",
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/siem-overview",
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "title": "SOC кейсы",
+      "type": "link",
+      "url": "http://localhost:8088/",
+      "icon": "external link",
+      "targetBlank": true
+    },
+    {
+      "title": "Доверие к данным",
+      "type": "link",
+      "url": "/d/siem-data-quality",
+      "keepTime": true,
+      "icon": "dashboard"
+    }
   ],
   "panels": [
+    {
+      "id": 500,
+      "title": "Как появляются алерты",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "## Жизненный цикл\n\n1. **Detection-engine** сравнивает события из Kafka с правилами и увеличивает `detection_alerts_fired_total`; записи в **`siem.alerts`** создаются при срабатывании пайплайна (Kafka → ClickHouse / correlator / write-back).\n2. Панели **ClickHouse** (счётчики, таблицы) показывают строки из **`siem.alerts`**.\n3. **Prometheus** ниже: **`ALERTS`** — только если загружены recording/alert **rules** и условие в статусе *firing*.\n\nЕсли в CH пусто — сид: **`bootstrap_clickhouse.sh`** или **Fill All Data**."
+      },
+      "transparent": true
+    },
     {
       "id": 501,
       "title": "Новые (new)",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT count() AS New FROM siem.alerts WHERE status = 'new' AND triggered_at >= now() - INTERVAL 7 DAY" }],
-      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{"color":"green","value":null},{"color":"orange","value":1},{"color":"red","value":5}] } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT count() AS New FROM siem.alerts WHERE status = 'new' AND triggered_at >= now() - INTERVAL 7 DAY"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 502,
       "title": "В работе (acknowledged)",
       "type": "stat",
-      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT count() AS Ack FROM siem.alerts WHERE status = 'acknowledged' AND triggered_at >= now() - INTERVAL 7 DAY" }],
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "yellow" } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "gridPos": {
+        "x": 4,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT count() AS Ack FROM siem.alerts WHERE status = 'acknowledged' AND triggered_at >= now() - INTERVAL 7 DAY"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "yellow"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 503,
       "title": "Закрыты (resolved)",
       "type": "stat",
-      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT count() AS Resolved FROM siem.alerts WHERE status = 'resolved' AND triggered_at >= now() - INTERVAL 7 DAY" }],
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "green" } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "gridPos": {
+        "x": 8,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT count() AS Resolved FROM siem.alerts WHERE status = 'resolved' AND triggered_at >= now() - INTERVAL 7 DAY"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 504,
       "title": "False positive",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT count() AS FP FROM siem.alerts WHERE status = 'false_positive' AND triggered_at >= now() - INTERVAL 7 DAY" }],
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "blue" } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT count() AS FP FROM siem.alerts WHERE status = 'false_positive' AND triggered_at >= now() - INTERVAL 7 DAY"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 505,
       "title": "Среднее время закрытия (мин)",
       "type": "stat",
-      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT round(avg(dateDiff('minute', triggered_at, acknowledged_at)), 1) AS MTTA_min FROM siem.alerts WHERE status IN ('acknowledged','resolved') AND acknowledged_at IS NOT NULL AND triggered_at >= now() - INTERVAL 7 DAY" }],
-      "fieldConfig": { "defaults": { "unit": "none", "decimals": 1, "thresholds": { "steps": [{"color":"green","value":null},{"color":"orange","value":30},{"color":"red","value":60}] } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "gridPos": {
+        "x": 16,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT round(avg(dateDiff('minute', triggered_at, acknowledged_at)), 1) AS MTTA_min FROM siem.alerts WHERE status IN ('acknowledged','resolved') AND acknowledged_at IS NOT NULL AND triggered_at >= now() - INTERVAL 7 DAY"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 506,
       "title": "% False Positive",
       "type": "stat",
-      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT round(toFloat64(countIf(status='false_positive')) / nullIf(count(), 0) * 100, 1) AS fp_pct FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY" }],
-      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{"color":"green","value":null},{"color":"orange","value":10},{"color":"red","value":30}] } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "gridPos": {
+        "x": 20,
+        "y": 4,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT round(toFloat64(countIf(status='false_positive')) / nullIf(count(), 0) * 100, 1) AS fp_pct FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
-
     {
       "id": 510,
       "title": "Алерты по времени (7 дней)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 4, "w": 16, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 16,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "description": "Частота срабатывания алертов по дням. Рост может означать новую атаку или ложные срабатывания.",
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 0,
-        "rawSql": "SELECT toStartOfHour(triggered_at) AS t, countIf(toString(severity) = 'critical') AS critical, countIf(toString(severity) = 'high') AS high, countIf(toString(severity) = 'medium') AS medium, countIf(toString(severity) = 'low') AS low FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY GROUP BY t ORDER BY t" }],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 0,
+          "rawSql": "SELECT toStartOfHour(triggered_at) AS t, countIf(toString(severity) = 'critical') AS critical, countIf(toString(severity) = 'high') AS high, countIf(toString(severity) = 'medium') AS medium, countIf(toString(severity) = 'low') AS low FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY GROUP BY t ORDER BY t"
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 15 } },
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        },
         "overrides": [
-          { "matcher": {"id":"byName","options":"critical"}, "properties": [{"id":"color","value":{"fixedColor":"#E02F44","mode":"fixed"}}] },
-          { "matcher": {"id":"byName","options":"high"},     "properties": [{"id":"color","value":{"fixedColor":"#FA6400","mode":"fixed"}}] },
-          { "matcher": {"id":"byName","options":"medium"},   "properties": [{"id":"color","value":{"fixedColor":"#FF9830","mode":"fixed"}}] },
-          { "matcher": {"id":"byName","options":"low"},      "properties": [{"id":"color","value":{"fixedColor":"#3DC932","mode":"fixed"}}] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "critical"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#E02F44",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "high"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FA6400",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "medium"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FF9830",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "low"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#3DC932",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] } }
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "sum"
+          ]
+        }
+      }
     },
-
     {
       "id": 511,
       "title": "По правилам (7 дней)",
       "type": "barchart",
-      "gridPos": { "x": 16, "y": 4, "w": 8, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT rule_id AS Rule, count() AS Fired, countIf(status='false_positive') AS FP FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY GROUP BY rule_id ORDER BY Fired DESC LIMIT 15" }],
-      "fieldConfig": { "defaults": { "unit": "short" } },
-      "options": { "orientation": "horizontal", "xField": "Rule", "barWidth": 0.7, "showValue": "auto" }
+      "gridPos": {
+        "x": 16,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT rule_id AS Rule, count() AS Fired, countIf(status='false_positive') AS FP FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY GROUP BY rule_id ORDER BY Fired DESC LIMIT 15"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "xField": "Rule",
+        "barWidth": 0.7,
+        "showValue": "auto"
+      }
     },
-
     {
       "id": 520,
       "title": "Все активные алерты",
       "type": "table",
-      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 10 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT formatDateTime(triggered_at, '%Y-%m-%d %H:%M:%S') AS Triggered, rule_id AS Rule, rule_title AS Title, toString(severity) AS Severity, toString(source_ip) AS IP, user_id AS User, left(description, 70) AS Description, toString(status) AS Status, acknowledged_by AS AckBy, arrayStringConcat(mitre_tags, ', ') AS MITRE FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 100",
-        "meta": { "builderOptions": { "fields": [] } } }],
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT formatDateTime(triggered_at, '%Y-%m-%d %H:%M:%S') AS Triggered, rule_id AS Rule, rule_title AS Title, toString(severity) AS Severity, toString(source_ip) AS IP, user_id AS User, left(description, 70) AS Description, toString(status) AS Status, acknowledged_by AS AckBy, arrayStringConcat(mitre_tags, ', ') AS MITRE FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 100",
+          "meta": {
+            "builderOptions": {
+              "fields": []
+            }
+          }
+        }
+      ],
       "fieldConfig": {
         "overrides": [
-          { "matcher": {"id":"byName","options":"Severity"}, "properties": [{"id":"custom.displayMode","value":"color-background"},{"id":"mappings","value":[{"type":"value","options":{"critical":{"color":"red","index":0},"high":{"color":"orange","index":1},"medium":{"color":"yellow","index":2},"low":{"color":"green","index":3}}}]},{"id":"color","value":{"mode":"thresholds"}}] },
-          { "matcher": {"id":"byName","options":"Status"},   "properties": [{"id":"custom.displayMode","value":"color-background"},{"id":"mappings","value":[{"type":"value","options":{"new":{"color":"red","index":0},"acknowledged":{"color":"yellow","index":1},"resolved":{"color":"green","index":2},"false_positive":{"color":"blue","index":3}}}]},{"id":"color","value":{"mode":"thresholds"}}] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Severity"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "critical": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "high": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "medium": {
+                        "color": "yellow",
+                        "index": 2
+                      },
+                      "low": {
+                        "color": "green",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "new": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "acknowledged": {
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "resolved": {
+                        "color": "green",
+                        "index": 2
+                      },
+                      "false_positive": {
+                        "color": "blue",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "showHeader": true, "sortBy": [{"displayName":"Triggered","desc":true}] }
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Triggered",
+            "desc": true
+          }
+        ]
+      }
     },
-
     {
       "id": 530,
       "title": "False Positive по правилам (тренд)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 22, "w": 12, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "description": "Правила с высоким % FP — кандидаты на пересмотр порогов. Рекомендовано: FP < 10%.",
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 0,
-        "rawSql": "SELECT toStartOfDay(triggered_at) AS t, rule_id, countIf(status='false_positive') AS fp_count, count() AS total FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY GROUP BY t, rule_id ORDER BY t" }],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 0,
+          "rawSql": "SELECT toStartOfDay(triggered_at) AS t, rule_id, countIf(status='false_positive') AS fp_count, count() AS total FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY GROUP BY t, rule_id ORDER BY t"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
-
     {
       "id": 531,
-      "title": "Prometheus: firing alerts сейчас",
-      "type": "table",
-      "gridPos": { "x": 12, "y": 22, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "description": "Активные записи ALERTS из Prometheus rules. Если пусто — либо нет правил, либо не срабатывают.",
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-        "expr": "ALERTS{alertstate=\"firing\"}",
-        "format": "table",
-        "instant": true }],
-      "transformations": [{ "id": "organize", "options": { "excludeByName": { "Time": true, "Value": true, "__name__": true, "alertstate": true } } }],
-      "options": { "showHeader": true }
+      "title": "Prometheus: число firing-алертов",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
+      "description": "Счётчик активных серий `ALERTS{alertstate=\"firing\"}`. Показывает **0**, если правила не загружены или ничего не firing — это нормально; детали см. Prometheus → Alerts. Запрос с `or vector(0)` устраняет «No data».",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-siem"
+          },
+          "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      }
     },
-
     {
       "id": 540,
       "title": "Частота алертов по правилам (heatmap-proxy: часы × правила)",
       "type": "table",
-      "gridPos": { "x": 0, "y": 30, "w": 24, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "description": "Суточное распределение срабатываний по правилам — помогает увидеть шаблоны (атаки по расписанию, ночные брутфорсы).",
-      "targets": [{ "refId": "A", "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" }, "format": 1,
-        "rawSql": "SELECT rule_id AS Rule, countIf(toHour(triggered_at) BETWEEN 0 AND 5)   AS night_00_06, countIf(toHour(triggered_at) BETWEEN 6 AND 11)  AS morning_06_12, countIf(toHour(triggered_at) BETWEEN 12 AND 17) AS day_12_18, countIf(toHour(triggered_at) BETWEEN 18 AND 23) AS evening_18_24, count() AS Total FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY GROUP BY rule_id ORDER BY Total DESC",
-        "meta": { "builderOptions": { "fields": [] } } }],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT rule_id AS Rule, countIf(toHour(triggered_at) BETWEEN 0 AND 5)   AS night_00_06, countIf(toHour(triggered_at) BETWEEN 6 AND 11)  AS morning_06_12, countIf(toHour(triggered_at) BETWEEN 12 AND 17) AS day_12_18, countIf(toHour(triggered_at) BETWEEN 18 AND 23) AS evening_18_24, count() AS Total FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY GROUP BY rule_id ORDER BY Total DESC",
+          "meta": {
+            "builderOptions": {
+              "fields": []
+            }
+          }
+        }
+      ],
       "fieldConfig": {
         "overrides": [
-          { "matcher": {"id":"byRegexp","options":"night|morning|day|evening"}, "properties": [{"id":"custom.displayMode","value":"color-background"},{"id":"thresholds","value":{"steps":[{"color":"transparent","value":null},{"color":"light-yellow","value":1},{"color":"orange","value":5},{"color":"red","value":10}]}},{"id":"color","value":{"mode":"thresholds"}}] }
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "night|morning|day|evening"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "transparent",
+                      "value": null
+                    },
+                    {
+                      "color": "light-yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "orange",
+                      "value": 5
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true
+      }
     }
   ]
 }

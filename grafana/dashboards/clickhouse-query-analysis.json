@@ -1,0 +1,53 @@
+{
+  "title": "ClickHouse — Query Analysis",
+  "uid": "ch-query-analysis-sql",
+  "version": 1,
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["clickhouse", "query_log", "siem"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "system.query_log",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Анализ запросов\n\nВсе панели читают **`system.query_log`** через **`clickhouse-siem`**. Если таблица пуста — включите логирование запросов в конфигурации ClickHouse и дождитесь нагрузки.\n\n**Top by duration** — самые долгие завершённые запросы; **Slow** — порог > 1 с (настройте под себя)."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "Top queries по длительности (24 ч)",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 3, "w": 24, "h": 10 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 1,
+          "rawSql": "SELECT formatDateTime(event_time, '%Y-%m-%d %H:%M:%S') AS event_time, query_duration_ms, read_rows, read_bytes, substring(query, 1, 200) AS query FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND type = 2 AND query_duration_ms IS NOT NULL ORDER BY query_duration_ms DESC LIMIT 40"
+        }
+      ],
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "query_duration_ms", "desc": true }] }
+    },
+    {
+      "id": 3,
+      "title": "Медленные запросы (> 1000 ms), 24 ч",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 13, "w": 24, "h": 10 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 1,
+          "rawSql": "SELECT formatDateTime(event_time, '%Y-%m-%d %H:%M:%S') AS event_time, query_duration_ms, user, substring(query, 1, 220) AS query FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND type = 2 AND query_duration_ms > 1000 ORDER BY query_duration_ms DESC LIMIT 50"
+        }
+      ],
+      "options": { "showHeader": true }
+    }
+  ]
+}

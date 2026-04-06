@@ -1,0 +1,72 @@
+{
+  "title": "Simple ClickHouse (Prometheus, без OTel)",
+  "uid": "ch-simple-prometheus",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["clickhouse", "prometheus", "siem"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Назначение",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Встроенный `/metrics` ClickHouse\n\nДашборд переведён с OTel на **Prometheus** (`job=\"clickhouse\"`, порт **9363**). **OpenTelemetry Collector не нужен.**\n\nПанели: «CPU» как прокси по **SelectQuery** (как в ТЗ), память **ClickHouseMetrics_MemoryTracking**, диск **ClickHouseAsyncMetrics_DiskAvailable_default**, общая интенсивность **Query**."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "CPU (прокси: SelectQuery / с)",
+      "description": "В ТЗ: rate(ClickHouseProfileEvents_SelectQuery[2m]) как индикатор нагрузки CPU/запросов.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m])", "legendFormat": "SelectQuery/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 18 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 3,
+      "title": "Memory (ClickHouseMetrics_MemoryTracking)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "ClickHouseMetrics_MemoryTracking{job=\"clickhouse\"}", "legendFormat": "tracking" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 4,
+      "title": "Disk available (default)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "ClickHouseAsyncMetrics_DiskAvailable_default{job=\"clickhouse\"}", "legendFormat": "available" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 5,
+      "title": "Queries / с (ClickHouseProfileEvents_Query)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_Query{job=\"clickhouse\"}[2m])", "legendFormat": "Query/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    }
+  ]
+}

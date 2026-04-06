@@ -4,17 +4,46 @@
   "version": 1,
   "refresh": "1m",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["siem", "quality", "soc", "trust"],
+  "tags": [
+    "siem",
+    "quality",
+    "soc",
+    "trust"
+  ],
   "graphTooltip": 1,
   "editable": true,
   "panels": [
     {
+      "id": 50,
+      "title": "Если панели пустые",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 2
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Нужны строки в **`siem.events`**. Прогоните **`bootstrap_clickhouse.sh`** или **Fill All Data**; метрики **siem-parser** в Prometheus появятся только при трафике **`/parse`**."
+      },
+      "transparent": true
+    },
+    {
       "id": 1,
       "type": "text",
       "title": "Глубина расследования и доверие",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 5 },
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 24,
+        "h": 5
+      },
       "options": {
         "mode": "markdown",
         "content": "## Назначение\n\nЭтот дашборд отвечает на вопрос: **можно ли опираться на данные при разборе инцидента**. Это не замена кейс-менеджменту, а операционный слой «качество пайплайна».\n\n| Измерение | Что смотрим |\n|-----------|-------------|\n| **Доверие к данным** | полнота полей (IP, лаг ingest), ошибки парсера, лаг Kafka |\n| **Глубина расследования** | шаблоны запросов и ссылки выдаёт API `GET /api/v1/cases/:id/investigate` (case-management) |\n| **Зрелость процесса** | SLA `due_at`, runbook, статусы кейса — в UI/API кейсов |\n\n**Кейсы:** [Case management](http://localhost:8088/) · **Обзор событий:** [Overview](/d/siem-overview/siem-lite-obzor)."
@@ -25,28 +54,55 @@
       "id": 2,
       "title": "Показатели качества событий (24 ч)",
       "type": "table",
-      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 7 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
           "format": 1,
           "rawSql": "SELECT\n  'Событий всего' AS metric,\n  toString(count()) AS value\nFROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR\nUNION ALL\nSELECT\n  '% без source_ip',\n  concat(toString(round(100 * countIf(source_ip IS NULL) / nullIf(count(), 0), 2)), ' %')\nFROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR\nUNION ALL\nSELECT\n  'p95 ingest_lag_ms',\n  toString(round(quantileTDigest(0.95)(ingest_lag_ms), 1))\nFROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR\nUNION ALL\nSELECT\n  'Уникальных source_type',\n  toString(uniqExact(source_type))\nFROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR",
-          "meta": { "builderOptions": { "fields": [] } }
+          "meta": {
+            "builderOptions": {
+              "fields": []
+            }
+          }
         }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "auto" } },
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
         "overrides": []
       },
-      "options": { "showHeader": true, "sortBy": [] }
+      "options": {
+        "showHeader": true,
+        "sortBy": []
+      }
     },
     {
       "id": 3,
       "title": "Lag ingest (p95), мс — по часам",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 7 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -57,18 +113,53 @@
       "fieldConfig": {
         "defaults": {
           "unit": "ms",
-          "custom": { "lineWidth": 2, "fillOpacity": 15 },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5000 }, { "color": "red", "value": 30000 }] }
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5000
+              },
+              {
+                "color": "red",
+                "value": 30000
+              }
+            ]
+          }
         }
       },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom" } }
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 4,
       "title": "siem-parser: ошибки vs успех (rate)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -81,15 +172,35 @@
           "legendFormat": "error / s"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "ops" } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 5,
       "title": "Redpanda: consumer lag siem.events (recording)",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -97,8 +208,20 @@
           "legendFormat": "lag (sum offsets)"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "short" } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
     }
   ]
 }

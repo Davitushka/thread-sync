@@ -60,6 +60,13 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
+  # Grafana: метрики процесса и внутреннего состояния (дашборды «Grafana metrics», self-monitoring)
+  - job_name: grafana
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
   # ── Infrastructure exporters ───────────────────────────────────────────────
 
   # node-exporter: метрики хост-машины (CPU, RAM, disk, net, temperature)

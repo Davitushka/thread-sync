@@ -1,0 +1,76 @@
+{
+  "title": "Prometheus — обзорные метрики",
+  "uid": "siem-prometheus-stats",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["prometheus", "monitoring", "siem"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Инфраструктура мониторинга",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Метрики Prometheus (сервер)\n\nПоказатели **инфраструктуры мониторинга**: цели scrape, блоки TSDB, уведомления. Не путать с **`siem_events_total`** и прикладными метриками стека.\n\nДанные с **`job=\"prometheus\"`**."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "Targets ready",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 3, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "prometheus_target_scrape_pool_targets{job=\"prometheus\"}", "legendFormat": "pool targets" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 3,
+      "title": "Scrape failures",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 3, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(prometheus_target_scrapes_failed_total{job=\"prometheus\"}[5m])", "legendFormat": "failed/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 4,
+      "title": "WAL коррупции / проблемы",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 3, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(prometheus_tsdb_wal_corruptions_total{job=\"prometheus\"}[1h])", "legendFormat": "corruptions/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 5,
+      "title": "Prometheus UP",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 11, "w": 24, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "up{job=\"prometheus\"}", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    }
+  ]
+}

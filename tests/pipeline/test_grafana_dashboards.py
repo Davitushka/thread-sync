@@ -27,24 +27,19 @@ def _iter_raw_sql_panels(dash: dict):
                 yield panel.get("title", "?"), panel.get("id"), sql
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "siem-overview.json",
-        "siem-validation.json",
-        "siem-operations.json",
-        "siem-soc-workbench.json",
-        "siem-alert-management.json",
-        "siem-detection.json",
-        "siem-data-quality.json",
-        "siem-infrastructure.json",
-    ],
-)
-def test_dashboard_json_loads(repo_root: Path, name: str) -> None:
-    path = repo_root / "grafana" / "dashboards" / name
-    data = _load_dashboard(path)
-    assert data.get("title"), f"{name}: у дашборда должно быть поле title"
-    assert data.get("panels"), f"{name}: список panels не должен быть пустым"
+def _all_dashboard_files(repo_root: Path) -> list[str]:
+    d = repo_root / "grafana" / "dashboards"
+    return sorted(p.name for p in d.glob("*.json"))
+
+
+def test_all_dashboard_json_files_load(repo_root: Path) -> None:
+    names = _all_dashboard_files(repo_root)
+    assert len(names) == 18, f"Ожидается 18 дашбордов в grafana/dashboards, найдено {len(names)}"
+    for name in names:
+        path = repo_root / "grafana" / "dashboards" / name
+        data = _load_dashboard(path)
+        assert data.get("title"), f"{name}: у дашборда должно быть поле title"
+        assert data.get("panels"), f"{name}: список panels не должен быть пустым"
 
 
 def test_siem_overview_has_http_status_panel_with_non_http_bucket(repo_root: Path) -> None:
@@ -87,15 +82,7 @@ def test_siem_overview_error_rate_uses_float_division(repo_root: Path) -> None:
 def test_no_broken_ch_sql_patterns(repo_root: Path) -> None:
     """Сканируем rawSql дашбордов на известные ошибки CH."""
     bad = re.compile(r"toUInt16OrZero\s*\(\s*status_code\s*\)", re.IGNORECASE)
-    for fname in (
-        "siem-overview.json",
-        "siem-validation.json",
-        "siem-operations.json",
-        "siem-soc-workbench.json",
-        "siem-alert-management.json",
-        "siem-detection.json",
-        "siem-data-quality.json",
-    ):
+    for fname in _all_dashboard_files(repo_root):
         dash = _load_dashboard(repo_root / "grafana" / "dashboards" / fname)
         for title, pid, sql in _iter_raw_sql_panels(dash):
             assert not bad.search(sql), (

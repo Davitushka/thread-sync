@@ -1,0 +1,76 @@
+{
+  "title": "Grafana — внутренние метрики",
+  "uid": "siem-grafana-metrics",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["grafana", "monitoring", "siem"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Инфраструктура мониторинга",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Метрики самой Grafana\n\nЭтот дашборд показывает **инфраструктуру мониторинга** (процесс Grafana), а не события SIEM. Prometheus должен скрейпить **`grafana:3000/metrics`** (job `grafana` в `prometheus.yml`).\n\nЕсли пусто — проверьте таргет **grafana** в Prometheus и сеть Docker."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "CPU (process)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(process_cpu_seconds_total{job=\"grafana\"}[2m])", "legendFormat": "CPU s/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 3,
+      "title": "RSS память",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "process_resident_memory_bytes{job=\"grafana\"}", "legendFormat": "RSS" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 4,
+      "title": "Grafana UP",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 11, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "up{job=\"grafana\"}", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 5,
+      "title": "Открытые файлы (process)",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 11, "w": 18, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "process_open_fds{job=\"grafana\"}", "legendFormat": "fds" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    }
+  ]
+}

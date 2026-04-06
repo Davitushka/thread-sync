@@ -4,26 +4,62 @@
   "version": 1,
   "refresh": "1m",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["siem", "soc", "threat-intel"],
+  "tags": [
+    "siem",
+    "soc",
+    "threat-intel"
+  ],
   "graphTooltip": 1,
   "editable": true,
   "links": [
-    { "title": "Кейсы (Case UI)", "type": "link", "url": "http://localhost:8088/", "icon": "external link", "targetBlank": true },
-    { "title": "Alert Management", "type": "link", "url": "/d/siem-alerts", "keepTime": true, "icon": "dashboard" },
-    { "title": "Detection", "type": "link", "url": "/d/siem-detection", "keepTime": true, "icon": "dashboard" },
-    { "title": "Overview", "type": "link", "url": "/d/siem-overview", "keepTime": true, "icon": "dashboard" }
+    {
+      "title": "Кейсы (Case UI)",
+      "type": "link",
+      "url": "http://localhost:8088/",
+      "icon": "external link",
+      "targetBlank": true
+    },
+    {
+      "title": "Alert Management",
+      "type": "link",
+      "url": "/d/siem-alerts",
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "title": "Detection",
+      "type": "link",
+      "url": "/d/siem-detection",
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/siem-overview",
+      "keepTime": true,
+      "icon": "dashboard"
+    }
   ],
   "panels": [
     {
       "id": 601,
       "title": "Как пользоваться IoC",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "markdown",
-        "content": "### Threat intelligence (`siem.threat_intel`)\n\n1. Загрузите IoC через ClickHouse: `INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence) VALUES ('ipv4', '198.51.100.7', 'manual', 'C2 suspect', ['c2'], 80);`\n2. Ниже — события за выбранный интервал, где `source_ip` совпал с IoC типа **ipv4**.\n3. Очередь кейсов: **Case UI** (ссылка в шапке) или алерты → `case-management` webhook."
+        "content": "### Threat intelligence (`siem.threat_intel`)\n\n1. Загрузите IoC через ClickHouse: `INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence) VALUES ('ipv4', '198.51.100.7', 'manual', 'C2 suspect', ['c2'], 80);`\n2. Ниже — события за выбранный интервал, где `source_ip` совпал с IoC типа **ipv4**.\n3. Очередь кейсов: **Case UI** (ссылка в шапке) или алерты → `case-management` webhook.\n\n#### Таблица `siem.threat_intel` пуста\nПанели с JOIN к IoC будут **пустыми**, пока нет строк в **`siem.threat_intel`**. Добавьте записи вручную (**INSERT**), выполните **`bootstrap_clickhouse.sh`** (сиды) или загрузите ленту через SIEM Admin.\nПример: `INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence) VALUES ('ipv4', '198.51.100.7', 'manual', 'C2 suspect', ['c2'], 80);`"
       }
     },
     {
@@ -31,89 +67,257 @@
       "title": "События с известным вредоносным IP (24h window)",
       "description": "JOIN событий с таблицей IoC. Пусто, если `threat_intel` не заполнена.",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 3, "w": 6, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{
-        "refId": "A",
-        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-        "format": 1,
-        "rawSql": "SELECT count() AS hits FROM siem.events e WHERE e.timestamp >= now() - INTERVAL 24 HOUR AND e.source_ip IS NOT NULL AND EXISTS (SELECT 1 FROM siem.threat_intel t WHERE t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip))"
-      }],
-      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 10 }] } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT count() AS hits FROM siem.events e WHERE e.timestamp >= now() - INTERVAL 24 HOUR AND e.source_ip IS NOT NULL AND EXISTS (SELECT 1 FROM siem.threat_intel t WHERE t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 603,
       "title": "Уникальных IoC IPv4 в ленте",
       "type": "stat",
-      "gridPos": { "x": 6, "y": 3, "w": 6, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{
-        "refId": "A",
-        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-        "format": 1,
-        "rawSql": "SELECT uniqExact(e.source_ip) AS uniq_bad_ips FROM siem.events e WHERE e.timestamp >= now() - INTERVAL 24 HOUR AND e.source_ip IS NOT NULL AND EXISTS (SELECT 1 FROM siem.threat_intel t WHERE t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip))"
-      }],
-      "fieldConfig": { "defaults": { "unit": "short" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+      "gridPos": {
+        "x": 6,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT uniqExact(e.source_ip) AS uniq_bad_ips FROM siem.events e WHERE e.timestamp >= now() - INTERVAL 24 HOUR AND e.source_ip IS NOT NULL AND EXISTS (SELECT 1 FROM siem.threat_intel t WHERE t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
       "id": 604,
       "title": "Записей в threat_intel",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 3, "w": 6, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{
-        "refId": "A",
-        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-        "format": 1,
-        "rawSql": "SELECT count() AS ioc_rows FROM siem.threat_intel"
-      }],
-      "fieldConfig": { "defaults": { "unit": "short" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT count() AS ioc_rows FROM siem.threat_intel"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
       "id": 605,
       "title": "Новые алерты (ClickHouse), 24h",
       "type": "stat",
-      "gridPos": { "x": 18, "y": 3, "w": 6, "h": 4 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{
-        "refId": "A",
-        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-        "format": 1,
-        "rawSql": "SELECT count() AS new_alerts FROM siem.alerts WHERE status = 'new' AND triggered_at >= now() - INTERVAL 24 HOUR"
-      }],
-      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "gridPos": {
+        "x": 18,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT count() AS new_alerts FROM siem.alerts WHERE status = 'new' AND triggered_at >= now() - INTERVAL 24 HOUR"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 610,
       "title": "События, совпавшие с IoC (детально)",
       "type": "table",
-      "gridPos": { "x": 0, "y": 7, "w": 24, "h": 10 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{
-        "refId": "A",
-        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-        "format": 1,
-        "rawSql": "SELECT formatDateTime(e.timestamp, '%Y-%m-%d %H:%M:%S') AS ts, toString(e.source_ip) AS ip, toString(e.severity) AS sev, e.user_id AS user, e.url_path AS path, t.feed AS ioc_feed, t.threat_label AS label, arrayStringConcat(t.tags, ', ') AS ioc_tags, left(e.message, 120) AS msg FROM siem.events e INNER JOIN siem.threat_intel t ON t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip) WHERE e.timestamp >= now() - INTERVAL 24 HOUR ORDER BY e.timestamp DESC LIMIT 300"
-      }],
-      "options": { "showHeader": true, "sortBy": [{ "displayName": "ts", "desc": true }] }
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT formatDateTime(e.timestamp, '%Y-%m-%d %H:%M:%S') AS ts, toString(e.source_ip) AS ip, toString(e.severity) AS sev, e.user_id AS user, e.url_path AS path, t.feed AS ioc_feed, t.threat_label AS label, arrayStringConcat(t.tags, ', ') AS ioc_tags, left(e.message, 120) AS msg FROM siem.events e INNER JOIN siem.threat_intel t ON t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip) WHERE e.timestamp >= now() - INTERVAL 24 HOUR ORDER BY e.timestamp DESC LIMIT 300"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "ts",
+            "desc": true
+          }
+        ]
+      }
     },
     {
       "id": 620,
       "title": "Каталог threat_intel",
       "type": "table",
-      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-      "targets": [{
-        "refId": "A",
-        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
-        "format": 1,
-        "rawSql": "SELECT ioc_type, ioc_value, feed, threat_label, arrayStringConcat(tags, ', ') AS tags, confidence, formatDateTime(first_seen, '%Y-%m-%d %H:%M:%S') AS first_seen, formatDateTime(last_seen, '%Y-%m-%d %H:%M:%S') AS last_seen FROM siem.threat_intel ORDER BY last_seen DESC LIMIT 500"
-      }],
-      "options": { "showHeader": true }
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-siem"
+          },
+          "format": 1,
+          "rawSql": "SELECT ioc_type, ioc_value, feed, threat_label, arrayStringConcat(tags, ', ') AS tags, confidence, formatDateTime(first_seen, '%Y-%m-%d %H:%M:%S') AS first_seen, formatDateTime(last_seen, '%Y-%m-%d %H:%M:%S') AS last_seen FROM siem.threat_intel ORDER BY last_seen DESC LIMIT 500"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
     }
   ]
 }

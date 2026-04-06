@@ -1,0 +1,96 @@
+{
+  "title": "ClickHouse — Single Node Analysis",
+  "uid": "ch-single-node-analysis",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["clickhouse", "single-node", "siem"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Один инстанс",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Адаптация под single node\n\nИсходные кластерные дашборды с группировкой по `cluster` здесь **не используются**: один таргет **`clickhouse:9363`**, все ряды без агрегации по кластеру.\n\nЕсли график пустой — проверьте цель **`clickhouse`** в Prometheus и `config.d/prometheus.xml` в контейнере CH."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "Запросы (все типы) / с",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_Query{job=\"clickhouse\"}[2m])", "legendFormat": "Query" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 3,
+      "title": "Вставки и выборки / с",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m])", "legendFormat": "SELECT/s" },
+        { "refId": "B", "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m])", "legendFormat": "INSERT/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 4,
+      "title": "Память (async resident)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 11, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"clickhouse\"}", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    },
+    {
+      "id": 5,
+      "title": "Свободное место default",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 11, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "ClickHouseAsyncMetrics_DiskAvailable_default{job=\"clickhouse\"}", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 6,
+      "title": "Неудачные запросы / с",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 11, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\"}[5m]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 3 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 7,
+      "title": "Merged rows / с",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 11, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(ClickHouseProfileEvents_MergedRows{job=\"clickhouse\"}[5m]))", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 2 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+    }
+  ]
+}

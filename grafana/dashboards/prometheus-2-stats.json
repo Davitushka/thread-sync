@@ -1,0 +1,71 @@
+{
+  "title": "Prometheus 2.x — состояние TSDB",
+  "uid": "siem-prometheus-2-stats",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["prometheus", "monitoring", "siem"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Инфраструктура мониторинга",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Метрики сервера Prometheus\n\nДашборд отражает **саму систему мониторинга** (TSDB, head block), а не прикладной SIEM. Источник: **`job=\"prometheus\"`** (self-scrape на `localhost:9090` внутри контейнера).\n\nПустые графики — проверьте, что Prometheus запущен и правила загружены."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "Ряды в head TSDB",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "prometheus_tsdb_head_series{job=\"prometheus\"}", "legendFormat": "series" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 3,
+      "title": "Append sample rate",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(prometheus_tsdb_head_samples_appended_total{job=\"prometheus\"}[2m])", "legendFormat": "samples/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 4,
+      "title": "Активные запросы",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 11, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "prometheus_engine_queries{job=\"prometheus\"}", "legendFormat": "queries" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 5,
+      "title": "Alertmanager targets discovered",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 11, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "prometheus_notifications_alertmanagers_discovered{job=\"prometheus\"}", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    }
+  ]
+}

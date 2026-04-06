@@ -1,0 +1,87 @@
+{
+  "title": "ClickHouse — Data Analysis (SQL)",
+  "uid": "ch-data-analysis-sql",
+  "version": 1,
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["clickhouse", "sql", "siem"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Источник данных",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Прямые запросы к ClickHouse\n\nПанели используют дatasource **`clickhouse-siem`**. Бизнес-данные — **`siem.events`**; нагрузка и задержки — **`system.query_log`** (должен быть включён в конфигурации сервера).\n\nПустые таблицы — выполните **`bootstrap_clickhouse.sh`** или **Fill All Data**."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "События по часам (siem.events)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 0,
+          "rawSql": "SELECT toStartOfHour(timestamp) AS t, count() AS events FROM siem.events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY t ORDER BY t"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 20 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 3,
+      "title": "Топ source_type за 24 ч",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 1,
+          "rawSql": "SELECT toString(source_type) AS source_type, count() AS cnt FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY source_type ORDER BY cnt DESC LIMIT 30"
+        }
+      ],
+      "options": { "showHeader": true }
+    },
+    {
+      "id": 4,
+      "title": "system.query_log: запросов / мин",
+      "description": "Агрегат по query_log для оценки нагрузки на CH.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 11, "w": 12, "h": 7 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 0,
+          "rawSql": "SELECT toStartOfMinute(event_time) AS t, count() AS queries FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY t ORDER BY t"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 5,
+      "title": "system.query_log: средняя длительность (мс) по минутам",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 11, "w": 12, "h": 7 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 0,
+          "rawSql": "SELECT toStartOfMinute(event_time) AS t, avg(query_duration_ms) AS avg_ms FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND query_duration_ms IS NOT NULL GROUP BY t ORDER BY t"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    }
+  ]
+}

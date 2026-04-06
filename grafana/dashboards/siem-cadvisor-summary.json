@@ -1,0 +1,70 @@
+{
+  "title": "SIEM-Lite — cAdvisor (сводка)",
+  "uid": "siem-cadvisor-summary",
+  "version": 1,
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["siem", "cadvisor", "containers"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Подсказка",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 2 },
+      "options": {
+        "mode": "markdown",
+        "content": "Сводка по контейнерам из **cAdvisor** (`job=\"cadvisor\"`). На Docker Desktop разбивка может быть обобщённой."
+      },
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "title": "CPU контейнеров (%)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 2, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 3,
+      "title": "Память контейнеров",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 2, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"} or container_memory_usage_bytes{job=\"cadvisor\"}",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 4,
+      "title": "cAdvisor UP",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 10, "w": 24, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [{ "refId": "A", "expr": "up{job=\"cadvisor\"}", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    }
+  ]
+}
