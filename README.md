@@ -125,6 +125,8 @@ docker compose -f deploy/docker/docker-compose.yml ps
 curl -s http://localhost:7000/health
 ```
 
+Почему часть панелей в Grafana пустая: метрики **Prometheus** (`siem_events_total` и др.) и таблицы **ClickHouse** заполняются по-разному — см. [`docs/DATA_PROMETHEUS_GRAFANA.md`](docs/DATA_PROMETHEUS_GRAFANA.md).
+
 Чтобы **дашборды ClickHouse** (Overview, Alert Management, SOC Workbench) не были пустыми сразу после первого старта, загрузите сид:
 
 ```bash

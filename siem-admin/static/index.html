@@ -222,6 +222,7 @@ let services = [];
 let pipeline = null;
 let servicesError = null;
 let dataStatus = null;
+let promStatus = null;
 let redAlert = null;
 
 function svc(name) { return services.find(s => s.name === name); }
@@ -553,6 +554,23 @@ async function fetchPipeline() {
   }
 }
 
+async function fetchPrometheusStatus() {
+  try {
+    const r = await fetch(API + '/api/prometheus-status');
+    promStatus = await r.json();
+  } catch (e) {
+    promStatus = {
+      prometheus_ok: false,
+      siem_events_total: 0,
+      siem_parser_parsed_total: 0,
+      siem_parser_parse_errors: 0,
+      detection_events_processed_total: 0,
+      vector_http_ingest_events_total: 0,
+      error: e.message
+    };
+  }
+}
+
 async function fetchDataStatus() {
   try {
     const r = await fetch(API+'/api/data-status');
@@ -621,7 +639,20 @@ function renderChecklist() {
   const eventsDataHint = chUp && hasEvents;
   const alertsDataHint = chUp && hasAlerts;
 
+  const promOk = !!(promStatus && promStatus.prometheus_ok);
+  const hasSiemEventsMetric = !!(promStatus && Number(promStatus.siem_events_total) > 0);
+  const hasParserParsed = !!(promStatus && Number(promStatus.siem_parser_parsed_total) > 0);
+  const hasVectorIngest = !!(promStatus && Number(promStatus.vector_http_ingest_events_total) > 0);
+  const hasDetectionTotal = !!(promStatus && Number(promStatus.detection_events_processed_total) > 0);
+
   const dashboards = [
+    { title: 'Prometheus (метрики для PromQL-панелей)', items: [
+      { text: promOk ? 'Prometheus API (instant query) OK' : `Prometheus: ${(promStatus && promStatus.error) || 'недоступен'}`, ok: promOk },
+      { text: `Vector HTTP ingest (component_id=http_ingest), sum: ${fmtNum(promStatus && promStatus.vector_http_ingest_events_total)}`, ok: hasVectorIngest },
+      { text: `sum(siem_parser_events_parsed_total): ${fmtNum(promStatus && promStatus.siem_parser_parsed_total)}`, ok: hasParserParsed },
+      { text: `sum(siem_events_total) — только путь siem-parser: ${fmtNum(promStatus && promStatus.siem_events_total)}`, ok: hasSiemEventsMetric },
+      { text: `sum(detection_events_processed_total): ${fmtNum(promStatus && promStatus.detection_events_processed_total)}`, ok: hasDetectionTotal },
+    ]},
     { title: 'siem-overview', items: [
       { text: 'Vector Aggregator running', ok: runningHas('siem-vector-aggregator') },
       { text: 'Redpanda running & healthy', ok: runningOk('siem-redpanda') },
@@ -638,8 +669,8 @@ function renderChecklist() {
       { text: 'Correlator running', ok: runningHas('siem-correlator') },
       { text: `ClickHouse доступен и events заполнены: ${(dataStatus && dataStatus.events_24h) || 0}`, ok: eventsDataHint },
       { text: 'siem-parser + Alertmanager (путь алертов в siem.alerts)', ok: pOk.has('siem-parser') && pOk.has('Alertmanager') },
-      { text: 'detection_events_processed_total (есть при работе detector)', ok: runningHas('detection-engine') },
-      { text: 'detection_parse_errors_total', ok: runningHas('detection-engine') },
+      { text: `Prometheus: sum(siem_events_total) для правил алертов > 0: ${fmtNum(promStatus && promStatus.siem_events_total)}`, ok: hasSiemEventsMetric },
+      { text: `Prometheus: detection_events_processed_total > 0: ${fmtNum(promStatus && promStatus.detection_events_processed_total)}`, ok: hasDetectionTotal },
     ]},
     { title: 'siem-infrastructure', items: [
       { text: 'node-exporter running (CPU/RAM/Disk metrics)', ok: runningHas('siem-node-exporter') },
@@ -702,8 +733,16 @@ function escapeHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function fmtNum(v) {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if (n >= 1e9) return n.toExponential(2);
+  if (n % 1 === 0) return String(Math.round(n));
+  return n.toFixed(2);
+}
+
 async function refreshAll() {
-  await Promise.all([fetchServices(), fetchPipeline(), fetchDataStatus(), fetchRedAlertStatus()]);
+  await Promise.all([fetchServices(), fetchPipeline(), fetchDataStatus(), fetchPrometheusStatus(), fetchRedAlertStatus()]);
   document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
   renderChecklist();
   renderStressTool();

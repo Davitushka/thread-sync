@@ -70,6 +70,23 @@ struct DataStatus {
     error: Option<String>,
 }
 
+/// Срез метрик из Prometheus (дашборды с datasource prometheus-siem).
+#[derive(Serialize)]
+struct PrometheusStatus {
+    prometheus_ok: bool,
+    /// `sum(siem_events_total)` — накапливается только при обработке в **siem-parser** (/parse и ingest), не при прямом INSERT в CH.
+    siem_events_total: f64,
+    /// `sum(siem_parser_events_parsed_total)` — всё принятое парсером.
+    siem_parser_parsed_total: f64,
+    /// `sum(siem_parser_events_parsed_total{status="error"})`
+    siem_parser_parse_errors: f64,
+    /// `sum(detection_events_processed_total)` — движок детекции.
+    detection_events_processed_total: f64,
+    /// `sum(vector_component_received_events_total{component_id="http_ingest"})` — события на HTTP /logs.
+    vector_http_ingest_events_total: f64,
+    error: Option<String>,
+}
+
 #[derive(Serialize)]
 struct ErrorBody {
     error: String,
@@ -160,6 +177,7 @@ async fn main() {
         .route("/api/red-alert/stop", post(stop_red_alert))
         .route("/api/red-alert/status", get(red_alert_status))
         .route("/api/data-status", get(data_status))
+        .route("/api/prometheus-status", get(prometheus_status))
         .route("/api/pipeline", get(pipeline_status))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -1242,6 +1260,89 @@ fn clickhouse_config() -> (String, String, String) {
             .unwrap_or_else(|_| "ClickHousePass123!".to_string())
     };
     (url, user, password)
+}
+
+fn prometheus_base_url() -> String {
+    std::env::var("PROMETHEUS_URL").unwrap_or_else(|_| "http://siem-prometheus:9090".into())
+}
+
+/// Instant query (`/api/v1/query`); пустой `result` → `0.0`.
+async fn prometheus_instant_scalar(http: &reqwest::Client, query: &str) -> Result<f64, String> {
+    let url = format!("{}/api/v1/query", prometheus_base_url().trim_end_matches('/'));
+    let resp = http
+        .get(url)
+        .query(&[("query", query)])
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("prometheus: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("prometheus HTTP {}", resp.status()));
+    }
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("status").and_then(|s| s.as_str()) != Some("success") {
+        return Err("prometheus: status != success".into());
+    }
+    let Some(rows) = v["data"]["result"].as_array() else {
+        return Ok(0.0);
+    };
+    if rows.is_empty() {
+        return Ok(0.0);
+    }
+    let s = rows[0]["value"]
+        .get(1)
+        .and_then(|x| x.as_str())
+        .unwrap_or("0");
+    s.parse::<f64>()
+        .map_err(|_| format!("prometheus: bad scalar {:?}", s))
+}
+
+async fn prometheus_status(State(state): State<AppState>) -> Json<PrometheusStatus> {
+    if let Err(e) = prometheus_instant_scalar(&state.http, "time()").await {
+        return Json(PrometheusStatus {
+            prometheus_ok: false,
+            siem_events_total: 0.0,
+            siem_parser_parsed_total: 0.0,
+            siem_parser_parse_errors: 0.0,
+            detection_events_processed_total: 0.0,
+            vector_http_ingest_events_total: 0.0,
+            error: Some(e),
+        });
+    }
+
+    let siem_events_total = prometheus_instant_scalar(&state.http, "sum(siem_events_total)")
+        .await
+        .unwrap_or(0.0);
+    let siem_parser_parsed_total =
+        prometheus_instant_scalar(&state.http, "sum(siem_parser_events_parsed_total)")
+            .await
+            .unwrap_or(0.0);
+    let siem_parser_parse_errors = prometheus_instant_scalar(
+        &state.http,
+        r#"sum(siem_parser_events_parsed_total{status="error"})"#,
+    )
+    .await
+    .unwrap_or(0.0);
+    let detection_events_processed_total =
+        prometheus_instant_scalar(&state.http, "sum(detection_events_processed_total)")
+            .await
+            .unwrap_or(0.0);
+    let vector_http_ingest_events_total = prometheus_instant_scalar(
+        &state.http,
+        r#"sum(vector_component_received_events_total{component_id="http_ingest"})"#,
+    )
+    .await
+    .unwrap_or(0.0);
+
+    Json(PrometheusStatus {
+        prometheus_ok: true,
+        siem_events_total,
+        siem_parser_parsed_total,
+        siem_parser_parse_errors,
+        detection_events_processed_total,
+        vector_http_ingest_events_total,
+        error: None,
+    })
 }
 
 async fn execute_clickhouse_query(http: &reqwest::Client, query: String) -> Result<String, String> {

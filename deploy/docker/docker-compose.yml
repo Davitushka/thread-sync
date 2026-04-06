@@ -843,6 +843,8 @@ services:
       <<: *common-env
       RUST_LOG: siem_admin=info
       ADMIN_ADDR: "0.0.0.0:8089"
+      # Для /api/prometheus-status (чеклист метрик Grafana)
+      PROMETHEUS_URL: "http://siem-prometheus:9090"
     deploy:
       resources:
         limits:

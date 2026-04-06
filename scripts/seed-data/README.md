@@ -21,6 +21,8 @@ docker compose -f deploy/docker/docker-compose.yml --profile seed up soc-seed
 
 То же самое из UI: **SIEM Admin** (профиль `admin`, порт 8089) → **Fill All Data**.
 
+Связка Grafana (ClickHouse vs Prometheus): [`docs/DATA_PROMETHEUS_GRAFANA.md`](../../docs/DATA_PROMETHEUS_GRAFANA.md).
+
 ## Установка
 
 ```bash
