@@ -1,5 +1,7 @@
 # Secrets
 
+Полная инструкция по запуску стека (compose, порты, MinIO, профиль `admin`): [README.md](../../../README.md) → раздел **«Полный запуск (Docker Compose)»**.
+
 Создайте следующие файлы в этой директории перед первым запуском.
 
 Содержимое `clickhouse_password.txt` должно совпадать с переменной `CLICKHOUSE_PASSWORD`, если вы задаёте её через `deploy/docker/.env` (см. `../.env.example`).

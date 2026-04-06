@@ -2,59 +2,53 @@
 
 ## 1. Checklist первого запуска
 
+Каноничное описание «с нуля»: раздел **«Полный запуск (Docker Compose)»** в [README.md](../README.md). Ниже — операторский чеклист.
+
 ### Pre-flight проверки
 
 ```bash
-# 1. Создать секреты
+# 1. Секреты в deploy/docker/secrets/ (см. deploy/docker/secrets/README.md)
 cd deploy/docker/secrets
-echo -n "your-smtp-password" > smtp_password.txt
-echo -n "https://hooks.slack.com/services/T00/B00/XXXX" > slack_webhook_url.txt
-echo -n "your-pagerduty-key" > pagerduty_key.txt
-echo -n "ClickHousePass123!" > clickhouse_password.txt
-echo -n "MinIOSecret456!" > minio_secret_key.txt
-chmod 600 *.txt
+# ... smtp_password.txt, slack_webhook_url.txt, pagerduty_key.txt,
+#     clickhouse_password.txt, minio_secret_key.txt
+chmod 600 *.txt 2>/dev/null || true
 
-# 2. Создать директорию для GeoIP баз
-docker volume create siem-lite_geoip-data
+# 2. (Опционально) deploy/docker/.env из .env.example — пароли ClickHouse/Postgres
 
-# Скачать GeoLite2 (требует регистрацию на maxmind.com)
-# https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
-# После скачивания:
-docker run --rm -v siem-lite_geoip-data:/target \
-  alpine sh -c "cp /host/GeoLite2-City.mmdb /target/ && cp /host/GeoLite2-ASN.mmdb /target/"
+# 3. (Опционально) GeoIP: том + .mmdb (см. README GeoIP Setup)
 
-# 3. Сгенерировать TLS сертификаты для Vector mTLS
-cd scripts
-chmod +x generate-certs.sh && ./generate-certs.sh
+# 4. (Опционально) TLS: bash scripts/generate-certs.sh — для mTLS Vector в проде;
+#    в локальном aggregator.yaml TLS выключен.
 
-# 4. Проверить docker compose конфигурацию
+# 5. Валидация compose
 docker compose -f deploy/docker/docker-compose.yml config --quiet && echo "Config OK"
 ```
 
 ### Запуск
 
-```bash
-# Старт в правильном порядке
-docker compose -f deploy/docker/docker-compose.yml up -d redpanda
-sleep 30
-docker compose -f deploy/docker/docker-compose.yml up -d redpanda-init
-sleep 10
-docker compose -f deploy/docker/docker-compose.yml up -d clickhouse
-sleep 30
-docker compose -f deploy/docker/docker-compose.yml up -d --build siem-parser vector-aggregator
-docker compose -f deploy/docker/docker-compose.yml up -d prometheus alertmanager loki grafana minio
+Один проход (зависимости `depends_on` + healthcheck выстраивают порядок):
 
-# Проверка статуса всех сервисов
+```bash
+docker compose -f deploy/docker/docker-compose.yml up -d --build
+```
+
+Опционально панель **siem-admin** (профиль `admin`):
+
+```bash
+docker compose -f deploy/docker/docker-compose.yml --profile admin up -d --build siem-admin
+```
+
+```bash
 docker compose -f deploy/docker/docker-compose.yml ps
 ```
 
 ### Валидация пайплайнов
 
 ```bash
-# 1. Проверить что Vector принимает события
-curl -X POST http://localhost:9000/ingest \
+# 1. Проверить что Vector Aggregator принимает события (HTTP source, NDJSON)
+curl -s -X POST http://localhost:8080/logs \
   -H "Content-Type: application/json" \
-  -d '{"Level":"Info","Message":"SIEM startup test","Timestamp":"2024-01-15T10:00:00Z"}'
+  -d '{"Level":"Info","Message":"SIEM startup test","Timestamp":"2024-01-15T10:00:00Z","source_hint":"docker"}'
 
 # 2. Проверить что siem-parser работает
 curl -s http://localhost:7000/health | jq .
@@ -85,9 +79,10 @@ curl -s http://localhost:9100/metrics | grep siem_parser_events_parsed_total
 ```bash
 # Симулировать brute-force атаку (10 запросов за 2 минуты с одного IP)
 for i in $(seq 1 12); do
-  curl -s -X POST http://localhost:9000/ingest \
+  curl -s -X POST http://localhost:8080/logs \
     -H "Content-Type: application/json" \
     -d "{
+      \"source_hint\": \"docker\",
       \"Level\": \"Warning\",
       \"Message\": \"HTTP POST /api/auth/login responded 401\",
       \"Timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
@@ -535,13 +530,14 @@ cat > /tmp/load-test.sh << 'EOF'
 #!/bin/bash
 for i in $(seq 1 10000); do
   echo "{
+    \"source_hint\": \"docker\",
     \"Level\": \"Info\",
     \"Message\": \"Load test event $i\",
     \"Timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
     \"Properties\": {\"ClientIp\": \"10.0.0.$((RANDOM % 254 + 1))\"}
   }"
 done | \
-xargs -P 50 -I{} curl -s -X POST http://localhost:9000/ingest \
+xargs -P 50 -I{} curl -s -X POST http://localhost:8080/logs \
   -H "Content-Type: application/json" -d {} &
 wait
 echo "Load test complete"

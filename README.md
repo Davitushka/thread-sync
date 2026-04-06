@@ -57,6 +57,7 @@ siem-lite/
 ├── deploy/
 │   └── docker/
 │       ├── docker-compose.yml       # Полный стек: все сервисы
+│       ├── .env.example             # Шаблон переменных (пароли и опц. API key)
 │       ├── Dockerfile.parser        # Multi-stage: rust:slim → debian:slim
 │       ├── prometheus.yml           # Prometheus scrape config
 │       ├── loki-config.yaml         # Loki конфигурация
@@ -67,28 +68,97 @@ siem-lite/
     └── generate-certs.sh            # TLS сертификаты для Vector mTLS
 ```
 
-## Быстрый старт
+## Полный запуск (Docker Compose)
+
+Рабочая директория — **корень репозитория** (`siem-lite/`). Нужны **Docker 24+** и **Compose v2** (команда `docker compose`).
+
+### 1. Секреты
+
+Создайте файлы в [`deploy/docker/secrets/`](deploy/docker/secrets/README.md) (репозиторий их не хранит):
+
+| Файл | Назначение |
+|------|------------|
+| `clickhouse_password.txt` | Пароль пользователя `siem` в ClickHouse; **тот же** пароль зашивается в Grafana admin (`GF_SECURITY_ADMIN_PASSWORD__FILE`) |
+| `minio_secret_key.txt` | Пароль root в MinIO Console (**логин** `siemadmin`) |
+| `smtp_password.txt`, `slack_webhook_url.txt`, `pagerduty_key.txt` | Alertmanager (можно заглушки для чисто локальной проверки) |
+
+Пример (Linux/macOS/Git Bash; в PowerShell используйте `Set-Content -NoNewline`):
 
 ```bash
-# 1. Создать секреты
 cd deploy/docker/secrets
-echo -n "smtp-pass" > smtp_password.txt
-echo -n "https://hooks.slack.com/..." > slack_webhook_url.txt
-echo -n "pd-key" > pagerduty_key.txt
-echo -n "ClickHousePass123!" > clickhouse_password.txt
-echo -n "MinIOSecret456!" > minio_secret_key.txt
-
-# 2. Генерировать TLS сертификаты
-bash scripts/generate-certs.sh
-
-# 3. Запустить стек
-docker compose -f deploy/docker/docker-compose.yml up -d
-
-# 4. Открыть Grafana
-open http://localhost:3000  # admin/ClickHousePass123!
+echo -n "ClickHousePass123!"   > clickhouse_password.txt
+echo -n "MinIOSecret456!"     > minio_secret_key.txt
+echo -n "placeholder-smtp"   > smtp_password.txt
+echo -n "https://hooks.slack.com/services/placeholder" > slack_webhook_url.txt
+echo -n "placeholder-pd"     > pagerduty_key.txt
 ```
 
-Подробнее: [RUNBOOK.md](docs/RUNBOOK.md)
+**Согласованность:** если задаёте свои пароли через [`deploy/docker/.env`](deploy/docker/.env.example), значение `CLICKHOUSE_PASSWORD` должно **байт-в-байт** совпадать с `clickhouse_password.txt`.
+
+### 2. Опционально: переменные окружения
+
+Скопируйте `deploy/docker/.env.example` → `deploy/docker/.env` и при необходимости измените пароли. Запуск:
+
+```bash
+docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml up -d --build
+```
+
+Без `.env` подставляются значения по умолчанию из compose-файла (удобно для первого раза).
+
+### 3. Опционально: TLS для Vector, GeoIP
+
+- **mTLS Agent → Aggregator:** в локальном `vector/aggregator.yaml` TLS отключён. Для прода сгенерируйте сертификаты: `bash scripts/generate-certs.sh` и включите TLS в конфигах Vector (см. [RUNBOOK](docs/RUNBOOK.md)).
+- **GeoIP:** без файлов `.mmdb` siem-parser стартует, geo-поля будут пустыми; см. раздел [GeoIP Setup](#geoip-setup) ниже.
+
+### 4. Запуск всего стека
+
+Одной командой (сборка образов Rust при необходимости):
+
+```bash
+docker compose -f deploy/docker/docker-compose.yml up -d --build
+```
+
+Проверка:
+
+```bash
+docker compose -f deploy/docker/docker-compose.yml ps
+curl -s http://localhost:7000/health
+```
+
+### 5. Опционально: панель SIEM Admin
+
+Сервис `siem-admin` в профиле `admin` и **не стартует** вместе с основным стеком:
+
+```bash
+docker compose -f deploy/docker/docker-compose.yml --profile admin up -d --build siem-admin
+```
+
+UI: http://localhost:8089 (нужен доступ Docker-сокета на хосте, см. compose).
+
+### Эндпоинты после старта
+
+| Сервис | URL | Учётные данные / примечание |
+|--------|-----|-----------------------------|
+| Grafana | http://localhost:3000 | `admin` + пароль из `clickhouse_password.txt` |
+| Prometheus | http://localhost:9090 | — |
+| Alertmanager | http://localhost:9093 | — |
+| Case management | http://localhost:8088 | — |
+| siem-parser | http://localhost:7000/health | Метрики: http://localhost:9100/metrics |
+| Vector HTTP ingest | http://localhost:8080/logs | NDJSON (см. [vector/aggregator.yaml](vector/aggregator.yaml)) |
+| MinIO Console | http://localhost:9001 | `siemadmin` + пароль из `minio_secret_key.txt` |
+| SIEM Admin (профиль) | http://localhost:8089 | После `compose --profile admin up` |
+
+**MinIO:** в текущем локальном сценарии события пишутся в **ClickHouse**, а не в S3; консоль MinIO может быть пустой, пока вы не создали bucket вручную или не настроили cold tier (см. [clickhouse/init.sql](clickhouse/init.sql)). Это нормально.
+
+### Наполнение дашбордов и остановка
+
+- Сид демо-событий: `bash scripts/seed-data/seed.sh` (или дождаться `siem-log-generator` / `siem-stress` из compose).
+- Остановка без удаления томов:  
+  `docker compose -f deploy/docker/docker-compose.yml stop`  
+- Полное удаление контейнеров и **данных** томов:  
+  `docker compose -f deploy/docker/docker-compose.yml down --volumes`
+
+Операции, бэкапы, проверки пайплайна: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Стек
 
@@ -103,36 +173,15 @@ open http://localhost:3000  # admin/ClickHousePass123!
 | Visualization | Grafana 11.4 | TypeScript |
 | Self-monitoring | Prometheus + Loki | Go |
 
-## Переменные окружения Compose (опционально)
+## Переменные Compose и защита ingest
 
-Пароли по умолчанию заданы в `docker-compose.yml` через `${VAR:-default}` (удобно для локалки). Для своих значений скопируйте [`deploy/docker/.env.example`](deploy/docker/.env.example) в `deploy/docker/.env` и при запуске укажите:
+Пароли сервисов в compose задаются как `${VAR:-значение_по_умолчанию}`; переопределение — через `deploy/docker/.env` (см. раздел **Полный запуск** выше).
 
-`docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml up -d`
-
-**Важно:** `CLICKHOUSE_PASSWORD` должен совпадать с содержимым `deploy/docker/secrets/clickhouse_password.txt` (Grafana и siem-parser читают пароль из этого файла).
-
-### Опциональная защита ingest API (siem-parser)
-
-Если задать `SIEM__SERVER__API_KEY` (в Compose можно через `SIEM_PARSER_API_KEY` и подставить в environment), эндпоинты `POST /parse` и `POST /alerts/ingest` требуют заголовок `X-API-Key` или `Authorization: Bearer <ключ>`. По умолчанию ключ не задан — совместимо с текущим Vector→Kafka пайплайном (Vector не ходит на `/parse`).
+**siem-parser:** при установке `SIEM_PARSER_API_KEY` в `.env` или в environment сервиса для `POST /parse` и `POST /alerts/ingest` нужны заголовки `X-API-Key` или `Authorization: Bearer …`. В Alertmanager можно добавить `http_config.bearer_token_file` (см. комментарий в `alerting/alertmanager.yaml`). По умолчанию ключ пустой — Vector→Kafka не затрагивается.
 
 ## Secrets Setup
 
-Секреты **никогда** не коммитятся в репозиторий. Перед первым запуском создайте файлы в `deploy/docker/secrets/`:
-
-```bash
-cd deploy/docker/secrets
-
-# Обязательные
-echo -n "ClickHousePass123!"                       > clickhouse_password.txt
-echo -n "MinIOSecret456!"                          > minio_secret_key.txt
-echo -n "your-smtp-password"                       > smtp_password.txt
-echo -n "https://hooks.slack.com/services/T.../..." > slack_webhook_url.txt
-echo -n "your-pagerduty-routing-key"               > pagerduty_key.txt
-
-chmod 600 *.txt
-```
-
-Подробнее: [deploy/docker/secrets/README.md](deploy/docker/secrets/README.md)
+Краткий чеклист файлов — в разделе **Полный запуск** выше. Детали и production: [deploy/docker/secrets/README.md](deploy/docker/secrets/README.md).
 
 > **Для production** рекомендуется [SOPS + age](https://github.com/getsops/sops) для шифрования файлов секретов в git.
 
