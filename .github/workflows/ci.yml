@@ -396,6 +396,35 @@ jobs:
       - name: Start SIEM stack
         run: docker compose -f deploy/docker/docker-compose.yml up -d
 
+      - name: Wait for ClickHouse
+        run: |
+          timeout 120 bash -c 'until docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! --query "SELECT 1" 2>/dev/null; do sleep 2; done'
+
+      - name: Bootstrap ClickHouse (SOC seed: events, alerts, threat_intel)
+        run: bash scripts/seed-data/bootstrap_clickhouse.sh
+        env:
+          CLICKHOUSE_PASSWORD: ClickHousePass123!
+
+      - name: Short detection stress (Prometheus siem_events_total + атаки)
+        run: |
+          docker compose -f deploy/docker/docker-compose.yml run --rm \
+            -e SIEM_STRESS_DURATION_SEC=90 \
+            -e SIEM_STRESS_NORMAL_EPS=70 \
+            -e SIEM_STRESS_ATTACK_EPS=25 \
+            siem-stress
+
+      - name: Assert dashboard data (ClickHouse)
+        run: |
+          E=$(docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! -q \
+            "SELECT count() FROM siem.events WHERE timestamp >= now() - INTERVAL 25 HOUR")
+          test "${E:-0}" -ge 1000
+          T=$(docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! -q \
+            "SELECT count() FROM siem.threat_intel WHERE feed = 'seed'")
+          test "${T:-0}" -ge 5
+          A=$(docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! -q \
+            "SELECT count() FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 2 HOUR")
+          test "${A:-0}" -ge 1
+
       - name: Wait for Grafana to be ready
         run: |
           echo "Waiting for Grafana (plugin installation can take 60s)..."

@@ -170,6 +170,38 @@ services:
         hard: 262144
 
   # ════════════════════════════════════════════════════════════════
+  # SOC / демо-данные в ClickHouse (события, алерты, threat_intel)
+  # Запуск: docker compose -f deploy/docker/docker-compose.yml --profile seed up soc-seed
+  # Локально (Git Bash / Linux): bash scripts/seed-data/bootstrap_clickhouse.sh
+  # ════════════════════════════════════════════════════════════════
+  soc-seed:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: siem-soc-seed
+    profiles:
+      - seed
+    networks:
+      - siem-internal
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ClickHousePass123!}
+    volumes:
+      - ../../scripts/seed-data/seed_test_events.sql:/seed.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for i in $$(seq 1 40); do
+          clickhouse-client -h clickhouse -u siem --password "$$CLICKHOUSE_PASSWORD" -q "SELECT 1" && break
+          sleep 2
+        done
+        clickhouse-client -h clickhouse -u siem --password "$$CLICKHOUSE_PASSWORD" --multiquery < /seed.sql
+        echo "soc-seed: completed"
+    restart: "no"
+
+  # ════════════════════════════════════════════════════════════════
   # PostgreSQL — кейсы SOC (case-management)
   # ════════════════════════════════════════════════════════════════
   postgres:
@@ -805,6 +837,8 @@ services:
       - "8089:8089"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Актуальный seed без пересборки образа (перекрывает COPY из Dockerfile.admin)
+      - ../../scripts/seed-data/seed_test_events.sql:/app/seed/seed_test_events.sql:ro
     environment:
       <<: *common-env
       RUST_LOG: siem_admin=info

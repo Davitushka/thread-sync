@@ -50,6 +50,8 @@ struct PipelineStatus {
 #[derive(Serialize)]
 struct FillAllDataResult {
     ok: bool,
+    /// Размер применённого `seed_test_events.sql` (ClickHouse: events, alerts, threat_intel).
+    soc_seed_bytes: usize,
     stress_action: String,
     seeded_alerts: usize,
     details: Vec<String>,
@@ -60,6 +62,8 @@ struct DataStatus {
     clickhouse_ok: bool,
     events_24h: u64,
     alerts_7d: u64,
+    /// Строки IoC с feed=seed (SOC Workbench).
+    threat_intel_seed: u64,
     events_per_minute_24h: u64,
     top_ips_24h: u64,
     source_types_24h: u64,
@@ -343,10 +347,59 @@ async fn resolve_container_name(docker: &Docker, name: &str) -> Option<String> {
     None
 }
 
+fn soc_seed_sql_path() -> String {
+    std::env::var("SOC_SEED_SQL_PATH").unwrap_or_else(|_| "/app/seed/seed_test_events.sql".into())
+}
+
+fn load_soc_seed_sql() -> Result<String, String> {
+    let path = soc_seed_sql_path();
+    std::fs::read_to_string(&path).map_err(|e| {
+        format!(
+            "cannot read SOC seed SQL from {}: {} (set SOC_SEED_SQL_PATH or mount seed_test_events.sql)",
+            path, e
+        )
+    })
+}
+
+async fn execute_clickhouse_multiquery(
+    http: &reqwest::Client,
+    sql: &str,
+) -> Result<String, String> {
+    let (url, user, password) = clickhouse_config();
+    let base = url.trim_end_matches('/').to_string();
+    let sep = if base.contains('?') { '&' } else { '?' };
+    let url = format!("{base}{sep}allow_multiquery=1");
+    let resp = http
+        .post(url)
+        .basic_auth(user, Some(password))
+        .timeout(Duration::from_secs(120))
+        .body(sql.to_string())
+        .send()
+        .await
+        .map_err(|e| format!("clickhouse multiquery request failed: {}", e))?;
+
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("clickhouse returned {}: {}", status, body));
+    }
+    Ok(body)
+}
+
 async fn fill_all_data(
     State(state): State<AppState>,
 ) -> Result<Json<FillAllDataResult>, (StatusCode, Json<ErrorBody>)> {
     let mut details = Vec::new();
+
+    let seed_sql = load_soc_seed_sql().map_err(|e| json_error(StatusCode::BAD_GATEWAY, e))?;
+    execute_clickhouse_multiquery(&state.http, &seed_sql)
+        .await
+        .map_err(|e| json_error(StatusCode::BAD_GATEWAY, e))?;
+    let soc_bytes = seed_sql.len();
+    details.push(format!(
+        "ClickHouse SOC seed ({} bytes): siem.events + siem.alerts + siem.threat_intel (see seed_test_events.sql)",
+        soc_bytes
+    ));
 
     let stress_name = resolve_container_name(&state.docker, "siem-stress")
         .await
@@ -390,6 +443,7 @@ async fn fill_all_data(
 
     Ok(Json(FillAllDataResult {
         ok: true,
+        soc_seed_bytes: soc_bytes,
         stress_action,
         seeded_alerts,
         details,
@@ -524,6 +578,10 @@ async fn data_status(State(state): State<AppState>) -> Json<DataStatus> {
             "SELECT count() FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY FORMAT TabSeparatedRaw",
         ),
         (
+            "threat_intel_seed",
+            "SELECT count() FROM siem.threat_intel WHERE feed = 'seed' FORMAT TabSeparatedRaw",
+        ),
+        (
             "events_per_minute_24h",
             "SELECT count() FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
         ),
@@ -548,6 +606,7 @@ async fn data_status(State(state): State<AppState>) -> Json<DataStatus> {
                     clickhouse_ok: false,
                     events_24h: 0,
                     alerts_7d: 0,
+                    threat_intel_seed: 0,
                     events_per_minute_24h: 0,
                     top_ips_24h: 0,
                     source_types_24h: 0,
@@ -561,6 +620,7 @@ async fn data_status(State(state): State<AppState>) -> Json<DataStatus> {
         clickhouse_ok: true,
         events_24h: *values.get("events_24h").unwrap_or(&0),
         alerts_7d: *values.get("alerts_7d").unwrap_or(&0),
+        threat_intel_seed: *values.get("threat_intel_seed").unwrap_or(&0),
         events_per_minute_24h: *values.get("events_per_minute_24h").unwrap_or(&0),
         top_ips_24h: *values.get("top_ips_24h").unwrap_or(&0),
         source_types_24h: *values.get("source_types_24h").unwrap_or(&0),

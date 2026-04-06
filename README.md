@@ -125,6 +125,14 @@ docker compose -f deploy/docker/docker-compose.yml ps
 curl -s http://localhost:7000/health
 ```
 
+Чтобы **дашборды ClickHouse** (Overview, Alert Management, SOC Workbench) не были пустыми сразу после первого старта, загрузите сид:
+
+```bash
+bash scripts/seed-data/bootstrap_clickhouse.sh
+```
+
+Альтернатива: `docker compose -f deploy/docker/docker-compose.yml --profile seed up soc-seed`. Подробнее: [`scripts/seed-data/README.md`](scripts/seed-data/README.md). Для метрик Prometheus (`siem_events_total`, детекция) уже крутится `log-generator`; дополнительный всплеск: `docker compose -f deploy/docker/docker-compose.yml run --rm siem-stress`.
+
 ### 5. Опционально: панель SIEM Admin
 
 Сервис `siem-admin` в профиле `admin` и **не стартует** вместе с основным стеком:
@@ -134,6 +142,8 @@ docker compose -f deploy/docker/docker-compose.yml --profile admin up -d --build
 ```
 
 UI: http://localhost:8089 (нужен доступ Docker-сокета на хосте, см. compose).
+
+Кнопка **Fill All Data** в админке выполняет тот же сценарий, что `scripts/seed-data/bootstrap_clickhouse.sh`: полный `seed_test_events.sql` в ClickHouse (включая `siem.threat_intel`), затем нагрузка и прогрев парсера. Путь к SQL: переменная `SOC_SEED_SQL_PATH` или файл `/app/seed/seed_test_events.sql` (в образе и через volume в compose).
 
 ### 6. Опционально: pgAdmin для Postgres (`soc_cases`)
 

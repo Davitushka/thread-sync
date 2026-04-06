@@ -2,6 +2,25 @@
 
 Генерирует реалистичные логи 4 типов и отправляет их в Vector HTTP endpoint для тестирования SIEM-Lite.
 
+## ClickHouse: события + алерты + IoC (дашборды не пустые)
+
+Одним скриптом в уже запущенный контейнер `siem-clickhouse`:
+
+```bash
+# из корня репозитория (нужен Docker)
+bash scripts/seed-data/bootstrap_clickhouse.sh
+```
+
+Или через Compose (профиль `seed`):
+
+```bash
+docker compose -f deploy/docker/docker-compose.yml --profile seed up soc-seed
+```
+
+Выполняется `seed_test_events.sql`: ~1000+ строк в `siem.events`, демо `siem.alerts`, `siem.threat_intel` (feed=`seed`) для **SOC Workbench**.
+
+То же самое из UI: **SIEM Admin** (профиль `admin`, порт 8089) → **Fill All Data**.
+
 ## Установка
 
 ```bash

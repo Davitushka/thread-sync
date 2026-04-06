@@ -137,8 +137,10 @@ tr:hover td { background: rgba(29,161,242,.05); }
             <span id="fillAllStateText" class="refresh-info">manual</span>
           </div>
           <div class="tool-card-desc">
-            Одной кнопкой перезапускает `siem-stress`, засевает `siem.alerts` и прогревает
-            `siem-parser /parse`, чтобы быстрее заполнить пустые места в Grafana и в чеклисте панели.
+            Сначала выполняется полный SQL-сид <code>seed_test_events.sql</code> в ClickHouse
+            (события, демо-алерты, <code>siem.threat_intel</code> для SOC Workbench), затем
+            перезапуск <code>siem-stress</code>, доп. строки в <code>siem.alerts</code> и прогрев
+            <code>siem-parser /parse</code>.
           </div>
           <div class="tool-card-actions">
             <button class="btn accent" id="fillAllBtn" onclick="fillAllData()">Fill All Data</button>
@@ -455,7 +457,7 @@ async function fillAllData() {
     const data = await r.json();
     badge.className = 'badge ok';
     badge.textContent = 'done';
-    stateText.textContent = `${data.stress_action}, alerts=${data.seeded_alerts}`;
+    stateText.textContent = `seed ${data.soc_seed_bytes || 0} B, ${data.stress_action}, +${data.seeded_alerts} alerts`;
     resultText.textContent = Array.isArray(data.details) ? data.details.join(' | ') : 'Completed';
     await refreshAll();
   } catch (e) {
@@ -560,6 +562,7 @@ async function fetchDataStatus() {
       clickhouse_ok: false,
       events_24h: 0,
       alerts_7d: 0,
+      threat_intel_seed: 0,
       events_per_minute_24h: 0,
       top_ips_24h: 0,
       source_types_24h: 0,
@@ -614,6 +617,7 @@ function renderChecklist() {
   const hasMinuteAgg = !!(dataStatus && dataStatus.events_per_minute_24h > 0);
   const hasTopIpsAgg = !!(dataStatus && dataStatus.top_ips_24h > 0);
   const hasSourceVariety = !!(dataStatus && dataStatus.source_types_24h >= 2);
+  const hasIocSeed = !!(dataStatus && dataStatus.threat_intel_seed > 0);
   const eventsDataHint = chUp && hasEvents;
   const alertsDataHint = chUp && hasAlerts;
 
@@ -654,6 +658,11 @@ function renderChecklist() {
       { text: `siem.alerts за 7 дней: ${(dataStatus && dataStatus.alerts_7d) || 0}`, ok: alertsDataHint },
       { text: 'Alertmanager running', ok: pOk.has('Alertmanager') },
       { text: 'Case Management (webhook)', ok: pOk.has('Case Management') },
+    ]},
+    { title: 'siem-soc-workbench', items: [
+      { text: `siem.threat_intel (feed=seed): ${(dataStatus && dataStatus.threat_intel_seed) || 0}`, ok: hasIocSeed },
+      { text: `siem.events (24h): ${(dataStatus && dataStatus.events_24h) || 0}`, ok: eventsDataHint },
+      { text: 'ClickHouse доступен', ok: chUp },
     ]},
     { title: 'siem-validation', items: [
       { text: 'Prometheus отвечает', ok: pOk.has('Prometheus') },

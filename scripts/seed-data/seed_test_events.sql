@@ -248,6 +248,60 @@ VALUES
      'acknowledged');
 
 -- ============================================================
+-- 6. Threat intelligence (SOC Workbench: JOIN с siem.events)
+--    feed='seed' — чтобы отличать демо-данные от продовых MISP/manual
+-- ============================================================
+INSERT INTO siem.threat_intel
+  (ioc_type, ioc_value, feed, threat_label, tags, confidence, first_seen, last_seen)
+VALUES
+    ('ipv4', '198.51.100.7',  'seed', 'TEST-NET scanner',     ['demo','scanner'],        60, now64(3), now64(3)),
+    ('ipv4', '185.220.101.1', 'seed', 'Brute-force scenario', ['demo','bruteforce'],     95, now64(3), now64(3)),
+    ('ipv4', '91.108.4.200',  'seed', 'SQLi scenario',        ['demo','sqli'],           90, now64(3), now64(3)),
+    ('ipv4', '45.55.210.33',  'seed', 'Priv-esc scenario',    ['demo','privesc'],        85, now64(3), now64(3)),
+    ('ipv4', '203.0.113.5',   'seed', 'TEST-NET noise',      ['demo','test-net'],       40, now64(3), now64(3)),
+    ('domain', 'evil-seed.example', 'seed', 'Phishing C2 (demo)', ['demo','domain'],     75, now64(3), now64(3)),
+    ('sha256', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'seed', 'Dummy hash', ['demo'], 10, now64(3), now64(3));
+
+-- ============================================================
+-- 7. Всплеск export/download (дашборды / правила data exfil в Prometheus при живом ingest)
+-- ============================================================
+INSERT INTO siem.events
+  (timestamp, event_id, source_type, event_type, severity, message, host,
+   source_ip, user_id, action, status_code, url_path, http_method, duration_ms,
+   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon, geo_asn, geo_org,
+   metadata, agent_version, ingest_ts)
+SELECT
+    now() - INTERVAL toUInt32(rand() % 120) SECOND,
+    generateUUIDv4(),
+    CAST('dotnet', 'LowCardinality(String)'),
+    CAST('application', 'LowCardinality(String)'),
+    CAST('warning', 'Enum8(\'debug\'=0,\'info\'=1,\'warning\'=2,\'error\'=3,\'critical\'=4)'),
+    'Bulk export request',
+    CAST('siem-app-01', 'LowCardinality(String)'),
+    CAST(toIPv4('203.0.113.12'), 'Nullable(IPv4)'),
+    CAST('user-export-test', 'Nullable(String)'),
+    CAST('GET', 'Nullable(String)'),
+    CAST(200, 'Nullable(UInt16)'),
+    CAST(arrayElement([
+        '/api/v1/reports/export',
+        '/api/download/bulk',
+        '/api/v1/data/csv'
+    ], (rowNumberInAllBlocks() % 3) + 1), 'Nullable(String)'),
+    CAST('GET', 'Nullable(String)'),
+    CAST(toFloat32(50 + rand() % 200), 'Nullable(Float32)'),
+    CAST(NULL, 'Nullable(FixedString(2))'),
+    CAST(NULL, 'Nullable(String)'),
+    CAST(NULL, 'Nullable(String)'),
+    CAST(NULL, 'Nullable(Float32)'),
+    CAST(NULL, 'Nullable(Float32)'),
+    CAST(NULL, 'Nullable(UInt32)'),
+    CAST(NULL, 'Nullable(String)'),
+    CAST(map(), 'Map(String, String)'),
+    CAST('seed-v1', 'LowCardinality(String)'),
+    now64(3)
+FROM numbers(40);
+
+-- ============================================================
 -- ПРОВЕРОЧНЫЕ ЗАПРОСЫ (запускать после вставки)
 -- ============================================================
 
@@ -272,7 +326,7 @@ FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND source_ip IS NO
 -- Проверка 5: Auth/login события (ожидаем 20+)
 SELECT 'Auth events' AS check, count() AS cnt
 FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR
-  AND url_path LIKE '%auth%' OR url_path LIKE '%login%' OR url_path LIKE '%token%';
+  AND (url_path LIKE '%auth%' OR url_path LIKE '%login%' OR url_path LIKE '%token%' OR url_path LIKE '%hubs%');
 
 -- Проверка 6: Brute-force события 401/403 на auth (ожидаем 20)
 SELECT 'Brute-force candidates' AS check, source_ip, count() AS cnt
@@ -312,3 +366,17 @@ FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR;
 SELECT 'Avg ingest lag ms' AS check,
   round(avg(greatest(dateDiff('millisecond', timestamp, ingest_ts), 0)), 1) AS lag_ms
 FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR;
+
+-- Проверка 13: Threat intel (seed)
+SELECT 'Threat intel (feed=seed)' AS check, count() AS cnt
+FROM siem.threat_intel WHERE feed = 'seed';
+
+-- Проверка 14: События, пересекающиеся с IoC IPv4
+SELECT 'Events hitting IOC ipv4' AS check, count() AS cnt
+FROM siem.events e
+WHERE e.timestamp >= now() - INTERVAL 24 HOUR
+  AND e.source_ip IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM siem.threat_intel t
+    WHERE t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip) AND t.feed = 'seed'
+  );
