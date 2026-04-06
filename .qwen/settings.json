@@ -18,7 +18,16 @@
       "Bash(docker exec *)",
       "Bash(start *)",
       "Read(c:\\Users\\Admin\\Prоекты\\siem-lite\\deploy\\k8s/**)",
-      "Bash(dir *)"
+      "Bash(dir *)",
+      "Bash(docker logs *)",
+      "Bash(psql *)",
+      "Bash(\"c:\\program files\\postgresql\\18\\pgadmin 4\\runtime\\pgadmin4.exe\")",
+      "Bash(set *)",
+      "Bash(cmd *)",
+      "Bash(docker inspect *)",
+      "Bash(select-string *)",
+      "Bash(select-object *)",
+      "Bash(docker network *)"
     ]
   },
   "$version": 3

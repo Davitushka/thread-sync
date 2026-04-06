@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "SIEM soc_cases (Docker)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "soc_cases",
+      "Username": "siem_soc",
+      "SSLMode": "disable",
+      "Comment": "Пароль = POSTGRES_PASSWORD из deploy/docker/.env (дефолт см. .env.example)"
+    }
+  }
+}

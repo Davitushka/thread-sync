@@ -135,6 +135,16 @@ docker compose -f deploy/docker/docker-compose.yml --profile admin up -d --build
 
 UI: http://localhost:8089 (нужен доступ Docker-сокета на хосте, см. compose).
 
+### 6. Опционально: pgAdmin для Postgres (`soc_cases`)
+
+Веб-pgAdmin с заранее добавленным сервером (хост `postgres` внутри Docker, БД `soc_cases`, пользователь `siem_soc`):
+
+```bash
+docker compose -f deploy/docker/docker-compose.yml --profile tools up -d pgadmin
+```
+
+Откройте **http://localhost:5050** и войдите с учётными данными из `PGADMIN_EMAIL` / `PGADMIN_PASSWORD` ([`deploy/docker/.env.example`](deploy/docker/.env.example); пароль веб-интерфейса по умолчанию: `changeme-pgadmin`). Для подключения к базе укажите пароль пользователя **`siem_soc`**, тот же что **`POSTGRES_PASSWORD`**. Настройки сервера: [`deploy/docker/pgadmin/servers.json`](deploy/docker/pgadmin/servers.json).
+
 ### Эндпоинты после старта
 
 | Сервис | URL | Учётные данные / примечание |
@@ -148,6 +158,7 @@ UI: http://localhost:8089 (нужен доступ Docker-сокета на хо
 | Loki (логи контейнеров) | в Grafana → Explore, datasource **Loki** | Promtail шлёт stdout/stderr Docker в Loki (`siem-promtail`) |
 | MinIO Console | http://localhost:9001 | `siemadmin` + пароль из `minio_secret_key.txt`; после `up` создаются бакеты `siem-cold`, `siem-archive` (`minio-init`) |
 | SIEM Admin (профиль) | http://localhost:8089 | После `compose --profile admin up` |
+| pgAdmin (профиль `tools`) | http://localhost:5050 | После `compose --profile tools up -d pgadmin`; см. §6 |
 
 **Поток событий SIEM:** приложения / генератор → Vector `:8080/logs` → Kafka `siem.events` → ClickHouse (`events_kafka_queue` / MV) → Grafana (ClickHouse). **События по умолчанию не складываются в MinIO** — S3 для cold tier подключается отдельно в конфиге ClickHouse (см. [clickhouse/init.sql](clickhouse/init.sql)). В MinIO уже есть пустые бакеты под будущий tier/бэкапы.
 

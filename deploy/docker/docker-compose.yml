@@ -44,6 +44,8 @@ volumes:
     driver: local
   postgres-data:
     driver: local
+  pgadmin-data:
+    driver: local
 
 secrets:
   smtp_password:
@@ -225,6 +227,31 @@ services:
         limits:
           cpus: "0.5"
           memory: 256M
+
+  # pgAdmin 4 в браузере; сервер soc_cases подставлен из ./pgadmin/servers.json (Host=postgres).
+  # Запуск: docker compose -f deploy/docker/docker-compose.yml --profile tools up -d pgadmin
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    container_name: siem-pgadmin
+    profiles:
+      - tools
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "5050:80"
+    environment:
+      <<: *common-env
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-pgadmin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-changeme-pgadmin}
+      PGADMIN_CONFIG_SERVER_MODE: "True"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ════════════════════════════════════════════════════════════════
   # Redis — состояние для detection-engine / correlator
