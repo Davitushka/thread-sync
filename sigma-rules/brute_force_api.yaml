@@ -31,7 +31,7 @@ detection:
   
   condition: selection_auth_failure
 
-  # Временно́е агрегирование (реализуется в correlator, не в sigma-go напрямую):
+  # Временно́е агрегирование (correlator / stateful правила в detection-engine-rs):
   # COUNT(source_ip) >= 10 за WINDOW(2 минуты) GROUP BY source_ip
   timeframe: 2m
   aggregate:

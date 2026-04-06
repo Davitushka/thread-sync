@@ -18,6 +18,10 @@ pub struct ServerConfig {
     pub metrics_port: u16,
     #[serde(default = "default_workers")]
     pub workers: usize,
+    /// Если задано (env `SIEM__SERVER__API_KEY`), для `POST /parse` и `POST /alerts/ingest`
+    /// требуется заголовок `X-API-Key` или `Authorization: Bearer <ключ>`.
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -55,20 +59,48 @@ pub struct ProcessingConfig {
     pub enable_geoip: bool,
 }
 
-fn default_host() -> String { "0.0.0.0".to_string() }
-fn default_port() -> u16 { 7000 }
-fn default_metrics_port() -> u16 { 9100 }
-fn default_workers() -> usize { num_cpus::get() }
-fn default_topic() -> String { "siem.events".to_string() }
-fn default_dlq_topic() -> String { "siem.events.dlq".to_string() }
-fn default_batch_size() -> usize { 1000 }
-fn default_linger_ms() -> u64 { 5 }
-fn default_city_db() -> String { "/etc/geoip/GeoLite2-City.mmdb".to_string() }
-fn default_asn_db() -> String { "/etc/geoip/GeoLite2-ASN.mmdb".to_string() }
-fn default_cache_size() -> usize { 10_000 }
-fn default_max_event_size() -> usize { 1024 * 1024 }
-fn default_channel_capacity() -> usize { 100_000 }
-pub fn default_true() -> bool { true }
+fn default_host() -> String {
+    "0.0.0.0".to_string()
+}
+fn default_port() -> u16 {
+    7000
+}
+fn default_metrics_port() -> u16 {
+    9100
+}
+fn default_workers() -> usize {
+    num_cpus::get()
+}
+fn default_topic() -> String {
+    "siem.events".to_string()
+}
+fn default_dlq_topic() -> String {
+    "siem.events.dlq".to_string()
+}
+fn default_batch_size() -> usize {
+    1000
+}
+fn default_linger_ms() -> u64 {
+    5
+}
+fn default_city_db() -> String {
+    "/etc/geoip/GeoLite2-City.mmdb".to_string()
+}
+fn default_asn_db() -> String {
+    "/etc/geoip/GeoLite2-ASN.mmdb".to_string()
+}
+fn default_cache_size() -> usize {
+    10_000
+}
+fn default_max_event_size() -> usize {
+    1024 * 1024
+}
+fn default_channel_capacity() -> usize {
+    100_000
+}
+pub fn default_true() -> bool {
+    true
+}
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, config::ConfigError> {

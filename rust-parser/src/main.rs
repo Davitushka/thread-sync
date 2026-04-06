@@ -6,9 +6,11 @@
 
 use anyhow::Result;
 use axum::{
+    body::Body,
     extract::State,
-    http::StatusCode,
-    response::IntoResponse,
+    http::{Request, StatusCode},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -140,16 +142,29 @@ async fn main() -> Result<()> {
         .build()
         .expect("failed to build HTTP client");
 
-    let state = Arc::new(AppState { pipeline, producer, config: config.clone(), http_client });
+    let state = Arc::new(AppState {
+        pipeline,
+        producer,
+        config: config.clone(),
+        http_client,
+    });
 
-    // HTTP API
-    let app = Router::new()
-        .route("/parse", post(handle_parse))
-        .route("/alerts/ingest", post(handle_alerts_ingest))
+    let public = Router::new()
         .route("/health", get(handle_health))
         .route("/ready", get(handle_ready))
         .route("/metrics", get(handle_metrics))
-        .with_state(state);
+        .with_state(state.clone());
+
+    let ingest = Router::new()
+        .route("/parse", post(handle_parse))
+        .route("/alerts/ingest", post(handle_alerts_ingest))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            ingest_api_key_middleware,
+        ))
+        .with_state(state.clone());
+
+    let app = public.merge(ingest);
 
     let addr = format!("{}:{}", config.server.host, config.server.port);
     info!(addr = %addr, "siem-parser starting");
@@ -163,16 +178,49 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn handle_parse(
+/// Если в конфиге задан `server.api_key`, проверяет `X-API-Key` или `Authorization: Bearer …`.
+async fn ingest_api_key_middleware(
     State(state): State<Arc<AppState>>,
-    body: Bytes,
-) -> impl IntoResponse {
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    if let Some(ref expected) = state.config.server.api_key {
+        if !expected.is_empty() {
+            let x_ok = req.headers().get("x-api-key").and_then(|v| v.to_str().ok())
+                == Some(expected.as_str());
+            let bearer_ok = req
+                .headers()
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|auth| {
+                    auth.strip_prefix("Bearer ")
+                        .or_else(|| auth.strip_prefix("bearer "))
+                        .map(|t| t.trim() == expected.as_str())
+                })
+                .unwrap_or(false);
+            if !x_ok && !bearer_ok {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "unauthorized" })),
+                )
+                    .into_response();
+            }
+        }
+    }
+    next.run(req).await
+}
+
+async fn handle_parse(State(state): State<Arc<AppState>>, body: Bytes) -> impl IntoResponse {
     let request: ParseRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
         Err(e) => {
-            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": format!("Invalid JSON: {}", e)
-            }))).into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("Invalid JSON: {}", e)
+                })),
+            )
+                .into_response();
         }
     };
 
@@ -182,7 +230,10 @@ async fn handle_parse(
 
     for raw_event in request.events {
         let raw_bytes = Bytes::from(raw_event.raw.into_bytes());
-        match state.pipeline.process(raw_bytes, &raw_event.source_type, &raw_event.host) {
+        match state
+            .pipeline
+            .process(raw_bytes, &raw_event.source_type, &raw_event.host)
+        {
             Ok(normalized) => {
                 let payload = match serde_json::to_vec(&normalized) {
                     Ok(p) => p,
@@ -194,7 +245,10 @@ async fn handle_parse(
                 };
 
                 let topic = state.config.kafka.topic.clone();
-                let partition_key = normalized.source_ip.clone().unwrap_or_else(|| normalized.event_id.to_string());
+                let partition_key = normalized
+                    .source_ip
+                    .clone()
+                    .unwrap_or_else(|| normalized.event_id.to_string());
 
                 let record = FutureRecord::to(&topic)
                     .payload(&payload)
@@ -224,7 +278,15 @@ async fn handle_parse(
         }
     }
 
-    (StatusCode::OK, Json(ParseResponse { processed, errors, error_details })).into_response()
+    (
+        StatusCode::OK,
+        Json(ParseResponse {
+            processed,
+            errors,
+            error_details,
+        }),
+    )
+        .into_response()
 }
 
 /// POST /alerts/ingest — принимает webhook от Alertmanager и пишет в siem.alerts через ClickHouse HTTP API.
@@ -243,31 +305,43 @@ async fn handle_alerts_ingest(
         Ok(w) => w,
         Err(e) => {
             error!(error = %e, "Failed to parse Alertmanager webhook payload");
-            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-                "error": format!("Invalid webhook JSON: {}", e)
-            }))).into_response();
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("Invalid webhook JSON: {}", e)
+                })),
+            )
+                .into_response();
         }
     };
 
-    let firing: Vec<&AlertmanagerAlert> = webhook.alerts.iter()
+    let firing: Vec<&AlertmanagerAlert> = webhook
+        .alerts
+        .iter()
         .filter(|a| a.status == "firing")
         .collect();
-    let resolved: Vec<&AlertmanagerAlert> = webhook.alerts.iter()
+    let resolved: Vec<&AlertmanagerAlert> = webhook
+        .alerts
+        .iter()
         .filter(|a| a.status == "resolved")
         .collect();
 
     if firing.is_empty() && resolved.is_empty() {
-        return (StatusCode::OK, Json(serde_json::json!({
-            "inserted": 0,
-            "resolved": 0,
-            "reason": "no actionable alerts"
-        }))).into_response();
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "inserted": 0,
+                "resolved": 0,
+                "reason": "no actionable alerts"
+            })),
+        )
+            .into_response();
     }
 
     // Строим INSERT ... VALUES для ClickHouse HTTP API (формат Values).
     // URL: http://clickhouse:8123/?query=INSERT+INTO+siem.alerts+FORMAT+JSONEachRow
-    let ch_url = std::env::var("CLICKHOUSE_URL")
-        .unwrap_or_else(|_| "http://clickhouse:8123".to_string());
+    let ch_url =
+        std::env::var("CLICKHOUSE_URL").unwrap_or_else(|_| "http://clickhouse:8123".to_string());
     let ch_user = std::env::var("CLICKHOUSE_USER").unwrap_or_else(|_| "siem".to_string());
     // Читаем пароль из файла (Docker secret) или переменной окружения.
     let ch_password = if let Ok(path) = std::env::var("CLICKHOUSE_PASSWORD_FILE") {
@@ -284,12 +358,14 @@ async fn handle_alerts_ingest(
         let labels = &alert.labels;
         let annotations = &alert.annotations;
 
-        let rule_id = labels.get("rule_id")
+        let rule_id = labels
+            .get("rule_id")
             .or_else(|| labels.get("alertname"))
             .cloned()
             .unwrap_or_else(|| "unknown".to_string());
 
-        let rule_title = labels.get("alertname")
+        let rule_title = labels
+            .get("alertname")
             .cloned()
             .unwrap_or_else(|| rule_id.clone());
 
@@ -302,7 +378,8 @@ async fn handle_alerts_ingest(
             _ => "low",
         };
 
-        let description = annotations.get("description")
+        let description = annotations
+            .get("description")
             .or_else(|| annotations.get("summary"))
             .cloned()
             .unwrap_or_default();
@@ -319,10 +396,7 @@ async fn handle_alerts_ingest(
 
         // UUID v4 для строки в ClickHouse; fingerprint Alertmanager храним отдельно для кейсов/SOC.
         let alert_id = Uuid::new_v4().to_string();
-        let fingerprint = alert
-            .fingerprint
-            .clone()
-            .unwrap_or_default();
+        let fingerprint = alert.fingerprint.clone().unwrap_or_default();
 
         let mut row = serde_json::json!({
             "alert_id": alert_id,
@@ -351,16 +425,16 @@ async fn handle_alerts_ingest(
     // Пишем новые firing алерты
     let mut inserted = 0usize;
     if !rows.is_empty() {
-        let body_str: String = rows.iter()
+        let body_str: String = rows
+            .iter()
             .filter_map(|r| serde_json::to_string(r).ok())
             .collect::<Vec<_>>()
             .join("\n");
 
-        let query_url = format!(
-            "{ch_url}/?query=INSERT+INTO+siem.alerts+FORMAT+JSONEachRow",
-        );
+        let query_url = format!("{ch_url}/?query=INSERT+INTO+siem.alerts+FORMAT+JSONEachRow",);
 
-        match state.http_client
+        match state
+            .http_client
             .post(&query_url)
             .basic_auth(&ch_user, Some(&ch_password))
             .header("Content-Type", "application/octet-stream")
@@ -376,15 +450,23 @@ async fn handle_alerts_ingest(
                 let status = resp.status().as_u16();
                 let body_text = resp.text().await.unwrap_or_default();
                 error!(status, body = %body_text, "ClickHouse INSERT failed");
-                return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
-                    "error": format!("ClickHouse error {}: {}", status, body_text)
-                }))).into_response();
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({
+                        "error": format!("ClickHouse error {}: {}", status, body_text)
+                    })),
+                )
+                    .into_response();
             }
             Err(e) => {
                 error!(error = %e, "HTTP request to ClickHouse failed");
-                return (StatusCode::BAD_GATEWAY, Json(serde_json::json!({
-                    "error": format!("Connection failed: {}", e)
-                }))).into_response();
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({
+                        "error": format!("Connection failed: {}", e)
+                    })),
+                )
+                    .into_response();
             }
         }
     }
@@ -393,7 +475,9 @@ async fn handle_alerts_ingest(
     // Используем fingerprint как идентификатор для поиска алерта по rule_id + started_at.
     let mut resolved_count = 0usize;
     for alert in &resolved {
-        let rule_id = alert.labels.get("rule_id")
+        let rule_id = alert
+            .labels
+            .get("rule_id")
             .or_else(|| alert.labels.get("alertname"))
             .cloned()
             .unwrap_or_else(|| "unknown".to_string());
@@ -404,7 +488,8 @@ async fn handle_alerts_ingest(
         );
         let query_url = format!("{ch_url}/?query={}", urlencoding_simple(&update_sql));
 
-        match state.http_client
+        match state
+            .http_client
             .post(&query_url)
             .basic_auth(&ch_user, Some(&ch_password))
             .send()
@@ -425,19 +510,25 @@ async fn handle_alerts_ingest(
         }
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "inserted": inserted,
-        "resolved": resolved_count,
-    }))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "inserted": inserted,
+            "resolved": resolved_count,
+        })),
+    )
+        .into_response()
 }
 
 /// Минимальный URL-энкодер для SQL запросов (не тянем отдельный крейт).
 fn urlencoding_simple(s: &str) -> String {
-    s.chars().map(|c| match c {
-        ' ' => "+".to_string(),
-        c if c.is_alphanumeric() || "_-.'=,()".contains(c) => c.to_string(),
-        c => format!("%{:02X}", c as u32),
-    }).collect()
+    s.chars()
+        .map(|c| match c {
+            ' ' => "+".to_string(),
+            c if c.is_alphanumeric() || "_-.'=,()".contains(c) => c.to_string(),
+            c => format!("%{:02X}", c as u32),
+        })
+        .collect()
 }
 
 async fn handle_health() -> impl IntoResponse {
@@ -456,16 +547,23 @@ async fn handle_metrics() -> impl IntoResponse {
     let encoder = TextEncoder::new();
     let metric_families = prometheus::gather();
     let mut buffer = Vec::new();
-    encoder.encode(&metric_families, &mut buffer).unwrap_or_default();
+    encoder
+        .encode(&metric_families, &mut buffer)
+        .unwrap_or_default();
     (
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
         buffer,
     )
 }
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]

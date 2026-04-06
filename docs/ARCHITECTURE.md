@@ -33,10 +33,10 @@ flowchart TD
         CH_TIERED["ClickHouse TTL\n→ S3 tiered storage"]
     end
 
-    subgraph Detection["🔍 Detection Layer (Go)"]
-        SIGMA["sigma-go\nrule engine"]
-        CORR["Correlator\n(Go, stateful windows)"]
-        ML["Anomaly baseline\n(simple stats, Go)"]
+    subgraph Detection["🔍 Detection Layer (Rust)"]
+        SIGMA["detection-engine-rs\nrule engine"]
+        CORR["Correlator\n(Rust, stateful windows)"]
+        ML["Anomaly baseline\n(roadmap)"]
     end
 
     subgraph Alerting["🚨 Alerting Layer"]
@@ -68,7 +68,7 @@ flowchart TD
     ENRICH -->|"enriched JSON\nRedpanda topic: siem.events"| KAFKA
 
     KAFKA -->|"consumer group\nClickHouse sink"| CH
-    KAFKA -->|"consumer group\ndetection engine"| SIGMA
+    KAFKA -->|"consumer group\ndetection-engine-rs"| SIGMA
     KAFKA -->|"consumer group\ncorrelation"| CORR
 
     SIGMA -->|"rule matches\nseverity ≥ medium"| ALERT
@@ -116,9 +116,9 @@ flowchart TD
 - Дедупликация через `ReplacingMergeTree` для событий с одинаковым `event_id`.
 - Материализованные представления для агрегатов: топ IP, топ users, rate counters.
 
-### Detection Layer (Go)
-- **sigma-go** — компилирует Sigma YAML в Go-предикаты, применяет к потоку из Redpanda.
-- **Correlator** — stateful временны́е окна (sliding window 5 мин) для brute-force, rate limit detection. Хранит состояние в Redis с TTL.
+### Detection Layer (Rust)
+- **detection-engine-rs** — потребляет `siem.events` из Redpanda, применяет набор правил на Rust (логика согласована с YAML в `sigma-rules/`, без загрузки Sigma в рантайме).
+- **Correlator** — stateful временны́е окна (sliding window) для brute-force, rate limit и т.д. Состояние в Redis с TTL.
 - Детекция латентность: <500ms от события до генерации алерта (критические правила).
 
 ### Alerting Layer (Alertmanager 0.27)

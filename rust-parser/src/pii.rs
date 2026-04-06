@@ -7,11 +7,7 @@
 //! Документация: https://docs.rs/regex-automata/latest/regex_automata/
 
 use once_cell::sync::Lazy;
-use regex_automata::{
-    meta::Regex,
-    util::syntax::Config as SyntaxConfig,
-    Input,
-};
+use regex_automata::{meta::Regex, util::syntax::Config as SyntaxConfig, Input};
 
 /// Скомпилированные паттерны — инициализируются один раз при старте программы.
 /// Использование `once_cell::Lazy` гарантирует thread-safe инициализацию.
@@ -54,7 +50,11 @@ pub fn mask_pii(input: &str) -> Option<String> {
     modified |= replace_all(&mut result, &TOKEN_RE, "[REDACTED_TOKEN]");
     modified |= replace_all(&mut result, &CREDIT_CARD_RE, "[CARD_REDACTED]");
 
-    if modified { Some(result) } else { None }
+    if modified {
+        Some(result)
+    } else {
+        None
+    }
 }
 
 /// Маскирует PII и возвращает строку (всегда).
@@ -93,15 +93,30 @@ fn replace_all(text: &mut String, re: &Regex, replacement: &str) -> bool {
 /// Маскирует конкретные ключи в JSON-объекте (без полного ре-парсинга).
 pub fn mask_sensitive_json_keys(value: &mut serde_json::Value) {
     const SENSITIVE_KEYS: &[&str] = &[
-        "password", "passwd", "secret", "token", "api_key", "apikey",
-        "authorization", "credit_card", "card_number", "cvv", "ssn",
-        "private_key", "access_token", "refresh_token", "session_token",
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "credit_card",
+        "card_number",
+        "cvv",
+        "ssn",
+        "private_key",
+        "access_token",
+        "refresh_token",
+        "session_token",
     ];
 
     match value {
         serde_json::Value::Object(map) => {
             for (key, val) in map.iter_mut() {
-                if SENSITIVE_KEYS.iter().any(|k| key.to_lowercase().contains(k)) {
+                if SENSITIVE_KEYS
+                    .iter()
+                    .any(|k| key.to_lowercase().contains(k))
+                {
                     *val = serde_json::Value::String("[REDACTED]".to_string());
                 } else {
                     mask_sensitive_json_keys(val);

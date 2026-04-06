@@ -22,7 +22,9 @@ pub enum LogFormat {
 /// Определяет формат лога по первым байтам.
 pub fn detect_format(raw: &[u8]) -> LogFormat {
     // Пропускаем BOM и пробелы
-    let trimmed = raw.iter().position(|&b| !b.is_ascii_whitespace())
+    let trimmed = raw
+        .iter()
+        .position(|&b| !b.is_ascii_whitespace())
         .map(|i| &raw[i..])
         .unwrap_or(raw);
 
@@ -91,7 +93,8 @@ fn parse_json(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError
     };
 
     // Маппинг Serilog/ASP.NET Core structured logging
-    event.message = obj.get("Message")
+    event.message = obj
+        .get("Message")
         .or_else(|| obj.get("message"))
         .or_else(|| obj.get("msg"))
         .and_then(|v| v.as_str())
@@ -99,7 +102,8 @@ fn parse_json(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError
         .to_string();
 
     // Severity — поддерживаем разные имена полей
-    let severity_str = obj.get("Level")
+    let severity_str = obj
+        .get("Level")
         .or_else(|| obj.get("level"))
         .or_else(|| obj.get("severity"))
         .or_else(|| obj.get("Severity"))
@@ -108,7 +112,11 @@ fn parse_json(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError
     event.severity = Severity::from_str(severity_str);
 
     // Timestamp
-    if let Some(ts_val) = obj.get("Timestamp").or_else(|| obj.get("timestamp")).or_else(|| obj.get("@timestamp")) {
+    if let Some(ts_val) = obj
+        .get("Timestamp")
+        .or_else(|| obj.get("timestamp"))
+        .or_else(|| obj.get("@timestamp"))
+    {
         if let Some(ts_str) = ts_val.as_str() {
             if let Ok(ts) = ts_str.parse::<chrono::DateTime<Utc>>() {
                 event.timestamp = ts;
@@ -137,17 +145,29 @@ fn parse_json(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError
     if let Some(status) = obj.get("StatusCode").and_then(|v| v.as_u64()) {
         event.status_code = Some(status as u16);
     }
-    if let Some(elapsed) = obj.get("Elapsed").or_else(|| obj.get("ElapsedMilliseconds")) {
+    if let Some(elapsed) = obj
+        .get("Elapsed")
+        .or_else(|| obj.get("ElapsedMilliseconds"))
+    {
         event.duration_ms = elapsed.as_f64();
     }
 
     // User/Auth context
-    if let Some(uid) = obj.get("UserId").or_else(|| obj.get("user_id")).and_then(|v| v.as_str()) {
+    if let Some(uid) = obj
+        .get("UserId")
+        .or_else(|| obj.get("user_id"))
+        .and_then(|v| v.as_str())
+    {
         event.user_id = Some(uid.to_string());
     }
 
     // Source IP
-    if let Some(ip) = obj.get("ClientIp").or_else(|| obj.get("client_ip")).or_else(|| obj.get("source_ip")).and_then(|v| v.as_str()) {
+    if let Some(ip) = obj
+        .get("ClientIp")
+        .or_else(|| obj.get("client_ip"))
+        .or_else(|| obj.get("source_ip"))
+        .and_then(|v| v.as_str())
+    {
         event.source_ip = Some(ip.to_string());
     }
 
@@ -175,29 +195,51 @@ fn extract_http_fields(props: &serde_json::Map<String, Value>, event: &mut Norma
     if let Some(status) = props.get("StatusCode").and_then(|v| v.as_u64()) {
         event.status_code = Some(status as u16);
     }
-    if let Some(ip) = props.get("ClientIp").or_else(|| props.get("RemoteIp")).and_then(|v| v.as_str()) {
+    if let Some(ip) = props
+        .get("ClientIp")
+        .or_else(|| props.get("RemoteIp"))
+        .and_then(|v| v.as_str())
+    {
         event.source_ip = Some(ip.to_string());
     }
-    if let Some(uid) = props.get("UserId").or_else(|| props.get("UserName")).and_then(|v| v.as_str()) {
+    if let Some(uid) = props
+        .get("UserId")
+        .or_else(|| props.get("UserName"))
+        .and_then(|v| v.as_str())
+    {
         event.user_id = Some(uid.to_string());
     }
 }
 
 fn parse_cef(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError> {
     // CEF:Version|Device Vendor|Device Product|Device Version|Signature ID|Name|Severity|Extension
-    let s = std::str::from_utf8(&raw)
-        .map_err(|_| ParserError::Cef("Invalid UTF-8".to_string()))?;
+    let s = std::str::from_utf8(&raw).map_err(|_| ParserError::Cef("Invalid UTF-8".to_string()))?;
 
     let parts: Vec<&str> = s.splitn(8, '|').collect();
     if parts.len() < 8 {
-        return Err(ParserError::Cef(format!("Expected 8 pipe-separated fields, got {}", parts.len())));
+        return Err(ParserError::Cef(format!(
+            "Expected 8 pipe-separated fields, got {}",
+            parts.len()
+        )));
     }
 
     event.event_type = "network".to_string();
-    event.metadata.insert("cef_vendor".to_string(), Value::String(parts[1].to_string()));
-    event.metadata.insert("cef_product".to_string(), Value::String(parts[2].to_string()));
-    event.metadata.insert("cef_version".to_string(), Value::String(parts[3].to_string()));
-    event.metadata.insert("cef_signature_id".to_string(), Value::String(parts[4].to_string()));
+    event.metadata.insert(
+        "cef_vendor".to_string(),
+        Value::String(parts[1].to_string()),
+    );
+    event.metadata.insert(
+        "cef_product".to_string(),
+        Value::String(parts[2].to_string()),
+    );
+    event.metadata.insert(
+        "cef_version".to_string(),
+        Value::String(parts[3].to_string()),
+    );
+    event.metadata.insert(
+        "cef_signature_id".to_string(),
+        Value::String(parts[4].to_string()),
+    );
 
     let name = parts[5];
     let cef_severity = parts[6].parse::<u8>().unwrap_or(5);
@@ -223,7 +265,11 @@ fn parse_cef_extension(ext: &str, event: &mut NormalizedEvent) {
     while !remaining.is_empty() {
         // Ищем "key="
         if let Some(eq_pos) = remaining.find('=') {
-            let key = remaining[..eq_pos].trim().rsplit(' ').next().unwrap_or(&remaining[..eq_pos]);
+            let key = remaining[..eq_pos]
+                .trim()
+                .rsplit(' ')
+                .next()
+                .unwrap_or(&remaining[..eq_pos]);
             let after_eq = &remaining[eq_pos + 1..];
 
             // Значение — до следующего " key=" или конец строки
@@ -241,7 +287,9 @@ fn parse_cef_extension(ext: &str, event: &mut NormalizedEvent) {
                     }
                 }
                 _ => {
-                    event.metadata.insert(key.to_string(), Value::String(value.trim().to_string()));
+                    event
+                        .metadata
+                        .insert(key.to_string(), Value::String(value.trim().to_string()));
                 }
             }
 
@@ -276,14 +324,16 @@ fn find_next_cef_key(s: &str) -> usize {
 }
 
 fn parse_syslog5424(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError> {
-    let s = std::str::from_utf8(&raw)
-        .map_err(|_| ParserError::Syslog("Invalid UTF-8".to_string()))?;
+    let s =
+        std::str::from_utf8(&raw).map_err(|_| ParserError::Syslog("Invalid UTF-8".to_string()))?;
 
     // Парсим priority: "<PRI>VERSION"
     if !s.starts_with('<') {
         return Err(ParserError::Syslog("Missing < at start".to_string()));
     }
-    let gt = s.find('>').ok_or_else(|| ParserError::Syslog("Missing >".to_string()))?;
+    let gt = s
+        .find('>')
+        .ok_or_else(|| ParserError::Syslog("Missing >".to_string()))?;
     let pri: u8 = s[1..gt].parse().unwrap_or(13);
     let facility = pri / 8;
     let severity_num = pri % 8;
@@ -300,7 +350,10 @@ fn parse_syslog5424(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), Parse
         _ => Severity::Info,
     };
 
-    event.metadata.insert("syslog_facility".to_string(), Value::Number(facility.into()));
+    event.metadata.insert(
+        "syslog_facility".to_string(),
+        Value::Number(facility.into()),
+    );
 
     // Остаток после "<PRI>1 "
     let after_pri = &s[gt + 1..];
@@ -312,7 +365,9 @@ fn parse_syslog5424(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), Parse
             event.timestamp = ts;
         }
         event.host = parts[2].to_string();
-        event.metadata.insert("appname".to_string(), Value::String(parts[3].to_string()));
+        event
+            .metadata
+            .insert("appname".to_string(), Value::String(parts[3].to_string()));
         event.message = parts.get(6).unwrap_or(&"").to_string();
     } else {
         event.message = after_pri.to_string();
@@ -323,11 +378,13 @@ fn parse_syslog5424(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), Parse
 }
 
 fn parse_syslog3164(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError> {
-    let s = std::str::from_utf8(&raw)
-        .map_err(|_| ParserError::Syslog("Invalid UTF-8".to_string()))?;
+    let s =
+        std::str::from_utf8(&raw).map_err(|_| ParserError::Syslog("Invalid UTF-8".to_string()))?;
 
     // RFC3164: "<PRI>Mmm DD HH:MM:SS hostname tag: message"
-    let gt = s.find('>').ok_or_else(|| ParserError::Syslog("Missing >".to_string()))?;
+    let gt = s
+        .find('>')
+        .ok_or_else(|| ParserError::Syslog("Missing >".to_string()))?;
     let pri: u8 = s[1..gt].parse().unwrap_or(13);
     let severity_num = pri % 8;
 
@@ -367,12 +424,18 @@ mod tests {
 
     #[test]
     fn test_detect_cef() {
-        assert_eq!(detect_format(b"CEF:0|Vendor|Product|1.0|100|Test|5|src=1.2.3.4"), LogFormat::Cef);
+        assert_eq!(
+            detect_format(b"CEF:0|Vendor|Product|1.0|100|Test|5|src=1.2.3.4"),
+            LogFormat::Cef
+        );
     }
 
     #[test]
     fn test_detect_syslog5424() {
-        assert_eq!(detect_format(b"<13>1 2024-01-01T00:00:00Z host app - - msg"), LogFormat::Syslog5424);
+        assert_eq!(
+            detect_format(b"<13>1 2024-01-01T00:00:00Z host app - - msg"),
+            LogFormat::Syslog5424
+        );
     }
 
     #[test]

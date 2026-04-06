@@ -3,8 +3,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    register_histogram_vec, register_int_counter_vec, register_int_gauge,
-    HistogramVec, IntCounterVec, IntGauge,
+    register_histogram_vec, register_int_counter_vec, register_int_gauge, HistogramVec,
+    IntCounterVec, IntGauge,
 };
 
 pub static EVENTS_PARSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
@@ -20,7 +20,13 @@ pub static SIEM_EVENTS_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "siem_events_total",
         "Normalized SIEM events for security alert rules",
-        &["source_type", "severity", "status_code", "url_path", "source_ip"]
+        &[
+            "source_type",
+            "severity",
+            "status_code",
+            "url_path",
+            "source_ip"
+        ]
     )
     .expect("metric registration failed")
 });

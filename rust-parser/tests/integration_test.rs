@@ -57,7 +57,10 @@ fn pii_bearer_token_masked() {
 #[test]
 fn pii_no_pii_returns_none() {
     let input = "Normal log message: server started on port 8080";
-    assert!(mask_pii(input).is_none(), "Should return None for clean input");
+    assert!(
+        mask_pii(input).is_none(),
+        "Should return None for clean input"
+    );
 }
 
 #[test]
@@ -108,9 +111,12 @@ fn pipeline_masks_email_in_message() {
         "Level": "Warning",
         "Message": "Login failed for user admin@company.com from 10.0.0.1",
         "Timestamp": "2024-01-15T10:00:00Z"
-    }).to_string();
+    })
+    .to_string();
 
-    let event = pipeline.process(Bytes::from(raw), "dotnet", "host").unwrap();
+    let event = pipeline
+        .process(Bytes::from(raw), "dotnet", "host")
+        .unwrap();
     assert!(!event.message.contains("admin@company.com"));
     assert!(event.message.contains("***@***.***"));
 }
@@ -122,9 +128,12 @@ fn pipeline_masks_token_in_message() {
         "Level": "Info",
         "Message": "Request with token=eyJhbGciOiJSUzI1NiJ9.payload.signature received",
         "Timestamp": "2024-01-15T10:00:00Z"
-    }).to_string();
+    })
+    .to_string();
 
-    let event = pipeline.process(Bytes::from(raw), "dotnet", "host").unwrap();
+    let event = pipeline
+        .process(Bytes::from(raw), "dotnet", "host")
+        .unwrap();
     assert!(!event.message.contains("eyJhbGci"));
 }
 
@@ -136,9 +145,12 @@ fn pipeline_strips_url_query() {
         "Message": "HTTP request",
         "RequestPath": "/api/users?password=secret&page=1",
         "Timestamp": "2024-01-15T10:00:00Z"
-    }).to_string();
+    })
+    .to_string();
 
-    let event = pipeline.process(Bytes::from(raw), "dotnet", "host").unwrap();
+    let event = pipeline
+        .process(Bytes::from(raw), "dotnet", "host")
+        .unwrap();
     assert_eq!(event.url_path.as_deref(), Some("/api/users"));
 }
 
@@ -149,10 +161,15 @@ fn pipeline_assigns_unique_event_ids() {
         "Level": "Info",
         "Message": "test",
         "Timestamp": "2024-01-15T10:00:00Z"
-    }).to_string();
+    })
+    .to_string();
 
-    let e1 = pipeline.process(Bytes::from(raw.clone()), "dotnet", "host").unwrap();
-    let e2 = pipeline.process(Bytes::from(raw), "dotnet", "host").unwrap();
+    let e1 = pipeline
+        .process(Bytes::from(raw.clone()), "dotnet", "host")
+        .unwrap();
+    let e2 = pipeline
+        .process(Bytes::from(raw), "dotnet", "host")
+        .unwrap();
     assert_ne!(e1.event_id, e2.event_id);
 }
 
@@ -172,9 +189,16 @@ fn pipeline_severity_propagated_correctly() {
             "Level": level,
             "Message": "test",
             "Timestamp": "2024-01-15T10:00:00Z"
-        }).to_string();
-        let event = pipeline.process(Bytes::from(raw), "dotnet", "host").unwrap();
-        assert_eq!(event.severity, expected, "Severity mismatch for level={}", level);
+        })
+        .to_string();
+        let event = pipeline
+            .process(Bytes::from(raw), "dotnet", "host")
+            .unwrap();
+        assert_eq!(
+            event.severity, expected,
+            "Severity mismatch for level={}",
+            level
+        );
     }
 }
 
@@ -203,10 +227,13 @@ fn pipeline_ingest_timestamp_close_to_now() {
         "Level": "Info",
         "Message": "test",
         "Timestamp": "2024-01-15T10:00:00Z"
-    }).to_string();
+    })
+    .to_string();
 
     let before = chrono::Utc::now();
-    let event = pipeline.process(Bytes::from(raw), "dotnet", "host").unwrap();
+    let event = pipeline
+        .process(Bytes::from(raw), "dotnet", "host")
+        .unwrap();
     let after = chrono::Utc::now();
 
     assert!(event.ingest_ts >= before);

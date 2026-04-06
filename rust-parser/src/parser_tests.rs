@@ -1,8 +1,8 @@
 //! Расширенные тесты для parser.rs — подключаются через #[path] в parser.rs
 use super::*;
-use bytes::Bytes;
-use crate::schema::Severity;
 use crate::error::ParserError;
+use crate::schema::Severity;
+use bytes::Bytes;
 
 // ── Детектирование формата ──────────────────────────────────────────────────
 
@@ -136,7 +136,8 @@ fn parse_json_invalid_returns_error() {
 
 #[test]
 fn parse_cef_basic() {
-    let raw = b"CEF:0|Acme|Firewall|1.0|100|Port Scan Detected|7|src=10.0.0.1 suser=admin request=/admin";
+    let raw =
+        b"CEF:0|Acme|Firewall|1.0|100|Port Scan Detected|7|src=10.0.0.1 suser=admin request=/admin";
     let event = parse(Bytes::from_static(raw), "firewall", "fw-01").unwrap();
     assert_eq!(event.event_type, "network");
     assert_eq!(event.severity, Severity::Error);

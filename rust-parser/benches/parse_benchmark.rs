@@ -27,7 +27,8 @@ fn bench_parse_json(c: &mut Criterion) {
             "StatusCode": 401,
             "RequestPath": "/api/auth/login"
         }
-    }).to_string();
+    })
+    .to_string();
 
     let large_event = serde_json::json!({
         "Timestamp": "2024-01-15T10:30:00Z",
@@ -54,13 +55,7 @@ fn bench_parse_json(c: &mut Criterion) {
     for (name, payload) in [("small_1kb", &small_event), ("large_4kb", &large_event)] {
         group.throughput(Throughput::Bytes(payload.len() as u64));
         group.bench_with_input(BenchmarkId::new("dotnet", name), payload, |b, p| {
-            b.iter(|| {
-                pipeline.process(
-                    black_box(Bytes::from(p.clone())),
-                    "dotnet",
-                    "bench-host",
-                )
-            });
+            b.iter(|| pipeline.process(black_box(Bytes::from(p.clone())), "dotnet", "bench-host"));
         });
     }
 

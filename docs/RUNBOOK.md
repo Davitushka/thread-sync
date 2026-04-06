@@ -78,7 +78,9 @@ curl -s http://localhost:9100/metrics | grep siem_parser_events_parsed_total
 # http://localhost:3000 (admin/ClickHousePass123!)
 ```
 
-### Тестирование Sigma правил
+### Тестирование правил детекции (detection-engine-rs)
+
+Правила реализованы в `detection-engine-rs`; каталог `sigma-rules/` описывает ту же логику в формате Sigma.
 
 ```bash
 # Симулировать brute-force атаку (10 запросов за 2 минуты с одного IP)

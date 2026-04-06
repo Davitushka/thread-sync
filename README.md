@@ -39,7 +39,7 @@ siem-lite/
 ├── clickhouse/
 │   └── init.sql             # Схема: events, alerts, materialized views, TTL
 │
-├── sigma-rules/
+├── sigma-rules/                     # Спецификация правил (Sigma YAML); рантайм — detection-engine-rs
 │   ├── brute_force_api.yaml         # T1110: Brute-force на API/SignalR
 │   ├── rate_limit_evasion.yaml      # T1595: Аномальный объём запросов
 │   ├── sql_injection.yaml           # T1190: SQLi/NoSQLi попытки
@@ -98,10 +98,22 @@ open http://localhost:3000  # admin/ClickHousePass123!
 | Parsing/Normalization | siem-parser (custom) | **Rust** |
 | Queue | Redpanda 23.x | C++ |
 | Storage | ClickHouse 24.x + MinIO | C++ / Go |
-| Detection | sigma-go + custom correlator | Go |
+| Detection | detection-engine-rs + correlator (Rust) | Rust |
 | Alerting | Alertmanager 0.27 | Go |
 | Visualization | Grafana 11.4 | TypeScript |
 | Self-monitoring | Prometheus + Loki | Go |
+
+## Переменные окружения Compose (опционально)
+
+Пароли по умолчанию заданы в `docker-compose.yml` через `${VAR:-default}` (удобно для локалки). Для своих значений скопируйте [`deploy/docker/.env.example`](deploy/docker/.env.example) в `deploy/docker/.env` и при запуске укажите:
+
+`docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml up -d`
+
+**Важно:** `CLICKHOUSE_PASSWORD` должен совпадать с содержимым `deploy/docker/secrets/clickhouse_password.txt` (Grafana и siem-parser читают пароль из этого файла).
+
+### Опциональная защита ingest API (siem-parser)
+
+Если задать `SIEM__SERVER__API_KEY` (в Compose можно через `SIEM_PARSER_API_KEY` и подставить в environment), эндпоинты `POST /parse` и `POST /alerts/ingest` требуют заголовок `X-API-Key` или `Authorization: Bearer <ключ>`. По умолчанию ключ не задан — совместимо с текущим Vector→Kafka пайплайном (Vector не ходит на `/parse`).
 
 ## Secrets Setup
 

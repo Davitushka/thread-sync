@@ -86,7 +86,7 @@ spec:
 - ✅ Log collection (Vector 4 источника)
 - ✅ Parsing + PII masking (Rust)
 - ✅ Storage (ClickHouse single-node)
-- ✅ Detection (4 Sigma правила)
+- ✅ Detection (4 правила, Rust engine + YAML в `sigma-rules/` как спецификация)
 - ✅ Alerting (Alertmanager → Slack/Email/PD)
 - ✅ Visualization (Grafana)
 

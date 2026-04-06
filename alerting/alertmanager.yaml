@@ -184,6 +184,11 @@ receivers:
   # Webhook → siem-parser /alerts/ingest → INSERT/UPDATE siem.alerts
   # firing → INSERT новой строки; resolved → ALTER TABLE UPDATE status='resolved'
   # Второй webhook → case-management: кейсы, таймлайн, дедуп по fingerprint
+  #
+  # Если задан SIEM__SERVER__API_KEY у siem-parser, добавьте сюда, например:
+  #   http_config:
+  #     bearer_token_file: /run/secrets/siem_parser_api_key
+  #     follow_redirects: true
   - name: 'clickhouse-siem'
     webhook_configs:
       - url: 'http://siem-parser:7000/alerts/ingest'

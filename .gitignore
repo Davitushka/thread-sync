@@ -1,6 +1,5 @@
 # Rust
 rust-parser/target/
-rust-parser/Cargo.lock
 log-generator/target/
 detection-engine-rs/target/
 case-management-rs/target/
@@ -34,6 +33,7 @@ deploy/docker/certs/
 *.local.yaml
 *.local.env
 .env
+deploy/docker/.env
 
 # OS
 .DS_Store

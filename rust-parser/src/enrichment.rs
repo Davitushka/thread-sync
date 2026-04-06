@@ -53,7 +53,8 @@ impl Enricher {
         let city_reader = load_mmdb(&config.geoip_city_db_path);
         let asn_reader = load_mmdb(&config.geoip_asn_db_path);
 
-        let cache_size = NonZeroUsize::new(config.user_cache_size).unwrap_or(NonZeroUsize::new(10_000).unwrap());
+        let cache_size =
+            NonZeroUsize::new(config.user_cache_size).unwrap_or(NonZeroUsize::new(10_000).unwrap());
 
         Self {
             city_reader,
@@ -83,26 +84,30 @@ impl Enricher {
             return None;
         }
 
-        let city_info = self.city_reader.as_ref().and_then(|reader| {
-            reader.lookup::<geoip2::City>(ip).ok()
-        });
+        let city_info = self
+            .city_reader
+            .as_ref()
+            .and_then(|reader| reader.lookup::<geoip2::City>(ip).ok());
 
-        let asn_info = self.asn_reader.as_ref().and_then(|reader| {
-            reader.lookup::<geoip2::Asn>(ip).ok()
-        });
+        let asn_info = self
+            .asn_reader
+            .as_ref()
+            .and_then(|reader| reader.lookup::<geoip2::Asn>(ip).ok());
 
         // Если нет ни GeoIP ни ASN данных — возвращаем None
         if city_info.is_none() && asn_info.is_none() {
             return None;
         }
 
-        let country_iso = city_info.as_ref()
+        let country_iso = city_info
+            .as_ref()
             .and_then(|c| c.country.as_ref())
             .and_then(|c| c.iso_code)
             .unwrap_or("XX")
             .to_string();
 
-        let country_name = city_info.as_ref()
+        let country_name = city_info
+            .as_ref()
             .and_then(|c| c.country.as_ref())
             .and_then(|c| c.names.as_ref())
             .and_then(|n| n.get("en"))
@@ -110,19 +115,26 @@ impl Enricher {
             .unwrap_or("Unknown")
             .to_string();
 
-        let city = city_info.as_ref()
+        let city = city_info
+            .as_ref()
             .and_then(|c| c.city.as_ref())
             .and_then(|c| c.names.as_ref())
             .and_then(|n| n.get("en"))
             .map(|s| s.to_string());
 
-        let (latitude, longitude) = city_info.as_ref()
+        let (latitude, longitude) = city_info
+            .as_ref()
             .and_then(|c| c.location.as_ref())
             .map(|loc| (loc.latitude, loc.longitude))
             .unwrap_or((None, None));
 
         let (asn_num, asn_org) = asn_info
-            .map(|a| (a.autonomous_system_number, a.autonomous_system_organization.map(|s| s.to_string())))
+            .map(|a| {
+                (
+                    a.autonomous_system_number,
+                    a.autonomous_system_organization.map(|s| s.to_string()),
+                )
+            })
             .unwrap_or((None, None));
 
         Some(GeoInfo {
@@ -142,7 +154,10 @@ impl Enricher {
 /// в процессе работы (стандартная практика для GeoIP БД).
 fn load_mmdb(path: &str) -> Option<Reader<Mmap>> {
     if !Path::new(path).exists() {
-        warn!("GeoIP database not found: {}. GeoIP enrichment disabled.", path);
+        warn!(
+            "GeoIP database not found: {}. GeoIP enrichment disabled.",
+            path
+        );
         return None;
     }
 
@@ -151,7 +166,8 @@ fn load_mmdb(path: &str) -> Option<Reader<Mmap>> {
         let file = File::open(path)?;
         // SAFETY: файл открыт только для чтения и не изменяется во время жизни mmap.
         let mmap = unsafe { Mmap::map(&file)? };
-        Reader::from_source(mmap).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        Reader::from_source(mmap)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     })();
 
     match result {
@@ -164,7 +180,10 @@ fn load_mmdb(path: &str) -> Option<Reader<Mmap>> {
             Some(reader)
         }
         Err(e) => {
-            warn!("Failed to open GeoIP database {}: {}. GeoIP enrichment disabled.", path, e);
+            warn!(
+                "Failed to open GeoIP database {}: {}. GeoIP enrichment disabled.",
+                path, e
+            );
             None
         }
     }
