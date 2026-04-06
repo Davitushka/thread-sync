@@ -139,10 +139,17 @@ async fn main() {
         std::process::exit(1);
     });
 
-    let migration_sql = include_str!("../migrations/001_init.sql");
-    if let Err(e) = db.migrate(migration_sql).await {
-        tracing::error!(error = %e, "migrate");
-        std::process::exit(1);
+    for (name, sql) in [
+        ("001_init", include_str!("../migrations/001_init.sql")),
+        (
+            "002_process_investigation",
+            include_str!("../migrations/002_process_investigation.sql"),
+        ),
+    ] {
+        if let Err(e) = db.migrate(sql).await {
+            tracing::error!(migration = name, error = %e, "migrate");
+            std::process::exit(1);
+        }
     }
 
     let auto_val = std::env::var("CASEMGMT_AUTO_CASE_FROM_ALERTS")
@@ -188,6 +195,10 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(handlers::health).head(handlers::health))
         .route("/api/v1/cases", get(handlers::list_cases).post(handlers::create_case))
+        .route(
+            "/api/v1/cases/:id/investigate",
+            get(handlers::investigate_case),
+        )
         .route(
             "/api/v1/cases/:id",
             get(handlers::get_case).patch(handlers::patch_case),

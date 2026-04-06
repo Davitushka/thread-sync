@@ -142,7 +142,7 @@ UI: http://localhost:8089 (нужен доступ Docker-сокета на хо
 | Grafana | http://localhost:3000 | `admin` + пароль из `clickhouse_password.txt` |
 | Prometheus | http://localhost:9090 | — |
 | Alertmanager | http://localhost:9093 | — |
-| Case management | http://localhost:8088 | — |
+| Case management | http://localhost:8088 | Связка с расследованием: `GET /api/v1/cases/:id/investigate`; процесс SOC — [RUNBOOK §9](docs/RUNBOOK.md) |
 | siem-parser | http://localhost:7000/health | Метрики: http://localhost:9100/metrics |
 | Vector HTTP ingest | http://localhost:8080/logs | NDJSON (см. [vector/aggregator.yaml](vector/aggregator.yaml)) |
 | Loki (логи контейнеров) | в Grafana → Explore, datasource **Loki** | Promtail шлёт stdout/stderr Docker в Loki (`siem-promtail`) |

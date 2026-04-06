@@ -544,3 +544,29 @@ echo "Load test complete"
 EOF
 bash /tmp/load-test.sh
 ```
+
+---
+
+## 9. SOC: глубина расследования, доверие к данным, зрелость процесса
+
+Три опоры, которые отличают «настоящий» разбор от простого списка алертов:
+
+| Опора | Где в SIEM-Lite |
+|-------|-----------------|
+| **Доверие к данным** | Grafana: **SIEM-Lite — доверие к данным** (`/d/siem-data-quality/...`) — полнота `source_ip`, лаг ingest, ошибки парсера, consumer lag |
+| **Глубина расследования** | Case management: **`GET /api/v1/cases/:id/investigate`** — ссылки на Explore (ClickHouse/Loki), обзорный дашборд, предложенные SQL из labels связанных алертов (`source_ip`, `rule_id`) |
+| **Зрелость процесса** | API/UI кейсов: статусы (`new` → … → `closed`), **`due_at`** (SLA по severity), **`acknowledged_at`**, **`runbook_url`**, таймлайн (`ack`, `runbook`, `data_note`) |
+
+### Поток оператора (кратко)
+
+1. Алерт попадает в Alertmanager → webhook создаёт/обновляет кейс в **case-management** (`http://localhost:8088`).
+2. Аналитик переводит статус с `new` (фиксируется `acknowledged_at`), открывает runbook (поле кейса или аннотация алерта).
+3. Запрос сводки расследования:
+
+```bash
+curl -s "http://localhost:8088/api/v1/cases/<CASE_UUID>/investigate" | jq .
+```
+
+В ответе — `grafana.*` (готовые URL) и `suggested_clickhouse_queries` для копирования в Grafana Explore или `clickhouse-client`.
+
+4. Перед выводами по инциденту — проверить дашборд **доверие к данным**: нет ли всплеска `% NULL source_ip`, лага ingest или ошибок парсера.

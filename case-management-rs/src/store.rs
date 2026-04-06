@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use uuid::Uuid;
@@ -25,6 +25,17 @@ pub struct ListFilter {
 #[derive(Clone)]
 pub struct Store {
     pool: PgPool,
+}
+
+/// SLA: дедлайн расследования от момента создания кейса.
+pub fn due_at_from_severity(sev: &str) -> Option<DateTime<Utc>> {
+    let h = match sev.to_lowercase().as_str() {
+        "critical" => 4i64,
+        "high" => 8,
+        "medium" => 24,
+        _ => 72,
+    };
+    Some(Utc::now() + Duration::hours(h))
 }
 
 impl Store {
@@ -83,7 +94,7 @@ impl Store {
         let mut list_qb = QueryBuilder::<Postgres>::new(
             "SELECT id, case_number, title, description, severity, status, priority, \
              assignee, tags, resolution, resolution_notes, source, \
-             created_at, updated_at, closed_at FROM cases",
+             created_at, updated_at, closed_at, acknowledged_at, due_at, runbook_url FROM cases",
         );
         Self::push_list_filters(&mut list_qb, &f);
         list_qb
@@ -106,7 +117,7 @@ impl Store {
         let mut case = sqlx::query_as::<_, Case>(
             "SELECT id, case_number, title, description, severity, status, priority, \
              assignee, tags, resolution, resolution_notes, source, \
-             created_at, updated_at, closed_at \
+             created_at, updated_at, closed_at, acknowledged_at, due_at, runbook_url \
              FROM cases WHERE id = $1",
         )
         .bind(id)
@@ -130,12 +141,20 @@ impl Store {
         if req.priority == 0 {
             req.priority = 2;
         }
+        let due_at = due_at_from_severity(&req.severity);
+        let runbook = req
+            .runbook_url
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
         let mut case = sqlx::query_as::<_, Case>(
-            "INSERT INTO cases (title, description, severity, status, priority, assignee, tags, source) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) \
+            "INSERT INTO cases (title, description, severity, status, priority, assignee, tags, source, due_at, runbook_url) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) \
              RETURNING id, case_number, title, description, severity, status, priority, \
                        assignee, tags, resolution, resolution_notes, source, \
-                       created_at, updated_at, closed_at",
+                       created_at, updated_at, closed_at, acknowledged_at, due_at, runbook_url",
         )
         .bind(&req.title)
         .bind(&req.description)
@@ -145,6 +164,8 @@ impl Store {
         .bind(&req.assignee)
         .bind(&req.tags)
         .bind(&req.source)
+        .bind(due_at)
+        .bind(runbook)
         .fetch_one(&self.pool)
         .await?;
         case.apply_display_key();
@@ -153,6 +174,7 @@ impl Store {
 
     pub async fn patch_case(&self, id: Uuid, req: PatchCaseRequest) -> Result<Case, StoreError> {
         let cur = self.get_case(id).await?;
+        let prev_status = cur.status.clone();
 
         let title = req.title.unwrap_or(cur.title);
         let description = req.description.unwrap_or(cur.description);
@@ -181,15 +203,29 @@ impl Store {
             None
         };
 
+        let did_acknowledge =
+            prev_status == "new" && status != "new" && cur.acknowledged_at.is_none();
+        let acknowledged_at = if did_acknowledge {
+            Some(Utc::now())
+        } else {
+            cur.acknowledged_at
+        };
+
+        let runbook_url = match req.runbook_url {
+            Some(ref r) if !r.trim().is_empty() => Some(r.trim().to_string()),
+            Some(_) => cur.runbook_url.clone(),
+            None => cur.runbook_url.clone(),
+        };
+
         let mut updated = sqlx::query_as::<_, Case>(
             "UPDATE cases SET \
              title = $2, description = $3, severity = $4, status = $5, priority = $6, \
              assignee = $7, tags = $8, resolution = $9, resolution_notes = $10, \
-             closed_at = $11, updated_at = now() \
+             closed_at = $11, acknowledged_at = $12, runbook_url = $13, updated_at = now() \
              WHERE id = $1 \
              RETURNING id, case_number, title, description, severity, status, priority, \
                        assignee, tags, resolution, resolution_notes, source, \
-                       created_at, updated_at, closed_at",
+                       created_at, updated_at, closed_at, acknowledged_at, due_at, runbook_url",
         )
         .bind(id)
         .bind(&title)
@@ -202,10 +238,25 @@ impl Store {
         .bind(&resolution)
         .bind(&resolution_notes)
         .bind(closed_at)
+        .bind(acknowledged_at)
+        .bind(&runbook_url)
         .fetch_optional(&self.pool)
         .await?
         .ok_or(StoreError::NotFound)?;
         updated.apply_display_key();
+
+        if did_acknowledge {
+            let _ = self
+                .add_timeline(
+                    id,
+                    "system",
+                    "ack",
+                    Some("Incident acknowledged (left new)"),
+                    serde_json::json!({"from": prev_status, "to": updated.status}),
+                )
+                .await;
+        }
+
         Ok(updated)
     }
 
@@ -282,17 +333,21 @@ impl Store {
         severity: Option<&str>,
         description: Option<&str>,
         seen_at: DateTime<Utc>,
+        context: &serde_json::Value,
     ) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO case_linked_alerts \
-             (case_id, fingerprint, rule_id, rule_title, severity, description, first_seen_at, last_seen_at) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$7) \
+             (case_id, fingerprint, rule_id, rule_title, severity, description, first_seen_at, last_seen_at, context) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8) \
              ON CONFLICT (case_id, fingerprint) DO UPDATE SET \
              last_seen_at = EXCLUDED.last_seen_at, \
              rule_id = COALESCE(EXCLUDED.rule_id, case_linked_alerts.rule_id), \
              rule_title = COALESCE(EXCLUDED.rule_title, case_linked_alerts.rule_title), \
              severity = COALESCE(EXCLUDED.severity, case_linked_alerts.severity), \
-             description = COALESCE(NULLIF(EXCLUDED.description, ''), case_linked_alerts.description)",
+             description = COALESCE(NULLIF(EXCLUDED.description, ''), case_linked_alerts.description), \
+             context = CASE \
+               WHEN EXCLUDED.context = '{}'::jsonb THEN case_linked_alerts.context \
+               ELSE EXCLUDED.context END",
         )
         .bind(case_id)
         .bind(fp)
@@ -301,6 +356,7 @@ impl Store {
         .bind(severity)
         .bind(description)
         .bind(seen_at)
+        .bind(context)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -309,7 +365,7 @@ impl Store {
     pub async fn list_linked_alerts(&self, case_id: Uuid) -> Result<Vec<LinkedAlert>, StoreError> {
         let alerts = sqlx::query_as::<_, LinkedAlert>(
             "SELECT fingerprint, rule_id, rule_title, severity, description, \
-             first_seen_at, last_seen_at \
+             first_seen_at, last_seen_at, context \
              FROM case_linked_alerts WHERE case_id = $1 ORDER BY first_seen_at",
         )
         .bind(case_id)

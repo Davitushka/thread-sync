@@ -284,6 +284,11 @@ pub async fn link_alert(
     }
 
     let now = chrono::Utc::now();
+    let ctx = if req.context.is_null() {
+        json!({})
+    } else {
+        req.context.clone()
+    };
     state
         .store
         .upsert_linked_alert(
@@ -294,6 +299,7 @@ pub async fn link_alert(
             req.severity.as_deref(),
             req.description.as_deref(),
             now,
+            &ctx,
         )
         .await
         .map_err(|e| {
@@ -314,4 +320,104 @@ pub async fn link_alert(
         .await;
 
     Ok(Json(json!({"status": "linked"})))
+}
+
+fn sanitize_ipv4_for_sql(ip: &str) -> Option<String> {
+    let ip = ip.trim();
+    if ip.is_empty() || ip.len() > 45 {
+        return None;
+    }
+    if !ip.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return None;
+    }
+    Some(ip.to_string())
+}
+
+/// Сводка для расследования: ссылки Grafana и шаблоны SQL по контексту связанных алертов.
+pub async fn investigate_case(
+    State(state): State<AppState>,
+    Path(id_str): Path<String>,
+) -> Result<Json<Value>, crate::ApiError> {
+    let id = Uuid::parse_str(&id_str).map_err(|_| crate::ApiError::bad_request("invalid id"))?;
+    let detail = match state.store.get_case_detail(id).await {
+        Ok(d) => d,
+        Err(StoreError::NotFound) => return Err(crate::ApiError::not_found("not found")),
+        Err(e) => {
+            tracing::error!(error = %e, "investigate");
+            return Err(crate::ApiError::internal("load failed"));
+        }
+    };
+
+    let g = state.grafana_base_url.trim_end_matches('/');
+    let explore_ch = format!(
+        "{}/explore?schemaVersion=1&panes=%7B%22siem%22%3A%7B%22datasource%22%3A%22clickhouse-siem%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22queryType%22%3A%22sql%22%2C%22rawSql%22%3A%22SELECT%20%2A%20FROM%20siem.events%20WHERE%20timestamp%20%3E%3D%20now()%20-%20INTERVAL%201%20HOUR%20ORDER%20BY%20timestamp%20DESC%20LIMIT%2050%22%7D%5D%7D%7D",
+        g
+    );
+    let explore_loki = format!("{}/explore?schemaVersion=1&panes=%7B%22l%22%3A%7B%22datasource%22%3A%22loki-siem%22%7D%7D", g);
+    let overview = format!("{}/d/siem-overview/siem-lite-obzor", g);
+    let data_quality = format!("{}/d/siem-data-quality/siem-lite-doverie-k-dannym", g);
+
+    let mut suggested_queries: Vec<Value> = Vec::new();
+    for alert in &detail.linked_alerts {
+        let ctx = &alert.context;
+        let ip_raw = ctx
+            .get("source_ip")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if let Some(ip) = sanitize_ipv4_for_sql(ip_raw) {
+            suggested_queries.push(json!({
+                "title": format!("События с source_ip = {} (24 ч)", ip),
+                "sql": format!(
+                    "SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%i:%s') AS t, toString(severity) AS sev, source_type, left(message, 120) AS msg, url_path \
+                     FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND source_ip = toIPv4('{ip}') \
+                     ORDER BY timestamp DESC LIMIT 300",
+                ),
+            }));
+        }
+        if let Some(rid) = alert.rule_id.as_deref().filter(|s| !s.is_empty()) {
+            let safe_rid: String = rid
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                .take(64)
+                .collect();
+            if !safe_rid.is_empty() {
+                suggested_queries.push(json!({
+                    "title": format!("События с rule_id в metadata или в message (24 ч): {}", safe_rid),
+                    "sql": format!(
+                        "SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%i:%s') AS t, source_type, left(message, 100) AS msg \
+                         FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR \
+                           AND (metadata['rule_id'] = '{safe_rid}' OR message ILIKE concat('%', '{safe_rid}', '%')) \
+                         ORDER BY timestamp DESC LIMIT 150",
+                    ),
+                }));
+            }
+        }
+    }
+
+    if suggested_queries.is_empty() {
+        suggested_queries.push(json!({
+            "title": "Последние события SIEM (24 ч)",
+            "sql": "SELECT formatDateTime(timestamp, '%Y-%m-%d %H:%i:%s') AS t, toString(severity) AS sev, source_type, left(message, 100) AS msg \
+                    FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR ORDER BY timestamp DESC LIMIT 100",
+        }));
+    }
+
+    Ok(Json(json!({
+        "case_id": id,
+        "display_key": detail.case.display_key,
+        "due_at": detail.case.due_at,
+        "acknowledged_at": detail.case.acknowledged_at,
+        "runbook_url": detail.case.runbook_url,
+        "grafana": {
+            "siem_overview": overview,
+            "explore_clickhouse_preset": explore_ch,
+            "explore_loki": explore_loki,
+            "data_quality_dashboard": data_quality,
+        },
+        "suggested_clickhouse_queries": suggested_queries,
+        "process": {
+            "status_workflow": ["new", "triaged", "investigating", "contained", "resolved", "closed"],
+            "sla_hint": "due_at задаётся при создании по severity (critical 4h, high 8h, medium 24h, low 72h).",
+        },
+    })))
 }

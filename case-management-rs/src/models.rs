@@ -25,6 +25,14 @@ pub struct Case {
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<DateTime<Utc>>,
+    /// Первый переход из статуса `new` (признание инцидента).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged_at: Option<DateTime<Utc>>,
+    /// Целевой срок разбора (SLA), задаётся при создании по severity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runbook_url: Option<String>,
 }
 
 impl Case {
@@ -58,6 +66,10 @@ pub struct LinkedAlert {
     pub description: Option<String>,
     pub first_seen_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
+    /// Снимок labels Alertmanager (source_ip, instance, …) для запросов в ClickHouse.
+    #[serde(default)]
+    #[sqlx(json)]
+    pub context: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -93,6 +105,8 @@ pub struct CreateCaseRequest {
     pub tags: Vec<String>,
     #[serde(default)]
     pub source: String,
+    #[serde(default)]
+    pub runbook_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,6 +120,8 @@ pub struct PatchCaseRequest {
     pub tags: Option<Vec<String>>,
     pub resolution: Option<String>,
     pub resolution_notes: Option<String>,
+    #[serde(default)]
+    pub runbook_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,4 +142,6 @@ pub struct LinkAlertRequest {
     pub rule_title: Option<String>,
     pub severity: Option<String>,
     pub description: Option<String>,
+    #[serde(default)]
+    pub context: serde_json::Value,
 }

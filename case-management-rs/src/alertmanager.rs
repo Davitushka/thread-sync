@@ -170,6 +170,19 @@ pub async fn handle_alertmanager(
     })))
 }
 
+fn alert_context_json(alert: &AlertmanagerAlert) -> Value {
+    serde_json::to_value(&alert.labels).unwrap_or_else(|_| json!({}))
+}
+
+fn runbook_from_alert(alert: &AlertmanagerAlert) -> Option<String> {
+    alert
+        .annotations
+        .get("runbook_url")
+        .or_else(|| alert.annotations.get("runbook"))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 async fn ingest_firing(
     state: &AppState,
     alert: &AlertmanagerAlert,
@@ -178,6 +191,7 @@ async fn ingest_firing(
     group_key: &str,
 ) -> Result<bool, StoreError> {
     let seen_at = Utc::now();
+    let labels_json = alert_context_json(alert);
 
     match state.store.find_active_case_by_fingerprint(fp).await {
         Ok(case_id) => {
@@ -211,6 +225,7 @@ async fn ingest_firing(
                     Some(sev),
                     desc_opt,
                     seen_at,
+                    &labels_json,
                 )
                 .await?;
 
@@ -251,6 +266,7 @@ async fn ingest_firing(
                     .unwrap_or_default();
             }
 
+            let runbook = runbook_from_alert(alert);
             let req = CreateCaseRequest {
                 title,
                 description: desc.clone(),
@@ -260,8 +276,22 @@ async fn ingest_firing(
                 source: "alertmanager".into(),
                 tags: vec!["auto".into(), "alertmanager".into()],
                 assignee: None,
+                runbook_url: runbook.clone(),
             };
             let case = state.store.create_case(req).await?;
+
+            if let Some(ref url) = runbook {
+                let _ = state
+                    .store
+                    .add_timeline(
+                        case.id,
+                        &state.default_actor,
+                        "runbook",
+                        Some("Runbook linked"),
+                        json!({"url": url}),
+                    )
+                    .await;
+            }
 
             let mut meta = json!({"fingerprint": fp});
             if !group_key.is_empty() {
@@ -297,6 +327,7 @@ async fn ingest_firing(
                     Some(sev),
                     desc_opt,
                     seen_at,
+                    &labels_json,
                 )
                 .await?;
 
