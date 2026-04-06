@@ -105,6 +105,81 @@ fn priority_from_severity(sev: &str) -> i16 {
     }
 }
 
+/// Теги для очереди SOC: правило, IP, MITRE из labels Prometheus.
+fn soc_case_tags(alert: &AlertmanagerAlert) -> Vec<String> {
+    let mut tags = vec!["auto".to_string(), "alertmanager".to_string()];
+    if let Some(r) = alert.labels.get("rule_id").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        tags.push(format!("rule:{r}"));
+    }
+    if let Some(ip) = alert.labels.get("source_ip").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        tags.push(format!("ip:{ip}"));
+    }
+    if let Some(m) = alert.labels.get("mitre_tags").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for part in m.split(|c| c == ',' || c == '|' || c == ' ') {
+            let t = part.trim();
+            if !t.is_empty() {
+                tags.push(format!("mitre:{t}"));
+            }
+        }
+    }
+    tags
+}
+
+/// Только литерал IPv4 без кавычек/пробелов — для подсказки SQL в таймлайне (копипаст в Grafana).
+fn safe_ipv4_literal_for_hint(ip: &str) -> Option<&str> {
+    if ip.is_empty() || ip.len() > 39 || ip.contains('\'') || ip.contains('"') {
+        return None;
+    }
+    if ip.contains(':') {
+        return None;
+    }
+    ip.chars()
+        .all(|c| c.is_ascii_digit() || c == '.')
+        .then_some(ip)
+}
+
+fn investigation_shortcuts(state: &AppState, alert: &AlertmanagerAlert) -> Value {
+    let base = state.grafana_base_url.trim_end_matches('/');
+    let ip_raw = alert
+        .labels
+        .get("source_ip")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let ip = safe_ipv4_literal_for_hint(ip_raw).unwrap_or("");
+    let rule_id = alert
+        .labels
+        .get("rule_id")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let mut obj = serde_json::Map::new();
+    obj.insert(
+        "grafana_soc_workbench".into(),
+        json!(format!("{base}/d/siem-soc-workbench")),
+    );
+    obj.insert(
+        "grafana_detection".into(),
+        json!(format!("{base}/d/siem-detection")),
+    );
+    obj.insert(
+        "grafana_alert_management".into(),
+        json!(format!("{base}/d/siem-alerts")),
+    );
+    if !ip.is_empty() {
+        let sql = format!(
+            "SELECT timestamp, source_ip, user_id, severity, url_path, left(message, 200) AS msg \
+             FROM siem.events WHERE source_ip = toIPv4('{ip}') AND timestamp >= now() - INTERVAL 24 HOUR \
+             ORDER BY timestamp DESC LIMIT 200"
+        );
+        obj.insert("clickhouse_events_24h".into(), json!(sql));
+    }
+    if !rule_id.is_empty() {
+        obj.insert("prometheus_rule_id".into(), json!(rule_id));
+    }
+    Value::Object(obj)
+}
+
 pub async fn handle_alertmanager(
     State(state): State<AppState>,
     body: String,
@@ -274,7 +349,7 @@ async fn ingest_firing(
                 status: "new".into(),
                 priority: priority_from_severity(sev),
                 source: "alertmanager".into(),
-                tags: vec!["auto".into(), "alertmanager".into()],
+                tags: soc_case_tags(alert),
                 assignee: None,
                 runbook_url: runbook.clone(),
             };
@@ -292,6 +367,18 @@ async fn ingest_firing(
                     )
                     .await;
             }
+
+            let shortcuts = investigation_shortcuts(state, alert);
+            let _ = state
+                .store
+                .add_timeline(
+                    case.id,
+                    &state.default_actor,
+                    "data_note",
+                    Some("Investigation shortcuts (Grafana + ClickHouse hint)"),
+                    shortcuts,
+                )
+                .await;
 
             let mut meta = json!({"fingerprint": fp});
             if !group_key.is_empty() {

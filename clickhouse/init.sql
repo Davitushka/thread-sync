@@ -236,6 +236,33 @@ TTL toDateTime(triggered_at) + INTERVAL 365 DAY DELETE
 SETTINGS index_granularity = 1024;
 
 -- ══════════════════════════════════════════════════════════════════════════════
+-- Threat intelligence (IOC) — ручная загрузка, MISP/STIX (Phase 2), джойн в Grafana SOC
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Пример вставки IPv4:
+--   INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence)
+--   VALUES ('ipv4', '198.51.100.42', 'manual', 'Scanner', ['c2','scanner'], 80);
+--
+CREATE TABLE IF NOT EXISTS siem.threat_intel
+(
+    ioc_type      LowCardinality(String) COMMENT 'ipv4 | domain | sha256',
+    ioc_value     String                 COMMENT 'Canonical value: dotted IPv4, FQDN, or lowercase hex sha256',
+    feed          LowCardinality(String) DEFAULT 'manual' COMMENT 'manual | misp | stix | ...',
+    threat_label  String                 DEFAULT '' COMMENT 'Family, campaign, or short analyst label',
+    tags          Array(String)          DEFAULT [] COMMENT 'Arbitrary tags for triage',
+    confidence    UInt8                  DEFAULT 50 COMMENT '0-100 analyst confidence',
+    first_seen    DateTime64(3, 'UTC')   DEFAULT now(),
+    last_seen     DateTime64(3, 'UTC')   DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(last_seen)
+PARTITION BY toYYYYMM(first_seen)
+ORDER BY (ioc_type, ioc_value, feed)
+SETTINGS index_granularity = 8192;
+
+ALTER TABLE siem.threat_intel
+    ADD INDEX IF NOT EXISTS idx_threat_ioc_value ioc_value TYPE bloom_filter(0.01) GRANULARITY 4;
+
+-- ══════════════════════════════════════════════════════════════════════════════
 -- Вспомогательный запрос: проверка производительности
 -- ══════════════════════════════════════════════════════════════════════════════
 

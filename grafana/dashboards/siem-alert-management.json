@@ -10,6 +10,7 @@
   "graphTooltip": 1,
   "editable": true,
   "links": [
+    { "title": "SOC Workbench", "type": "link", "url": "/d/siem-soc-workbench", "keepTime": true, "icon": "dashboard" },
     { "title": "Detection", "type": "link", "url": "/d/siem-detection", "keepTime": true, "icon": "dashboard" },
     { "title": "Overview", "type": "link", "url": "/d/siem-overview", "keepTime": true, "icon": "dashboard" },
     { "title": "SOC кейсы", "type": "link", "url": "http://localhost:8088/", "icon": "external link", "targetBlank": true },

@@ -10,6 +10,7 @@
   "graphTooltip": 1,
   "editable": true,
   "links": [
+    { "title": "SOC Workbench", "type": "link", "url": "/d/siem-soc-workbench", "keepTime": true, "icon": "dashboard" },
     { "title": "Overview", "type": "link", "url": "/d/siem-overview", "keepTime": true, "icon": "dashboard" },
     { "title": "Alert Management", "type": "link", "url": "/d/siem-alerts", "keepTime": true, "icon": "dashboard" },
     { "title": "Operations", "type": "link", "url": "/d/siem-operations", "keepTime": true, "icon": "dashboard" }

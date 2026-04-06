@@ -24,6 +24,8 @@
 *Events count:* {{ len .Alerts }}
 
 {{ (index .Alerts 0).Annotations.description }}
+
+*SOC queue:* откройте Case Management — `http://localhost:8088/` (или ваш внешний URL на порт кейсов).
 {{ end }}
 
 {{ define "siem.text.brief" }}
@@ -50,8 +52,9 @@
 *Runbook:* {{ (index .Alerts 0).Annotations.runbook_url }}
 
 *Actions:*
-• <http://grafana:3000/d/siem-events|View in Grafana>
-• <http://grafana:3000/d/siem-ip-detail?var-ip={{ (index .Alerts 0).Labels.source_ip }}|IP Investigation>
+• <http://grafana:3000/d/siem-soc-workbench|SOC Workbench (IoC + совпадения)>
+• <http://grafana:3000/d/siem-detection|Detection dashboard>
+• Case queue: <http://localhost:8088/|localhost:8088> (в проде — ваш URL case-management)
 {{ end }}
 
 {{ define "siem.email.html" }}

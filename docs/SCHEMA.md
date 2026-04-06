@@ -194,3 +194,17 @@
 | Банковская карта | `\b(?:\d[ \-]?){13,19}\b` | `[CARD_REDACTED]` | message |
 | Sensitive keys | password, secret, token, api_key, cvv, ssn | `[REDACTED]` | metadata object keys |
 | URL query params | `?token=...`, `?password=...` | Query string удаляется | url_path |
+
+## Threat intelligence: `siem.threat_intel`
+
+Таблица IoC в ClickHouse для ручной загрузки и будущих коннекторов (MISP/STIX). События **`siem.events`** можно сопоставлять с записями `ioc_type = 'ipv4'` по `toString(source_ip)`.
+
+| Колонка | Назначение |
+|---------|------------|
+| `ioc_type` | `ipv4`, `domain`, `sha256` |
+| `ioc_value` | Каноническое значение (IPv4 dotted, FQDN, hex SHA-256) |
+| `feed` | Источник: `manual`, `misp`, … |
+| `threat_label`, `tags`, `confidence` | Контекст для triage |
+| `first_seen`, `last_seen` | Версия строки для `ReplacingMergeTree` |
+
+Дашборд Grafana: **SIEM-Lite — SOC Workbench** (`/d/siem-soc-workbench`).
