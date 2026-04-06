@@ -133,6 +133,11 @@ services:
     restart: unless-stopped
     networks:
       - siem-internal
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     ports:
       - "8123:8123"    # HTTP interface
       - "9000:9000"    # Native protocol
@@ -272,8 +277,14 @@ services:
       CLICKHOUSE_URL: "http://clickhouse:8123"
       CLICKHOUSE_USER: "siem"
       CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
+    secrets:
+      - clickhouse_password
     depends_on:
       redpanda:
+        condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
+      clickhouse:
         condition: service_healthy
     healthcheck:
       <<: *healthcheck-defaults
@@ -311,6 +322,8 @@ services:
     depends_on:
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/8686'"]
@@ -346,6 +359,8 @@ services:
     depends_on:
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
       vector-aggregator:
         condition: service_healthy
     deploy:
@@ -382,6 +397,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -416,6 +433,28 @@ services:
         limits:
           cpus: "1"
           memory: 512M
+
+  # Бакеты S3 для cold tier / бэкапов (объекты появляются здесь после настройки ClickHouse)
+  minio-init:
+    image: minio/mc:latest
+    container_name: siem-minio-init
+    networks:
+      - siem-internal
+    secrets:
+      - minio_secret_key
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        MC_PW=$$(cat /run/secrets/minio_secret_key)
+        mc alias set local http://minio:9000 siemadmin "$$MC_PW"
+        mc mb --ignore-existing local/siem-cold
+        mc mb --ignore-existing local/siem-archive
+        echo "MinIO buckets: siem-cold, siem-archive"
+    restart: "no"
 
   # ════════════════════════════════════════════════════════════════
   # Prometheus
@@ -534,6 +573,8 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_LOG_LEVEL: warn
+      # ClickHouse datasource (provisioning: ${CLICKHOUSE_DATASOURCE_PASSWORD})
+      CLICKHOUSE_DATASOURCE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ClickHousePass123!}
       # ClickHouse datasource
       GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
     secrets:
@@ -550,6 +591,28 @@ services:
         limits:
           cpus: "1"
           memory: 512M
+
+  # ════════════════════════════════════════════════════════════════
+  # Promtail → Loki (stdout/stderr контейнеров; Explore → Loki)
+  # ════════════════════════════════════════════════════════════════
+  promtail:
+    image: grafana/promtail:3.3.0
+    container_name: siem-promtail
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-config.yaml:/etc/promtail/config.yml:ro
+    command: ["-config.file=/etc/promtail/config.yml"]
+    depends_on:
+      loki:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "0.35"
+          memory: 256M
 
   # ── Detection Engine (Rust) ──────────────────────────────────────────────
   detection-engine:
@@ -574,6 +637,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9110/health"]
@@ -679,6 +744,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
       alertmanager:
         condition: service_started
     healthcheck:

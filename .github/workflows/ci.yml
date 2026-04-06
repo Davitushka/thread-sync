@@ -457,3 +457,8 @@ jobs:
         run: |
           yamllint -d "{extends: relaxed, rules: {line-length: {max: 200}}}" \
             alerting/alertmanager.yaml
+
+      - name: Lint Promtail config
+        run: |
+          yamllint -d "{extends: relaxed, rules: {line-length: {max: 200}}}" \
+            deploy/docker/promtail-config.yaml

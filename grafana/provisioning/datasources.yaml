@@ -16,7 +16,8 @@ datasources:
         defaultTable: events
         otelEnabled: false
     secureJsonData:
-      password: "ClickHousePass123!"
+      # Из env контейнера Grafana (docker-compose: CLICKHOUSE_DATASOURCE_PASSWORD). Форма $VAR — устойчивее при спецсимволах в пароле, чем ${VAR}.
+      password: $CLICKHOUSE_DATASOURCE_PASSWORD
 
   - name: Prometheus
     type: prometheus
@@ -30,7 +31,8 @@ datasources:
   - name: Loki
     type: loki
     uid: loki-siem
-    url: http://loki:3100
+    # Совпадает с path_prefix: /loki в loki-config.yaml
+    url: http://loki:3100/loki
     access: proxy
     jsonData:
       maxLines: 1000

@@ -145,10 +145,13 @@ UI: http://localhost:8089 (нужен доступ Docker-сокета на хо
 | Case management | http://localhost:8088 | — |
 | siem-parser | http://localhost:7000/health | Метрики: http://localhost:9100/metrics |
 | Vector HTTP ingest | http://localhost:8080/logs | NDJSON (см. [vector/aggregator.yaml](vector/aggregator.yaml)) |
-| MinIO Console | http://localhost:9001 | `siemadmin` + пароль из `minio_secret_key.txt` |
+| Loki (логи контейнеров) | в Grafana → Explore, datasource **Loki** | Promtail шлёт stdout/stderr Docker в Loki (`siem-promtail`) |
+| MinIO Console | http://localhost:9001 | `siemadmin` + пароль из `minio_secret_key.txt`; после `up` создаются бакеты `siem-cold`, `siem-archive` (`minio-init`) |
 | SIEM Admin (профиль) | http://localhost:8089 | После `compose --profile admin up` |
 
-**MinIO:** в текущем локальном сценарии события пишутся в **ClickHouse**, а не в S3; консоль MinIO может быть пустой, пока вы не создали bucket вручную или не настроили cold tier (см. [clickhouse/init.sql](clickhouse/init.sql)). Это нормально.
+**Поток событий SIEM:** приложения / генератор → Vector `:8080/logs` → Kafka `siem.events` → ClickHouse (`events_kafka_queue` / MV) → Grafana (ClickHouse). **События по умолчанию не складываются в MinIO** — S3 для cold tier подключается отдельно в конфиге ClickHouse (см. [clickhouse/init.sql](clickhouse/init.sql)). В MinIO уже есть пустые бакеты под будущий tier/бэкапы.
+
+**Grafana datasource ClickHouse:** пароль берётся из переменной `CLICKHOUSE_DATASOURCE_PASSWORD` в сервисе Grafana (по умолчанию совпадает с `CLICKHOUSE_PASSWORD` в compose); он должен совпадать с паролем пользователя `siem` и с `clickhouse_password.txt`.
 
 ### Наполнение дашбордов и остановка
 

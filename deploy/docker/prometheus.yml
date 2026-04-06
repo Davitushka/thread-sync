@@ -32,10 +32,12 @@ scrape_configs:
       - targets: ['clickhouse:9363']  # clickhouse-exporter порт
     scrape_interval: 30s
 
+  # Redpanda v23+: публичные метрики (redpanda_*) на /public_metrics — их рекомендует vendor.
+  # Внутренний /metrics (vectorized_*) и другие лейблы; старые запросы в дашбордах на них давали пустые графики.
   - job_name: redpanda
     static_configs:
       - targets: ['redpanda:9644']
-    metrics_path: /metrics
+    metrics_path: /public_metrics
     scrape_interval: 15s
 
   - job_name: alertmanager

@@ -40,20 +40,15 @@ groups:
       - record: siem:events_error:rate5m
         expr: sum(rate(siem_events_total{severity=~"error|critical"}[5m]))
 
-      # Consumer lag siem.events через Redpanda vectorized_kafka_group_offset:
-      # lag = high watermark (offset у producer) − committed offset у consumer.
-      # max offset per partition — proxy для high watermark при single-broker dev стеке.
+      # Consumer lag siem.events (Redpanda public_metrics: max offset − committed по партициям).
       - record: siem:kafka_consumer_lag:sum
         expr: |
           sum(
-            max by (partition) (
-              vectorized_cluster_partition_records_produced{namespace="kafka", topic="siem.events"}
-            )
-          )
-          -
-          sum(
-            max by (partition) (
-              vectorized_kafka_group_offset{topic="siem.events", group="clickhouse_siem_events"}
+            redpanda_kafka_max_offset{redpanda_namespace="kafka", redpanda_topic="siem.events"}
+            - on(redpanda_partition) group_left
+            label_replace(
+              redpanda_kafka_consumer_group_committed_offset{topic="siem.events", group="clickhouse_siem_events"},
+              "redpanda_partition", "$1", "partition", "(.+)"
             )
           )
 

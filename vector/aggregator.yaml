@@ -322,8 +322,8 @@ sinks:
       max.in.flight.requests.per.connection: "5"
       delivery.timeout.ms: "30000"
       linger.ms: "5"
-    # Ключ партиционирования по source_ip для локальности данных
-    key_field: source_ip
+    # Ключ сообщения: event_id всегда есть после normalize_ecs (у source_ip бывает null)
+    key_field: event_id
     tls:
       enabled: false  # TLS на уровне сети (VPC/overlay)
 

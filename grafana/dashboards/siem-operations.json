@@ -265,12 +265,12 @@
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 7, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "description": "Суммарная скорость записи записей по партициям (namespace kafka). DLQ — отдельный topic при необходимости.",
+      "description": "Скорость produce в topic (public_metrics: redpanda_kafka_records_produced_total). DLQ — отдельный topic.",
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "sum(rate(vectorized_cluster_partition_records_produced{namespace=\"kafka\",topic=\"siem.events\"}[2m]))",
+          "expr": "sum(rate(redpanda_kafka_records_produced_total{redpanda_namespace=\"kafka\",redpanda_topic=\"siem.events\"}[2m]))",
           "legendFormat": "produced records/s"
         }
       ],
@@ -283,12 +283,12 @@
       "type": "table",
       "gridPos": { "x": 0, "y": 15, "w": 12, "h": 7 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "description": "Текущие `vectorized_kafka_group_offset` для группы, которая читает в ingest в ClickHouse. Рост со временем при активном потреблении; при залипании — сравните с high watermark в Redpanda Console.",
+      "description": "Committed offset группы clickhouse_siem_events (redpanda_kafka_consumer_group_committed_offset). Рост при активном чтении в ClickHouse.",
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-          "expr": "vectorized_kafka_group_offset{topic=\"siem.events\",group=\"clickhouse_siem_events\"}",
+          "expr": "redpanda_kafka_consumer_group_committed_offset{topic=\"siem.events\",group=\"clickhouse_siem_events\"}",
           "format": "table",
           "instant": true
         }
