@@ -57,10 +57,16 @@ groups:
     interval: 15s
     rules:
       # Стоп-алерт: нет успешных событий И нет метрики вообще (absent)
+      # Остановка приёма: нет ни основного пути Vector→Kafka, ни опционального siem-parser.
       - alert: SIEMIngestionStopped
         expr: |
           (
-            siem:parser_events_ok:rate5m == 0
+            sum(rate(vector_component_sent_events_total{job="vector-aggregator",component_id="to_redpanda"}[5m])) == 0
+            OR absent(vector_component_sent_events_total{job="vector-aggregator",component_id="to_redpanda"})
+          )
+          AND
+          (
+            sum(rate(siem_parser_events_parsed_total{status="ok"}[5m])) == 0
             OR absent(siem_parser_events_parsed_total{status="ok"})
           )
         for: 2m
@@ -70,9 +76,8 @@ groups:
         annotations:
           summary: "SIEM ingestion pipeline stopped"
           description: |
-            No events parsed successfully for 2+ minutes (rate=0 or series absent).
-            Check Vector agents, network connectivity, and siem-parser health.
-            Current value: {{ $value | humanize }} events/s.
+            For 2+ minutes both paths are idle: Vector sink to_redpanda (events/s to Kafka) and siem-parser OK counter.
+            Check log-generator / приложения → Vector :8080/logs, Redpanda, и при использовании парсера — siem-parser.
           runbook_url: "http://grafana:3000/d/siem-runbook#ingestion-stopped"
 
       # p99 latency > 5ms SLA. Использует recording rule.

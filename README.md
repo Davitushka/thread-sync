@@ -93,6 +93,8 @@ echo -n "https://hooks.slack.com/services/placeholder" > slack_webhook_url.txt
 echo -n "placeholder-pd"     > pagerduty_key.txt
 ```
 
+На Windows из корня репозитория: `pwsh -File scripts/init-secrets.ps1`
+
 **Согласованность:** если задаёте свои пароли через [`deploy/docker/.env`](deploy/docker/.env.example), значение `CLICKHOUSE_PASSWORD` должно **байт-в-байт** совпадать с `clickhouse_password.txt`.
 
 ### 2. Опционально: переменные окружения
@@ -194,7 +196,7 @@ docker compose -f deploy/docker/docker-compose.yml --profile tools up -d pgadmin
 | Parsing/Normalization | siem-parser (custom) | **Rust** |
 | Queue | Redpanda 23.x | C++ |
 | Storage | ClickHouse 24.x + MinIO | C++ / Go |
-| Detection | detection-engine-rs + correlator (Rust) | Rust |
+| Detection | correlator (detection-engine-rs): Kafka → правила → Alertmanager (Rust) | Rust |
 | Alerting | Alertmanager 0.27 | Go |
 | Visualization | Grafana 11.4 | TypeScript |
 | Self-monitoring | Prometheus + Loki | Go |
@@ -230,7 +232,7 @@ docker run --rm -v siem-lite_geoip-data:/target -v /path/to/mmdb:/src alpine \
 | `siem-parser` не стартует | Нет Kafka при старте | Зависимость от `redpanda` healthy — проверить `docker compose ps` |
 | ClickHouse auth error | Несовпадение пароля | Проверить `deploy/docker/secrets/clickhouse_password.txt` |
 | Grafana нет данных | MV пустые (нет событий) | Запустить сид: `bash scripts/seed-data/seed.sh` |
-| `detection_events_processed_total` = 0 | Kafka consumer не подключился | Проверить `docker logs detection-engine`, убедиться что Redpanda healthy |
+| `detection_events_processed_total` = 0 | Correlator не потребляет Kafka | `docker logs siem-correlator`, Redpanda healthy, `curl http://localhost:9111/ready` |
 | Алерты не пишутся в siem.alerts | Alertmanager не достигает siem-parser | Проверить маршрут `clickhouse-siem` в Alertmanager, `curl http://localhost:7000/alerts/ingest` |
 | Disk alert срабатывает постоянно | Мало места на диске или метрика не найдена | Проверить `curl http://localhost:9363/metrics | grep DiskAvailable` |
 

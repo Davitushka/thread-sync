@@ -1026,7 +1026,7 @@
             "type": "prometheus",
             "uid": "prometheus-siem"
           },
-          "expr": "up{job=~\"vector-aggregator|siem-parser|redpanda|clickhouse|detection-engine|correlator|alertmanager|prometheus|node-exporter|cadvisor|grafana|loki|minio|redis\"}",
+          "expr": "up{job=~\"vector-aggregator|siem-parser|redpanda|clickhouse|correlator|alertmanager|prometheus|node-exporter|cadvisor|grafana|loki|minio|redis\"}",
           "format": "table",
           "instant": true
         }
@@ -1670,7 +1670,7 @@
             "uid": "loki-siem"
           },
           "editorMode": "code",
-          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
           "queryType": "range"
         }
       ],

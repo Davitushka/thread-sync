@@ -65,7 +65,7 @@ def main() -> None:
                     "refId": "A",
                     "datasource": {"type": "loki", "uid": "loki-siem"},
                     "editorMode": "code",
-                    "expr": '{container=~"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda"}',
+                    "expr": '{container=~"siem-clickhouse|siem-parser|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda"}',
                     "queryType": "range",
                 }
             ],

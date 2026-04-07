@@ -27,7 +27,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "## Correlator — компонент обработки событий\n\nМетрики **`correlator`** (порт **9111**). Correlator обрабатывает события из Kafka и передаёт алерты в detection-engine.\n\n**Если панели показывают 0:**\n- Correlator ещё не запустился — подождите 30-60 секунд\n- Проверьте статус: `docker ps | grep correlator`\n- Посмотрите логи: `docker logs siem-correlator`\n\n**Метрики:**\n- `correlator_events_processed_total` — обработанные события\n- `correlator_parse_errors_total` — ошибки парсинга\n- `correlator_alerts_forwarded_total` — пересланные алерты\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
+        "content": "## Correlator — компонент обработки событий\n\nМетрики **`correlator`** (порт **9111**). Correlator обрабатывает события из Kafka и пересылает алерты в Alertmanager.\n\n**Если панели показывают 0:**\n- Correlator ещё не запустился — подождите 30-60 секунд\n- Проверьте статус: `docker ps | grep correlator`\n- Посмотрите логи: `docker logs siem-correlator`\n\n**Метрики:**\n- `correlator_events_processed_total` — обработанные события\n- `correlator_parse_errors_total` — ошибки парсинга\n- `correlator_alerts_forwarded_total` — пересланные алерты\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -168,7 +168,7 @@
             "uid": "loki-siem"
           },
           "editorMode": "code",
-          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
           "queryType": "range"
         }
       ],

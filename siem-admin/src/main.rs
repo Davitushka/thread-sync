@@ -137,7 +137,7 @@ const RED_ALERT_DURATION_SEC: u64 = 300;
 const RED_ALERT_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Имена без префикса `siem-` (как в docker-compose `container_name`).
-const SIEM_CONTAINER_EXCEPTIONS: &[&str] = &["detection-engine", "siem-stress"];
+const SIEM_CONTAINER_EXCEPTIONS: &[&str] = &["siem-stress"];
 
 fn is_siem_container(name: &str) -> bool {
     name.starts_with(SIEM_PREFIX) || SIEM_CONTAINER_EXCEPTIONS.contains(&name)
@@ -1663,8 +1663,7 @@ async fn pipeline_status(
         ("Redpanda", "http://siem-redpanda:9644/metrics"),
         ("ClickHouse", "http://siem-clickhouse:8123/ping"),
         ("siem-parser", "http://siem-parser:7000/health"),
-        ("Detection Engine", "http://detection-engine:9110/health"),
-        ("Correlator", "http://siem-correlator:9111/health"),
+        ("Correlator (detection + Alertmanager)", "http://siem-correlator:9111/health"),
         ("Case Management", "http://siem-case-management:8088/health"),
         ("Grafana", "http://siem-grafana:3000/api/health"),
         ("Prometheus", "http://siem-prometheus:9090/-/healthy"),

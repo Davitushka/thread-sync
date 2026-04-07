@@ -320,7 +320,7 @@
     },
     {
       "id": 306,
-      "title": "Detection",
+      "title": "Grafana",
       "type": "stat",
       "gridPos": {
         "x": 12,
@@ -339,7 +339,7 @@
             "type": "prometheus",
             "uid": "prometheus-siem"
           },
-          "expr": "max(up{job=\"detection-engine\"})",
+          "expr": "max(up{job=\"grafana\"})",
           "instant": true
         }
       ],
@@ -829,15 +829,6 @@
           },
           "expr": "rate(detection_events_processed_total{job=\"correlator\"}[2m])",
           "legendFormat": "correlator ev/s"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus-siem"
-          },
-          "expr": "rate(detection_events_processed_total{job=\"detection-engine\"}[2m])",
-          "legendFormat": "detection-engine ev/s"
         }
       ],
       "fieldConfig": {
@@ -1118,7 +1109,7 @@
             "uid": "loki-siem"
           },
           "editorMode": "code",
-          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
           "queryType": "range"
         }
       ],

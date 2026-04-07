@@ -7,7 +7,7 @@ set -euo pipefail
 
 VECTOR_URL="${VECTOR_URL:-http://localhost:8080/logs}"
 ALERTMANAGER_URL="${ALERTMANAGER_URL:-http://localhost:9093}"
-DETECTION_URL="${DETECTION_URL:-http://localhost:9110}"
+DETECTION_URL="${DETECTION_URL:-http://localhost:9111}"
 ATTACKER_IP="203.0.113.99"
 RULE_ID="brute_force_api"
 MAX_WAIT_SEC="${MAX_WAIT_SEC:-30}"
@@ -124,7 +124,7 @@ print('no')
   fi
 }
 
-# ── Check detection-engine metrics ────────────────────────────────────────────
+# ── Check correlator metrics (detection_engine_rs Engine, :9111) ─────────────
 check_detection_metrics() {
   local metrics
   metrics=$(curl -sf "${DETECTION_URL}/metrics" 2>/dev/null || echo "")

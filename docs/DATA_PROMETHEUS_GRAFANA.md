@@ -8,8 +8,9 @@
 |------------|----------|------------------------|
 | Таблицы/графики по `siem.events`, `siem.alerts`, MV, `threat_intel` | **Grafana → ClickHouse** | Ingest: Vector → Kafka → consumer → CH; либо SQL-сид `scripts/seed-data/seed_test_events.sql` (bootstrap, **Fill All Data** в SIEM Admin). |
 | `siem_events_total`, гистограммы парсера, часть **Alert rules** в Prometheus | **Grafana → Prometheus** | Только **siem-parser**: нормализация события → инкремент счётчиков на `:7000/metrics`. Прямой INSERT в ClickHouse **не** трогает эти метрики. |
+| Алерт **SIEMIngestionStopped** | **Prometheus rules** | Срабатывает, если нет трафика и по пути **Vector→Kafka** (`vector_component_sent_events_total`, sink `to_redpanda`), и по **siem-parser** (`siem_parser_events_parsed_total`). |
 | `vector_component_*` | **Prometheus** | Логи на `vector-aggregator:8080/logs` → внутренние счётчики Vector (`:9598/metrics`). |
-| `detection_events_processed_total`, correlator | **Prometheus** | Потребление Kafka движком детекции / коррелятором. |
+| `detection_events_processed_total` (job `correlator`) | **Prometheus** | В Compose события из Kafka обрабатывает только **correlator** (`:9111/metrics`). |
 | `node_*`, `container_*` | **Prometheus** | `node-exporter`, `cAdvisor` (должны быть в `up` в Prometheus). |
 
 ## Дашборды (файлы в `grafana/dashboards/`)

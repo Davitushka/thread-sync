@@ -489,28 +489,25 @@ docker exec siem-clickhouse clickhouse-client --query "
 
 ---
 
-## 7. Проверка Kafka consumer (detection-engine)
+## 7. Проверка Kafka consumer (correlator)
+
+В Docker Compose **единственный** consumer с правилами детекции — **`siem-correlator`** (образ собирает и `detector`, и `correlator`, в стеке поднимается только correlator → алерты в Alertmanager).
 
 ```bash
-# Проверить что detection-engine потребляет события
-docker logs detection-engine --tail 50 | grep -E "Kafka consumer|started|error"
+# Correlator потребляет siem.events
+docker logs siem-correlator --tail 80 | grep -E "Kafka consumer|alert forwarded|error"
 
-# Метрики: события обработаны / ошибки парсинга
-curl -s http://localhost:9110/metrics | grep -E "detection_events_processed|detection_parse_errors|detection_kafka"
+# Метрики: события / ошибки JSON / алерты в Alertmanager
+curl -s http://localhost:9111/metrics | grep -E "detection_events_processed|correlator_|detection_parse"
 
 # Consumer lag через Redpanda Admin API
 curl -s http://localhost:9644/v1/groups | python3 -m json.tool
 
-# Тест: отправить событие через Vector и проверить что detection-engine его получил
+# Тест: событие через Vector → после порогов правил в логах correlator — «alert forwarded»
 curl -s -X POST http://localhost:8080/logs \
   -H "Content-Type: application/json" \
-  -d '{"Level":"Warning","Message":"Test auth failed","StatusCode":401,"RequestPath":"/auth/login","ClientIp":"1.2.3.4"}'
-# Через ~2 сек: docker logs detection-engine --tail 10 | grep ALERT
+  -d '{"Level":"Warning","Message":"Test auth failed","StatusCode":401,"RequestPath":"/api/auth/login","SourceType":"http","Properties":{"ClientIp":"192.0.2.50"}}'
 
-# Проверить /ready endpoint (проверяет Redis + Kafka)
-curl -s http://localhost:9110/ready | python3 -m json.tool
-
-# Correlator
 curl -s http://localhost:9111/ready | python3 -m json.tool
 curl -s http://localhost:9111/api/v1/stats | python3 -m json.tool
 ```

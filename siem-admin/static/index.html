@@ -821,11 +821,10 @@ function renderChecklist() {
       { text: `siem.events_per_minute_agg (24h): ${(dataStatus && dataStatus.events_per_minute_24h) || 0}`, ok: hasMinuteAgg },
       { text: `siem.top_ips_agg (24h): ${(dataStatus && dataStatus.top_ips_24h) || 0}`, ok: hasTopIpsAgg },
       { text: 'Prometheus отвечает (скрейп Vector — в Prometheus /targets)', ok: pOk.has('Prometheus') },
-      { text: 'Detection Engine запущен (метрики в Prometheus)', ok: runningHas('detection-engine') },
+      { text: 'Correlator запущен (Kafka→правила→Alertmanager)', ok: runningHas('siem-correlator') },
     ]},
     { title: 'siem-detection', items: [
-      { text: 'Detection Engine running', ok: runningHas('detection-engine') },
-      { text: 'Correlator running', ok: runningHas('siem-correlator') },
+      { text: 'Correlator running (единый движок детекции)', ok: runningHas('siem-correlator') },
       { text: `ClickHouse доступен и events заполнены: ${(dataStatus && dataStatus.events_24h) || 0}`, ok: eventsDataHint },
       { text: 'siem-parser + Alertmanager (путь алертов в siem.alerts)', ok: pOk.has('siem-parser') && pOk.has('Alertmanager') },
       { text: `Prometheus: sum(siem_events_total) для правил алертов > 0: ${fmtNum(promStatus && promStatus.siem_events_total)}`, ok: hasSiemEventsMetric },
@@ -841,8 +840,7 @@ function renderChecklist() {
       { text: 'Vector metrics (vector_component_* на :9598)', ok: runningHas('siem-vector-aggregator') },
       { text: 'Redpanda metrics (:9644)', ok: runningHas('siem-redpanda') },
       { text: 'ClickHouse metrics (:9363)', ok: pOk.has('ClickHouse') },
-      { text: 'Detection Engine metrics (:9110)', ok: runningHas('detection-engine') },
-      { text: 'Correlator metrics (:9111)', ok: runningHas('siem-correlator') },
+      { text: 'Correlator metrics (:9111, detection_events_*)', ok: runningHas('siem-correlator') },
     ]},
     { title: 'siem-alert-management', items: [
       { text: `siem.alerts за 7 дней: ${(dataStatus && dataStatus.alerts_7d) || 0}`, ok: alertsDataHint },
@@ -860,7 +858,7 @@ function renderChecklist() {
       { text: `Наличие строк в siem.events / siem.alerts: events=${(dataStatus && dataStatus.events_24h) || 0}, alerts=${(dataStatus && dataStatus.alerts_7d) || 0}`, ok: hasEvents && hasAlerts },
       { text: 'Vector running', ok: runningHas('siem-vector-aggregator') },
       { text: 'Parser /health', ok: pOk.has('siem-parser') },
-      { text: 'Detection running', ok: runningHas('detection-engine') },
+      { text: 'Correlator running', ok: runningHas('siem-correlator') },
     ]},
   ];
 

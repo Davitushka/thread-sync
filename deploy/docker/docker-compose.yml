@@ -673,40 +673,9 @@ services:
           cpus: "0.35"
           memory: 256M
 
-  # ── Detection Engine (Rust) ──────────────────────────────────────────────
-  detection-engine:
-    build:
-      context: ../..
-      dockerfile: deploy/docker/Dockerfile.detection
-    container_name: detection-engine
-    restart: unless-stopped
-    networks:
-      - siem-internal
-    environment:
-      <<: *common-env
-      RUST_LOG: detection_engine_rs=info,detector=info
-      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
-      KAFKA_TOPIC: siem.events
-      KAFKA_GROUP_ID: detection-engine
-      REDIS_ADDR: redis:6379
-      REDIS_PASSWORD: ""
-      METRICS_ADDR: ":9110"
-    depends_on:
-      redis:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-      redpanda-init:
-        condition: service_completed_successfully
-    healthcheck:
-      <<: *healthcheck-defaults
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9110/health"]
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
+  # Детекция и корреляция: единственный Kafka consumer с правилами — correlator
+  # (отправка алертов в Alertmanager). Отдельный бинарь detector не поднимаем:
+  # второй consumer удваивал бы Redis-счётчики и ломал пороги правил.
 
   # ════════════════════════════════════════════════════════════════
   # node-exporter — метрики хост-машины (CPU, RAM, disk, network)

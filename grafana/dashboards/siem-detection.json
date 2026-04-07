@@ -59,7 +59,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**Детектирование:** таблицы читают **`siem.events`** / **`siem.alerts`**. При пустых графиках выполните **`scripts/seed-data/bootstrap_clickhouse.sh`** и убедитесь, что **detection-engine** и **Redpanda** в статусе UP (дашборд **Операции** / **Проверки**).\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
+        "content": "**Детектирование:** таблицы читают **`siem.events`** / **`siem.alerts`**. При пустых графиках выполните **`scripts/seed-data/bootstrap_clickhouse.sh`** и убедитесь, что **correlator**, **Redpanda** и **Vector** в работе (дашборд **Операции** / **Проверки**).\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -248,7 +248,7 @@
             "type": "prometheus",
             "uid": "prometheus-siem"
           },
-          "expr": "sum(rate(detection_events_processed_total[5m]))",
+          "expr": "sum(rate(detection_events_processed_total{job=\"correlator\"}[5m]))",
           "instant": true
         }
       ],
@@ -267,7 +267,7 @@
         "colorMode": "value",
         "graphMode": "area"
       },
-      "description": "Скорость обработки событий detection-engine (счётчик `detection_events_processed_total`). Отделено от скорости срабатывания алертов на панели 405."
+      "description": "Скорость обработки событий correlator (счётчик `detection_events_processed_total`, job=`correlator`). Отделено от скорости срабатывания алертов на панели 405."
     },
     {
       "id": 405,
@@ -993,7 +993,7 @@
             "uid": "loki-siem"
           },
           "editorMode": "code",
-          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
           "queryType": "range"
         }
       ],

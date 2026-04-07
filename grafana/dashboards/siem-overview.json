@@ -1024,7 +1024,7 @@
     {
       "id": 15,
       "title": "Приём событий (EPS): Vector HTTP + Detection",
-      "description": "Зелёная линия — типичный путь сидов (Vector /logs). Оранжевая — обработка событий detection-engine.",
+      "description": "Зелёная линия — приём Vector /logs. Оранжевая — обработка событий correlator (правила из Kafka).",
       "type": "timeseries",
       "gridPos": {
         "x": 12,
@@ -1052,8 +1052,8 @@
             "type": "prometheus",
             "uid": "prometheus-siem"
           },
-          "expr": "sum(rate(detection_events_processed_total[1m]))",
-          "legendFormat": "detection-engine ev/s"
+          "expr": "sum(rate(detection_events_processed_total{job=\"correlator\"}[1m]))",
+          "legendFormat": "correlator ev/s"
         }
       ],
       "fieldConfig": {
@@ -1098,7 +1098,7 @@
             "uid": "loki-siem"
           },
           "editorMode": "code",
-          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
           "queryType": "range"
         }
       ],

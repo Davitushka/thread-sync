@@ -44,12 +44,6 @@ scrape_configs:
     static_configs:
       - targets: ['alertmanager:9093']
 
-  - job_name: detection-engine
-    static_configs:
-      - targets: ['detection-engine:9110']
-    metrics_path: /metrics
-    scrape_interval: 15s
-
   - job_name: correlator
     static_configs:
       - targets: ['correlator:9111']
