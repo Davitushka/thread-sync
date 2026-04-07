@@ -172,6 +172,57 @@ tr:hover td { background: rgba(29,161,242,.05); }
         </div>
       </div>
     </div>
+    <div class="panel" style="margin-top: 16px;">
+      <div class="panel-header">
+        <span>📊 Быстрое заполнение данных (No Data Fix)</span>
+      </div>
+      <div class="tool-grid" style="padding: 16px;">
+        <div class="tool-card">
+          <div class="tool-card-body">
+            <div class="tool-card-title"><strong>📝 Заполнить Events</strong></div>
+            <div class="tool-card-desc">
+              SQL-сид демо-событий в <code>siem.events</code>. Исправляет <strong>No data</strong> в Overview, Detection, SOC Workbench.
+            </div>
+            <div class="tool-card-actions">
+              <button class="btn success" id="fillEventsBtn" onclick="fillEvents()">Заполнить Events (500 шт)</button>
+            </div>
+          </div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-card-body">
+            <div class="tool-card-title"><strong>🔔 Заполнить Alerts</strong></div>
+            <div class="tool-card-desc">
+              Демо-алерты в <code>siem.alerts</code>. Исправляет <strong>No data</strong> в Alert Management, Operations.
+            </div>
+            <div class="tool-card-actions">
+              <button class="btn accent" id="fillAlertsBtn" onclick="fillAlerts()">Заполнить Alerts (50 шт)</button>
+            </div>
+          </div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-card-body">
+            <div class="tool-card-title"><strong>🎯 Заполнить Threat Intel</strong></div>
+            <div class="tool-card-desc">
+              IoC записи в <code>siem.threat_intel</code>. Исправляет <strong>No data</strong> в SOC Workbench (JOIN'ы).
+            </div>
+            <div class="tool-card-actions">
+              <button class="btn" id="fillThreatIntelBtn" onclick="fillThreatIntel()">Заполнить IoC (6 шт)</button>
+            </div>
+          </div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-card-body">
+            <div class="tool-card-title"><strong>⚡ Заполнить Parser Events</strong></div>
+            <div class="tool-card-desc">
+              События через <code>siem-parser /parse</code>. Заполняет <code>siem_events_total</code> в Prometheus.
+            </div>
+            <div class="tool-card-actions">
+              <button class="btn" id="fillParserBtn" onclick="fillParserEvents()">Заполнить Parser (4 шт)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="panel">
       <div class="panel-header">
         <span>Docker Services</span>
@@ -469,6 +520,114 @@ async function fillAllData() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// Быстрое заполнение отдельных типов данных
+async function fillEvents() {
+  await quickFillWithFeedback('fillEventsBtn', '/api/fill-events', 'Заполнение siem.events...');
+}
+
+async function fillAlerts() {
+  await quickFillWithFeedback('fillAlertsBtn', '/api/fill-alerts', 'Заполнение siem.alerts...');
+}
+
+async function fillThreatIntel() {
+  await quickFillWithFeedback('fillThreatIntelBtn', '/api/fill-threat-intel', 'Заполнение siem.threat_intel...');
+}
+
+async function fillParserEvents() {
+  await quickFillWithFeedback('fillParserBtn', '/api/fill-parser-events', 'Отправка событий в siem-parser...');
+}
+
+async function quickFillWithFeedback(btnId, url, message) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
+  
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Загрузка...';
+  
+  try {
+    const r = await fetch(`${API}${url}`, { method: 'POST' });
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try {
+        const data = await r.json();
+        if (data && data.error) msg = data.error;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const data = await r.json();
+    
+    btn.textContent = '✅ Готово!';
+    btn.style.background = 'var(--green)';
+    
+    // Показываем результат
+    if (data.message) {
+      showNotification(data.message, 'success');
+    }
+    
+    // Обновляем все данные
+    await refreshAll();
+    
+    // Возвращаем кнопку в исходное состояние через 2 секунды
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      btn.style.background = '';
+    }, 2000);
+  } catch (e) {
+    btn.textContent = '❌ Ошибка';
+    btn.style.background = 'var(--red)';
+    showNotification('Ошибка: ' + e.message, 'error');
+    
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      btn.style.background = '';
+    }, 3000);
+  }
+}
+
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 16px 24px;
+    border-radius: 8px;
+    background: ${type === 'success' ? 'var(--green)' : type === 'error' ? 'var(--red)' : 'var(--accent)'};
+    color: white;
+    font-size: 14px;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    animation: slideIn 0.3s ease-out;
+  `;
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.style.animation = 'slideOut 0.3s ease-out';
+    setTimeout(() => notification.remove(), 300);
+  }, 4000);
+}
+
+// Добавляем CSS анимации для уведомлений
+if (!document.getElementById('notification-styles')) {
+  const style = document.createElement('style');
+  style.id = 'notification-styles';
+  style.textContent = `
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 async function fetchRedAlertStatus() {

@@ -173,6 +173,10 @@ async fn main() {
         .route("/api/services/:name/start", post(start_service))
         .route("/api/services/:name/restart", post(restart_service))
         .route("/api/fill-all-data", post(fill_all_data))
+        .route("/api/fill-events", post(fill_events))
+        .route("/api/fill-alerts", post(fill_alerts))
+        .route("/api/fill-threat-intel", post(fill_threat_intel))
+        .route("/api/fill-parser-events", post(fill_parser_events))
         .route("/api/red-alert", post(start_red_alert))
         .route("/api/red-alert/stop", post(stop_red_alert))
         .route("/api/red-alert/status", get(red_alert_status))
@@ -465,6 +469,149 @@ async fn fill_all_data(
         stress_action,
         seeded_alerts,
         details,
+    }))
+}
+
+#[derive(Serialize)]
+struct QuickFillResult {
+    ok: bool,
+    message: String,
+}
+
+/// Встроенный минимальный seed SQL для быстрого заполнения siem.events
+/// Используется как fallback если seed_test_events.sql не найден
+const MINIMAL_SEED_EVENTS_SQL: &str = r#"
+-- Очищаем старые данные
+ALTER TABLE siem.events DELETE WHERE 1=1;
+ALTER TABLE siem.alerts DELETE WHERE 1=1;
+
+-- Вставляем демо-события siem.events
+INSERT INTO siem.events (timestamp, source_type, severity, source_ip, user_id, url_path, status_code, duration_ms, message, ingest_ts, ingest_lag_ms)
+SELECT
+    now() - toIntervalSecond(number % 86400) AS timestamp,
+    multiIf(number % 5 = 0, 'dotnet', number % 5 = 1, 'nginx', number % 5 = 2, 'postgresql', number % 5 = 3, 'redis', 'kafka') AS source_type,
+    multiIf(number % 10 = 0, 'critical', number % 5 = 0, 'error', number % 3 = 0, 'warning', 'info') AS severity,
+    toString(10 + (number % 20)) || '.' || toString(10 + (number % 20)) || '.' || toString(1 + (number % 50)) || '.' || toString(1 + (number % 250)) AS source_ip,
+    multiIf(number % 7 = 0, 'admin', number % 5 = 0, 'user_' || toString(number % 20), 'guest') AS user_id,
+    multiIf(number % 8 = 0, '/api/auth/login', number % 7 = 0, '/api/search/union/select/users', number % 6 = 0, '/api/admin/dashboard', number % 5 = 0, '/api/reports/export.csv', number % 4 = 0, '/api/downloads/dump.zip', '/api/data/list') AS url_path,
+    multiIf(number % 15 = 0, 401, number % 10 = 0, 403, number % 8 = 0, 500, number % 6 = 0, 201, 200) AS status_code,
+    round(rand() % 500 + 10, 2) AS duration_ms,
+    multiIf(number % 10 = 0, 'Brute-force attempt detected', number % 8 = 0, 'SQL injection payload in request', number % 6 = 0, 'Unauthorized access to admin panel', number % 4 = 0, 'Large data export completed', 'Normal request processed') AS message,
+    now() AS ingest_ts,
+    rand() % 100 AS ingest_lag_ms
+FROM numbers(500);
+
+-- Вставляем демо-алерты
+INSERT INTO siem.alerts (triggered_at, rule_id, rule_title, severity, source_ip, user_id, description, status, mitre_tags)
+SELECT
+    now() - toIntervalSecond(number % 86400) AS triggered_at,
+    multiIf(number % 5 = 0, 'brute_force_api', number % 4 = 0, 'sql_injection', number % 3 = 0, 'privilege_escalation', number % 2 = 0, 'data_exfiltration', 'account_takeover') AS rule_id,
+    multiIf(number % 5 = 0, 'Brute-force on API auth', number % 4 = 0, 'SQL injection attempt', number % 3 = 0, 'Privilege escalation detected', number % 2 = 0, 'Data exfiltration suspected', 'Account takeover suspected') AS rule_title,
+    multiIf(number % 4 = 0, 'critical', number % 3 = 0, 'high', number % 2 = 0, 'medium', 'low') AS severity,
+    toString(10 + (number % 20)) || '.' || toString(10 + (number % 20)) || '.' || toString(1 + (number % 50)) || '.' || toString(1 + (number % 250)) AS source_ip,
+    multiIf(number % 7 = 0, 'admin', number % 5 = 0, 'user_' || toString(number % 20), 'guest') AS user_id,
+    multiIf(number % 5 = 0, 'Multiple failed auth attempts from single IP', number % 4 = 0, 'SQL patterns detected in URL', number % 3 = 0, '401/403 followed by 200 on admin path', number % 2 = 0, 'Abnormal download volume from export endpoint', 'Failed auth followed by successful login') AS description,
+    multiIf(number % 4 = 0, 'new', number % 3 = 0, 'acknowledged', number % 2 = 0, 'resolved', 'false_positive') AS status,
+    multiIf(number % 5 = 0, 'T1110,T1110.001', number % 4 = 0, 'T1190', number % 3 = 0, 'T1068,T1078.003', number % 2 = 0, 'T1041,T1530', 'T1110,T1078') AS mitre_tags
+FROM numbers(50);
+"#;
+
+/// Быстрое заполнение только siem.events (с встроенным fallback)
+async fn fill_events(
+    State(state): State<AppState>,
+) -> Result<Json<QuickFillResult>, (StatusCode, Json<ErrorBody>)> {
+    // Сначала пробуем загрузить seed SQL из файла
+    let seed_sql = match load_soc_seed_sql() {
+        Ok(sql) => {
+            tracing::info!("Using seed SQL from file ({} bytes)", sql.len());
+            sql
+        }
+        Err(e) => {
+            tracing::warn!("Seed SQL file not found, using built-in fallback: {}", e);
+            MINIMAL_SEED_EVENTS_SQL.to_string()
+        }
+    };
+
+    execute_clickhouse_multiquery(&state.http, &seed_sql)
+        .await
+        .map_err(|e| json_error(StatusCode::BAD_GATEWAY, e))?;
+
+    Ok(Json(QuickFillResult {
+        ok: true,
+        message: format!(
+            "✅ siem.events: 500 events, siem.alerts: 50 alerts seeded ({} bytes)",
+            seed_sql.len()
+        ),
+    }))
+}
+
+/// Быстрое заполнение только siem.alerts (с встроенными данными)
+async fn fill_alerts(
+    State(state): State<AppState>,
+) -> Result<Json<QuickFillResult>, (StatusCode, Json<ErrorBody>)> {
+    // Сначала пробуем seed_alerts_into_clickhouse, если не получилось — встроенный SQL
+    let count = match seed_alerts_into_clickhouse(&state.http).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("seed_alerts_into_clickhouse failed, using built-in SQL: {}", e);
+            let sql = r#"
+INSERT INTO siem.alerts (triggered_at, rule_id, rule_title, severity, source_ip, user_id, description, status, mitre_tags)
+SELECT
+    now() - toIntervalSecond(number % 86400) AS triggered_at,
+    multiIf(number % 5 = 0, 'brute_force_api', number % 4 = 0, 'sql_injection', number % 3 = 0, 'privilege_escalation', number % 2 = 0, 'data_exfiltration', 'account_takeover') AS rule_id,
+    multiIf(number % 5 = 0, 'Brute-force on API auth', number % 4 = 0, 'SQL injection attempt', number % 3 = 0, 'Privilege escalation detected', number % 2 = 0, 'Data exfiltration suspected', 'Account takeover suspected') AS rule_title,
+    multiIf(number % 4 = 0, 'critical', number % 3 = 0, 'high', number % 2 = 0, 'medium', 'low') AS severity,
+    toString(10 + (number % 20)) || '.' || toString(10 + (number % 20)) || '.' || toString(1 + (number % 50)) || '.' || toString(1 + (number % 250)) AS source_ip,
+    multiIf(number % 7 = 0, 'admin', number % 5 = 0, 'user_' || toString(number % 20), 'guest') AS user_id,
+    multiIf(number % 5 = 0, 'Multiple failed auth attempts from single IP', number % 4 = 0, 'SQL patterns detected in URL', number % 3 = 0, '401/403 followed by 200 on admin path', number % 2 = 0, 'Abnormal download volume from export endpoint', 'Failed auth followed by successful login') AS description,
+    multiIf(number % 4 = 0, 'new', number % 3 = 0, 'acknowledged', number % 2 = 0, 'resolved', 'false_positive') AS status,
+    multiIf(number % 5 = 0, 'T1110,T1110.001', number % 4 = 0, 'T1190', number % 3 = 0, 'T1068,T1078.003', number % 2 = 0, 'T1041,T1530', 'T1110,T1078') AS mitre_tags
+FROM numbers(50);
+"#;
+            execute_clickhouse_multiquery(&state.http, sql).await
+                .map_err(|e| format!("built-in alerts seed failed: {}", e))?;
+            50
+        }
+    };
+    Ok(Json(QuickFillResult {
+        ok: true,
+        message: format!("✅ {} alerts inserted into siem.alerts", count),
+    }))
+}
+
+/// Быстрое заполнение только siem.threat_intel (IoC)
+async fn fill_threat_intel(
+    State(state): State<AppState>,
+) -> Result<Json<QuickFillResult>, (StatusCode, Json<ErrorBody>)> {
+    let sql = r#"
+INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence, first_seen, last_seen)
+VALUES
+    ('ipv4', '203.0.113.10', 'seed', 'Brute-force source', ['brute-force', 'apt'], 85, now(), now()),
+    ('ipv4', '198.51.100.20', 'seed', 'SQL injection attacker', ['sqli', 'web-attack'], 90, now(), now()),
+    ('ipv4', '192.0.2.50', 'seed', 'Data exfiltration suspect', ['exfiltration', 'insider'], 75, now(), now()),
+    ('ipv4', '203.0.113.200', 'seed', 'C2 server', ['c2', 'apt'], 95, now(), now()),
+    ('domain', 'malware-c2.example.com', 'seed', 'C2 domain', ['c2', 'dns'], 90, now(), now()),
+    ('hash', 'e99a18c428cb38d5f260853678922e03', 'seed', 'Known malware hash', ['malware'], 100, now(), now());
+"#;
+    execute_clickhouse_multiquery(&state.http, sql)
+        .await
+        .map_err(|e| json_error(StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(QuickFillResult {
+        ok: true,
+        message: "6 IoC records inserted into siem.threat_intel".to_string(),
+    }))
+}
+
+/// Быстрое заполнение siem-parser events (через /parse API)
+async fn fill_parser_events(
+    State(state): State<AppState>,
+) -> Result<Json<QuickFillResult>, (StatusCode, Json<ErrorBody>)> {
+    let result = seed_parser_metrics_and_events(&state.http)
+        .await
+        .map_err(|e| json_error(StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(QuickFillResult {
+        ok: true,
+        message: format!("Parser: {} processed, {} errors", result.processed, result.errors),
     }))
 }
 

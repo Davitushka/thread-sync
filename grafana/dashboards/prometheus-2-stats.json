@@ -26,7 +26,7 @@
       "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "prometheus_tsdb_head_series{job=\"prometheus\"}", "legendFormat": "series" }
+        { "refId": "A", "expr": "prometheus_tsdb_head_series{job=\"prometheus\"} or vector(0)", "legendFormat": "series" }
       ],
       "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
@@ -38,7 +38,7 @@
       "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "rate(prometheus_tsdb_head_samples_appended_total{job=\"prometheus\"}[2m])", "legendFormat": "samples/s" }
+        { "refId": "A", "expr": "rate(prometheus_tsdb_head_samples_appended_total{job=\"prometheus\"}[2m]) or vector(0)", "legendFormat": "samples/s" }
       ],
       "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
@@ -50,7 +50,7 @@
       "gridPos": { "x": 0, "y": 11, "w": 12, "h": 7 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "prometheus_engine_queries{job=\"prometheus\"}", "legendFormat": "queries" }
+        { "refId": "A", "expr": "prometheus_engine_queries{job=\"prometheus\"} or vector(0)", "legendFormat": "queries" }
       ],
       "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
@@ -62,7 +62,7 @@
       "gridPos": { "x": 12, "y": 11, "w": 12, "h": 7 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "prometheus_notifications_alertmanagers_discovered{job=\"prometheus\"}", "instant": true }
+        { "refId": "A", "expr": "prometheus_notifications_alertmanagers_discovered{job=\"prometheus\"} or vector(0)", "instant": true }
       ],
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }

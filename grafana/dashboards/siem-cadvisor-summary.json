@@ -1,7 +1,7 @@
 {
-  "title": "SIEM-Lite — cAdvisor (сводка)",
+  "title": "SIEM-Lite — cAdvisor (полная статистика)",
   "uid": "siem-cadvisor-summary",
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "schemaVersion": 38,
   "time": { "from": "now-24h", "to": "now" },
@@ -10,25 +10,26 @@
   "panels": [
     {
       "id": 1,
-      "title": "Подсказка",
+      "title": "Обзор контейнеров",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 2 },
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "Сводка по контейнерам из **cAdvisor** (`job=\"cadvisor\"`). На Docker Desktop разбивка может быть обобщённой."
+        "content": "## Полная статистика контейнеров (cAdvisor)\n\nВсе метрики из **`job=\"cadvisor\"`**. На Docker Desktop разбивка может быть обобщённой.\n\nЕсли панели показывают **0** — контейнеры ещё не запустились или cAdvisor не скрейпит данные."
       },
       "transparent": true
     },
     {
       "id": 2,
       "title": "CPU контейнеров (%)",
+      "description": "Процент CPU на контейнер. Fallback: если нет разбивки по контейнерам, показывает суммарный CPU.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 2, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100",
+          "expr": "sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100 or vector(0)",
           "legendFormat": "{{container}}"
         }
       ],
@@ -37,14 +38,15 @@
     },
     {
       "id": 3,
-      "title": "Память контейнеров",
+      "title": "Память контейнеров (bytes)",
+      "description": "Использование RAM на контейнер. Fallback: суммарная память если нет разбивки.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 2, "w": 12, "h": 8 },
+      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
         {
           "refId": "A",
-          "expr": "container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"} or container_memory_usage_bytes{job=\"cadvisor\"}",
+          "expr": "container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"} or container_memory_usage_bytes{job=\"cadvisor\"} or vector(0)",
           "legendFormat": "{{container}}"
         }
       ],
@@ -55,9 +57,9 @@
       "id": 4,
       "title": "cAdvisor UP",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 10, "w": 24, "h": 3 },
+      "gridPos": { "x": 0, "y": 11, "w": 6, "h": 3 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "targets": [{ "refId": "A", "expr": "up{job=\"cadvisor\"}", "instant": true }],
+      "targets": [{ "refId": "A", "expr": "up{job=\"cadvisor\"} or vector(0)", "instant": true }],
       "fieldConfig": {
         "defaults": {
           "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }],
@@ -65,6 +67,192 @@
         }
       },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 5,
+      "title": "Кол-во контейнеров",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 11, "w": 6, "h": 3 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or count(container_memory_usage_bytes{job=\"cadvisor\"}) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 6,
+      "title": "Сеть: RX контейнеров (bytes/sec)",
+      "description": "Входящий трафик на контейнер.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(container) (rate(container_network_receive_bytes_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) or sum(rate(container_network_receive_bytes_total{job=\"cadvisor\"}[2m])) or vector(0)",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 7,
+      "title": "Сеть: TX контейнеров (bytes/sec)",
+      "description": "Исходящий трафик на контейнер.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(container) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) or sum(rate(container_network_transmit_bytes_total{job=\"cadvisor\"}[2m])) or vector(0)",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 8,
+      "title": "Filesystem: чтение I/O (ops/sec)",
+      "description": "Операции чтения файловой системы на контейнер.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(container) (rate(container_fs_reads_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) or vector(0)",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 9,
+      "title": "Filesystem: запись I/O (ops/sec)",
+      "description": "Операции записи файловой системы на контейнер.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by(container) (rate(container_fs_writes_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) or vector(0)",
+          "legendFormat": "{{container}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 10,
+      "title": "OOM kills (24h)",
+      "description": "Контейнеры, получившие OOM kill за последние 24 часа.",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(container_oom_events_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[24h]) or increase(container_oom_events_total{job=\"cadvisor\"}[24h])",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true }, "renameByName": { "container": "Container", "Value": "OOM Kills" } } }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "OOM Kills" }, "properties": [{ "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, { "id": "color", "value": { "mode": "thresholds" } }] }
+        ]
+      },
+      "options": { "showHeader": true }
+    },
+    {
+      "id": 11,
+      "title": "Top 5 контейнеров по CPU (среднее за 5м)",
+      "type": "barchart",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(5, sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[5m])) * 100) or topk(5, sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[5m])) * 100) or vector(0)",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "renameByName": { "container": "Container", "Value": "CPU %" } } }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percent" },
+        "overrides": [{ "matcher": { "id": "byName", "options": "CPU %" }, "properties": [{ "id": "custom.displayMode", "value": "gradient-gauge" }] }]
+      },
+      "options": { "orientation": "horizontal", "xField": "Container", "barWidth": 0.7, "showValue": "auto" }
+    },
+    {
+      "id": 12,
+      "title": "Суммарный CPU всех контейнеров (%)",
+      "type": "gauge",
+      "gridPos": { "x": 0, "y": 35, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100 or vector(0)", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 80 }] },
+          "color": { "mode": "thresholds" },
+          "min": 0,
+          "max": 100
+        }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
+    },
+    {
+      "id": 13,
+      "title": "Суммарная память всех контейнеров",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 35, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "sum(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or sum(container_memory_usage_bytes{job=\"cadvisor\"}) or vector(0)", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "color": { "fixedColor": "blue", "mode": "fixed" } }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "id": 14,
+      "title": "Tasks state по контейнерам",
+      "description": "Количество задач в разных состояниях (running, sleeping, stopped).",
+      "type": "table",
+      "gridPos": { "x": 16, "y": 35, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "container_tasks_state{job=\"cadvisor\",container!=\"\",container!=\"/\"}",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true }, "renameByName": { "container": "Container", "state": "State", "Value": "Tasks" } } }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } }
+      },
+      "options": { "showHeader": true }
     }
   ]
 }

@@ -26,7 +26,7 @@
       "gridPos": { "x": 0, "y": 3, "w": 8, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "prometheus_target_scrape_pool_targets{job=\"prometheus\"}", "legendFormat": "pool targets" }
+        { "refId": "A", "expr": "prometheus_target_scrape_pool_targets{job=\"prometheus\"} or vector(0)", "legendFormat": "pool targets" }
       ],
       "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
@@ -38,7 +38,7 @@
       "gridPos": { "x": 8, "y": 3, "w": 8, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "rate(prometheus_target_scrapes_failed_total{job=\"prometheus\"}[5m])", "legendFormat": "failed/s" }
+        { "refId": "A", "expr": "rate(prometheus_target_scrapes_failed_total{job=\"prometheus\"}[5m]) or vector(0)", "legendFormat": "failed/s" }
       ],
       "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
@@ -50,7 +50,7 @@
       "gridPos": { "x": 16, "y": 3, "w": 8, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "rate(prometheus_tsdb_wal_corruptions_total{job=\"prometheus\"}[1h])", "legendFormat": "corruptions/s" }
+        { "refId": "A", "expr": "rate(prometheus_tsdb_wal_corruptions_total{job=\"prometheus\"}[1h]) or vector(0)", "legendFormat": "corruptions/s" }
       ],
       "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
@@ -62,7 +62,7 @@
       "gridPos": { "x": 0, "y": 11, "w": 24, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "up{job=\"prometheus\"}", "instant": true }
+        { "refId": "A", "expr": "up{job=\"prometheus\"} or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {

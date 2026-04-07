@@ -26,7 +26,7 @@
       "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "rate(process_cpu_seconds_total{job=\"grafana\"}[2m])", "legendFormat": "CPU s/s" }
+        { "refId": "A", "expr": "rate(process_cpu_seconds_total{job=\"grafana\"}[2m]) or vector(0)", "legendFormat": "CPU s/s" }
       ],
       "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
@@ -38,7 +38,7 @@
       "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "process_resident_memory_bytes{job=\"grafana\"}", "legendFormat": "RSS" }
+        { "refId": "A", "expr": "process_resident_memory_bytes{job=\"grafana\"} or vector(0)", "legendFormat": "RSS" }
       ],
       "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
@@ -50,7 +50,7 @@
       "gridPos": { "x": 0, "y": 11, "w": 6, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "up{job=\"grafana\"}", "instant": true }
+        { "refId": "A", "expr": "up{job=\"grafana\"} or vector(0)", "instant": true }
       ],
       "fieldConfig": {
         "defaults": {
@@ -67,7 +67,7 @@
       "gridPos": { "x": 6, "y": 11, "w": 18, "h": 4 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "process_open_fds{job=\"grafana\"}", "legendFormat": "fds" }
+        { "refId": "A", "expr": "process_open_fds{job=\"grafana\"} or vector(0)", "legendFormat": "fds" }
       ],
       "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
