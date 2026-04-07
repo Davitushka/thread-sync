@@ -4,18 +4,30 @@
   "version": 1,
   "refresh": "1m",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["clickhouse", "sql", "siem"],
+  "tags": [
+    "clickhouse",
+    "sql",
+    "siem"
+  ],
   "panels": [
     {
       "id": 1,
       "title": "ℹ️ О дашборде Data Analysis",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "markdown",
-        "content": "## Анализ данных ClickHouse\n\nДашборд показывает **сырые данные** из ClickHouse и **нагрузку на базу данных**.\n\n**Панели:**\n- **События по часам** — количество событий в `siem.events` по часам (7 дней)\n- **Топ source_type** — распределение источников данных за 24ч\n- **query_log: запросов / мин** — нагрузка на ClickHouse\n- **query_log: средняя длительность** — скорость выполнения запросов\n\n**Если таблицы пустые:**\n- Заполните данные через **Control Panel** → кнопки заполнения\n- Или выполните: `bash scripts/seed-data/bootstrap_clickhouse.sh`\n- Или через Grafana: **SIEM Admin** → **Fill All Data**\n\n**После заполнения подождите 30 секунд** — данные появятся автоматически.\n\n**Datasource:** `clickhouse-siem` (прямые SQL запросы)"
+        "content": "## Анализ данных ClickHouse\n\nДашборд показывает **сырые данные** из ClickHouse и **нагрузку на базу данных**.\n\n**Панели:**\n- **События по часам** — количество событий в `siem.events` по часам (интервал времени = выбранный на дашборде диапазон)\n- **Топ source_type** — распределение источников данных за 24ч\n- **query_log: запросов / мин** — нагрузка на ClickHouse\n- **query_log: средняя длительность** — скорость выполнения запросов\n\n**Если таблицы пустые:**\n- Заполните данные через **Control Panel** → кнопки заполнения\n- Или выполните: `bash scripts/seed-data/bootstrap_clickhouse.sh`\n- Или через Grafana: **SIEM Admin** → **Fill All Data**\n\n**После заполнения подождите 30 секунд** — данные появятся автоматически.\n\n**Datasource:** `clickhouse-siem` (прямые SQL запросы)\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -23,24 +35,55 @@
       "id": 2,
       "title": "События по часам (siem.events)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
           "format": 0,
-          "rawSql": "SELECT toStartOfHour(timestamp) AS t, count() AS events FROM siem.events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY t ORDER BY t"
+          "rawSql": "SELECT toDateTime(toStartOfHour(timestamp)) AS time, count() AS events FROM siem.events WHERE $__timeFilter_ms(timestamp) GROUP BY time ORDER BY time"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 20 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 3,
       "title": "Топ source_type за 24 ч",
       "type": "table",
-      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -48,40 +91,125 @@
           "rawSql": "SELECT toString(source_type) AS source_type, count() AS cnt FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR GROUP BY source_type ORDER BY cnt DESC LIMIT 30"
         }
       ],
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true
+      }
     },
     {
       "id": 4,
       "title": "system.query_log: запросов / мин",
-      "description": "Агрегат по query_log для оценки нагрузки на CH.",
+      "description": "Даже при редкой нагрузке график строится по минутной сетке; пустые интервалы = 0.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 11, "w": 12, "h": 7 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
           "format": 0,
-          "rawSql": "SELECT toStartOfMinute(event_time) AS t, count() AS queries FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR GROUP BY t ORDER BY t"
+          "rawSql": "WITH slots AS (SELECT toStartOfMinute(now() - INTERVAL 24 HOUR) + toIntervalMinute(number) AS t FROM numbers(24 * 60)), q AS (SELECT toStartOfMinute(event_time) AS t, count() AS queries FROM system.query_log WHERE type = 'QueryFinish' AND event_time >= now() - INTERVAL 24 HOUR GROUP BY t) SELECT toDateTime(slots.t) AS time, ifNull(q.queries, 0) AS queries FROM slots LEFT JOIN q USING (t) ORDER BY time"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 5,
       "title": "system.query_log: средняя длительность (мс) по минутам",
+      "description": "Пустые интервалы по query_log заполняются нулем для непрерывного графика.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 11, "w": 12, "h": 7 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
           "format": 0,
-          "rawSql": "SELECT toStartOfMinute(event_time) AS t, avg(query_duration_ms) AS avg_ms FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND query_duration_ms IS NOT NULL GROUP BY t ORDER BY t"
+          "rawSql": "WITH slots AS (SELECT toStartOfMinute(now() - INTERVAL 24 HOUR) + toIntervalMinute(number) AS t FROM numbers(24 * 60)), q AS (SELECT toStartOfMinute(event_time) AS t, avg(query_duration_ms) AS avg_ms FROM system.query_log WHERE type = 'QueryFinish' AND event_time >= now() - INTERVAL 24 HOUR AND query_duration_ms IS NOT NULL GROUP BY t) SELECT toDateTime(slots.t) AS time, ifNull(q.avg_ms, 0) AS avg_ms FROM slots LEFT JOIN q USING (t) ORDER BY time"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
     }
   ]
 }

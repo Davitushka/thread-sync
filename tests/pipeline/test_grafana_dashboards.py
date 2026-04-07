@@ -82,6 +82,7 @@ def test_siem_overview_error_rate_uses_float_division(repo_root: Path) -> None:
 def test_no_broken_ch_sql_patterns(repo_root: Path) -> None:
     """Сканируем rawSql дашбордов на известные ошибки CH."""
     bad = re.compile(r"toUInt16OrZero\s*\(\s*status_code\s*\)", re.IGNORECASE)
+    bad_interval_mul = re.compile(r"number\s*\*\s*INTERVAL", re.IGNORECASE)
     for fname in _all_dashboard_files(repo_root):
         dash = _load_dashboard(repo_root / "grafana" / "dashboards" / fname)
         for title, pid, sql in _iter_raw_sql_panels(dash):
@@ -89,6 +90,14 @@ def test_no_broken_ch_sql_patterns(repo_root: Path) -> None:
                 f"{fname} panel id={pid} «{title}»: запрещён toUInt16OrZero(status_code) — "
                 "в ClickHouse 24 это ILLEGAL_TYPE для Nullable(UInt16). "
                 "Сравнивайте status_code IS NULL OR status_code = 0."
+            )
+            assert not bad_interval_mul.search(sql), (
+                f"{fname} panel id={pid} «{title}»: в CH 24.8 нельзя `number * INTERVAL …` — "
+                "используйте `toStartOfMinute(...) + toIntervalMinute(number)`."
+            )
+            assert "'%H:%M:%S'" not in sql and "'%m-%d %H:%M'" not in sql and "'%Y-%m-%d %H:%M:%S'" not in sql, (
+                f"{fname} panel id={pid} «{title}»: в formatDateTime минуты — **%i**, не %M "
+                "(в ClickHouse %M — имя месяца, запрос падает с NO_COMMON_TYPE / неверное время)."
             )
 
 

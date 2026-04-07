@@ -4,18 +4,30 @@
   "version": 1,
   "refresh": "30s",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["clickhouse", "prometheus", "siem"],
+  "tags": [
+    "clickhouse",
+    "prometheus",
+    "siem"
+  ],
   "panels": [
     {
       "id": 1,
       "title": "ℹ️ О дашборде Advanced Monitoring",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "markdown",
-        "content": "## ClickHouse — расширенный мониторинг\n\n**Почему «мало движения»:** графики **памяти/диска** почти плоские — это норма при стабильной нагрузке. **Счётчики запросов** колеблются сильнее; **вставленные строки/байты** добавлены отдельной панелью.\n\nДанные с **9363**, OTel не нужен. Дубликат названия с импортом OTel из Grafana.com — другой UID; ориентируйтесь на теги **siem** / этот файл в `grafana/dashboards/`.\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
+        "content": "## ClickHouse — расширенный мониторинг\n\n**Почему «мало движения»:** графики **памяти/диска** почти плоские — это норма при стабильной нагрузке. **Счётчики запросов** колеблются сильнее; **вставленные строки/байты** добавлены отдельной панелью.\n\nДанные с **9363**, OTel не нужен. Дубликат названия с импортом OTel из Grafana.com — другой UID; ориентируйтесь на теги **siem** / этот файл в `grafana/dashboards/`.\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -24,97 +36,358 @@
       "title": "ProfileEvents: запросы / с",
       "description": "Суммарная интенсивность Query из встроенного счётчика CH (Prometheus).",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(ClickHouseProfileEvents_Query{job=\"clickhouse\"}[2m]))", "legendFormat": "Query / s" },
-        { "refId": "B", "expr": "sum(rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m]))", "legendFormat": "SelectQuery / s" },
-        { "refId": "C", "expr": "sum(rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m]))", "legendFormat": "InsertQuery / s" }
+        {
+          "refId": "A",
+          "expr": "sum(rate(ClickHouseProfileEvents_Query{job=\"clickhouse\"}[2m]))",
+          "legendFormat": "Query / s"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m]))",
+          "legendFormat": "SelectQuery / s"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m]))",
+          "legendFormat": "InsertQuery / s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 3,
       "title": "ProfileEvents: ошибки / с",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\"}[2m]))", "legendFormat": "FailedQuery / s" },
-        { "refId": "B", "expr": "sum(rate(ClickHouseProfileEvents_FailedInsertQuery{job=\"clickhouse\"}[2m]))", "legendFormat": "FailedInsert / s" }
+        {
+          "refId": "A",
+          "expr": "sum(rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\"}[2m]))",
+          "legendFormat": "FailedQuery / s"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ClickHouseProfileEvents_FailedInsertQuery{job=\"clickhouse\"}[2m]))",
+          "legendFormat": "FailedInsert / s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 4,
       "title": "AsyncMetrics: память (resident)",
       "description": "Асинхронная метрика RSS; без OTel.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 10, "w": 8, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"clickhouse\"}", "legendFormat": "resident" }
+        {
+          "refId": "A",
+          "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"clickhouse\"}",
+          "legendFormat": "resident"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 5,
       "title": "AsyncMetrics: свободно на диске (default)",
       "type": "timeseries",
-      "gridPos": { "x": 8, "y": 10, "w": 8, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "ClickHouseAsyncMetrics_DiskAvailable_default{job=\"clickhouse\"}", "legendFormat": "available" }
+        {
+          "refId": "A",
+          "expr": "ClickHouseAsyncMetrics_DiskAvailable_default{job=\"clickhouse\"}",
+          "legendFormat": "available"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 6,
       "title": "AsyncMetrics: части / куски",
       "type": "timeseries",
-      "gridPos": { "x": 16, "y": 10, "w": 8, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "ClickHouseAsyncMetrics_MaxPartCountForPartition{job=\"clickhouse\"}", "legendFormat": "max parts" }
+        {
+          "refId": "A",
+          "expr": "ClickHouseAsyncMetrics_MaxPartCountForPartition{job=\"clickhouse\"}",
+          "legendFormat": "max parts"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 7,
       "title": "Вставка: строки и байты / с",
       "description": "Интенсивность Insert из ProfileEvents — обычно заметнее, чем «плато» по RAM.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 17, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_InsertedRows{job=\"clickhouse\"}[2m])", "legendFormat": "rows/s" },
-        { "refId": "B", "expr": "rate(ClickHouseProfileEvents_InsertedBytes{job=\"clickhouse\"}[2m])", "legendFormat": "bytes/s" }
+        {
+          "refId": "A",
+          "expr": "rate(ClickHouseProfileEvents_InsertedRows{job=\"clickhouse\"}[2m])",
+          "legendFormat": "rows/s"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(ClickHouseProfileEvents_InsertedBytes{job=\"clickhouse\"}[2m])",
+          "legendFormat": "bytes/s"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 12 } },
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "bytes/s" }, "properties": [{ "id": "unit", "value": "Bps" }] },
-          { "matcher": { "id": "byName", "options": "rows/s" }, "properties": [{ "id": "unit", "value": "cps" }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "Bps"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rows/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "cps"
+              }
+            ]
+          }
         ]
       },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 8,
       "title": "Чтение сжатых данных / с",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 17, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_CompressedReadBufferBytes{job=\"clickhouse\"}[2m])", "legendFormat": "compressed read B/s" }
+        {
+          "refId": "A",
+          "expr": "rate(ClickHouseProfileEvents_CompressedReadBufferBytes{job=\"clickhouse\"}[2m])",
+          "legendFormat": "compressed read B/s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
     }
   ]
 }

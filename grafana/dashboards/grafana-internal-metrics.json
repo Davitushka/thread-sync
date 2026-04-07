@@ -4,18 +4,30 @@
   "version": 1,
   "refresh": "30s",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["grafana", "monitoring", "siem"],
+  "tags": [
+    "grafana",
+    "monitoring",
+    "siem"
+  ],
   "panels": [
     {
       "id": 1,
       "title": "ℹ️ О дашборде Grafana",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "markdown",
-        "content": "## Grafana Server — внутренние метрики\n\nМало «динамики» на графиках — **норма**, пока никто не кликает по UI. Ниже добавлены **HTTP** и **запросы datasource** — там больше линий при работе в Grafana.\n\nДубликат с англ. **Grafana metrics** в списке — обычно другой UID (импорт). Этот файл: **siem-grafana-metrics**.\n\n**SIEM-события:** дашборд **SIEM-Lite Overview**.\n\n**Настройка:** job `grafana` в `deploy/docker/prometheus.yml`"
+        "content": "## Grafana Server — внутренние метрики\n\nМало «динамики» на графиках — **норма**, пока никто не кликает по UI. Ниже добавлены **HTTP** и **запросы datasource** — там больше линий при работе в Grafana.\n\nДубликат с англ. **Grafana metrics** в списке — обычно другой UID (импорт). Этот файл: **siem-grafana-metrics**.\n\n**SIEM-события:** дашборд **SIEM-Lite Overview**.\n\n**Настройка:** job `grafana` в `deploy/docker/prometheus.yml`\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -23,78 +35,296 @@
       "id": 2,
       "title": "CPU (process)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(process_cpu_seconds_total{job=\"grafana\"}[2m]) or vector(0)", "legendFormat": "CPU s/s" }
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{job=\"grafana\"}[2m]) or vector(0)",
+          "legendFormat": "CPU s/s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 3,
       "title": "RSS память",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "process_resident_memory_bytes{job=\"grafana\"} or vector(0)", "legendFormat": "RSS" }
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{job=\"grafana\"} or vector(0)",
+          "legendFormat": "RSS"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 4,
       "title": "Grafana UP",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 11, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "up{job=\"grafana\"} or vector(0)", "instant": true }
+        {
+          "refId": "A",
+          "expr": "up{job=\"grafana\"} or vector(0)",
+          "instant": true
+        }
       ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 5,
       "title": "Открытые файлы (process)",
       "type": "timeseries",
-      "gridPos": { "x": 6, "y": 11, "w": 18, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 6,
+        "y": 11,
+        "w": 18,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "process_open_fds{job=\"grafana\"} or vector(0)", "legendFormat": "fds" }
+        {
+          "refId": "A",
+          "expr": "process_open_fds{job=\"grafana\"} or vector(0)",
+          "legendFormat": "fds"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 6,
       "title": "HTTP Grafana / с (топ handler)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "topk(10, sum by (handler) (rate(grafana_http_request_duration_seconds_count{job=\"grafana\"}[5m])))", "legendFormat": "{{handler}}" }
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (handler) (rate(grafana_http_request_duration_seconds_count{job=\"grafana\"}[5m])))",
+          "legendFormat": "{{handler}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
     },
     {
       "id": 7,
       "title": "Запросы datasource / с (по type)",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum by (datasource_type) (rate(grafana_datasource_request_total{job=\"grafana\"}[5m]))", "legendFormat": "{{datasource_type}}" }
+        {
+          "refId": "A",
+          "expr": "sum by (datasource_type) (rate(grafana_datasource_request_total{job=\"grafana\"}[5m]))",
+          "legendFormat": "{{datasource_type}}"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
     }
   ]
 }

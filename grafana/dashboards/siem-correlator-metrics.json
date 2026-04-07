@@ -4,18 +4,30 @@
   "version": 1,
   "refresh": "30s",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["siem", "correlator", "prometheus"],
+  "tags": [
+    "siem",
+    "correlator",
+    "prometheus"
+  ],
   "panels": [
     {
       "id": 1,
       "title": "ℹ️ О дашборде Correlator",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 2 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 2
+      },
       "options": {
         "mode": "markdown",
-        "content": "## Correlator — компонент обработки событий\n\nМетрики **`correlator`** (порт **9111**). Correlator обрабатывает события из Kafka и передаёт алерты в detection-engine.\n\n**Если панели показывают 0:**\n- Correlator ещё не запустился — подождите 30-60 секунд\n- Проверьте статус: `docker ps | grep correlator`\n- Посмотрите логи: `docker logs siem-correlator`\n\n**Метрики:**\n- `correlator_events_processed_total` — обработанные события\n- `correlator_parse_errors_total` — ошибки парсинга\n- `correlator_alerts_forwarded_total` — пересланные алерты"
+        "content": "## Correlator — компонент обработки событий\n\nМетрики **`correlator`** (порт **9111**). Correlator обрабатывает события из Kafka и передаёт алерты в detection-engine.\n\n**Если панели показывают 0:**\n- Correlator ещё не запустился — подождите 30-60 секунд\n- Проверьте статус: `docker ps | grep correlator`\n- Посмотрите логи: `docker logs siem-correlator`\n\n**Метрики:**\n- `correlator_events_processed_total` — обработанные события\n- `correlator_parse_errors_total` — ошибки парсинга\n- `correlator_alerts_forwarded_total` — пересланные алерты\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -23,31 +35,153 @@
       "id": 2,
       "title": "Correlator UP",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 2, "w": 4, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "targets": [{ "refId": "A", "expr": "up{job=\"correlator\"} or vector(0)", "instant": true }],
+      "gridPos": {
+        "x": 0,
+        "y": 2,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"correlator\"} or vector(0)",
+          "instant": true
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 3,
       "title": "Correlator: события и алерты / с",
       "description": "Счётчики из correlator: correlator_events_processed_total, parse_errors, alerts_forwarded. Fallback: если correlator ещё не запустился, показывает 0.",
       "type": "timeseries",
-      "gridPos": { "x": 4, "y": 2, "w": 20, "h": 10 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 4,
+        "y": 2,
+        "w": 20,
+        "h": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(correlator_events_processed_total{job=\"correlator\"}[2m]) or vector(0)", "legendFormat": "events/s" },
-        { "refId": "B", "expr": "rate(correlator_parse_errors_total{job=\"correlator\"}[2m]) or vector(0)", "legendFormat": "parse_err/s" },
-        { "refId": "C", "expr": "rate(correlator_alerts_forwarded_total{job=\"correlator\"}[2m]) or vector(0)", "legendFormat": "alerts_fwd/s" }
+        {
+          "refId": "A",
+          "expr": "rate(correlator_events_processed_total{job=\"correlator\"}[2m]) or vector(0)",
+          "legendFormat": "events/s"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(correlator_parse_errors_total{job=\"correlator\"}[2m]) or vector(0)",
+          "legendFormat": "parse_err/s"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(correlator_alerts_forwarded_total{job=\"correlator\"}[2m]) or vector(0)",
+          "legendFormat": "alerts_fwd/s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
     }
   ]
 }

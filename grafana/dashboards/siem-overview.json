@@ -26,7 +26,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "## Если графики пустые\n\nЗаполните **ClickHouse** демо-данными: выполните **`bash scripts/seed-data/bootstrap_clickhouse.sh`** (WSL/Linux или контейнер с примонтированным репозиторием), либо поднимите стек с **`--profile seed`**, либо в **SIEM Admin** нажмите **Fill All Data**.\n\nПанели **Prometheus** (Vector, detection, `siem_events_total`) и панели **SQL** наполняются разными путями — см. **`docs/DATA_PROMETHEUS_GRAFANA.md`** и дашборд **Проверки компонентов**."
+        "content": "## Если графики пустые\n\nЗаполните **ClickHouse** демо-данными: выполните **`bash scripts/seed-data/bootstrap_clickhouse.sh`** (WSL/Linux или контейнер с примонтированным репозиторием), либо поднимите стек с **`--profile seed`**, либо в **SIEM Admin** нажмите **Fill All Data**.\n\nПанели **Prometheus** (Vector, detection, `siem_events_total`) и панели **SQL** наполняются разными путями — см. **`docs/DATA_PROMETHEUS_GRAFANA.md`** и дашборд **Проверки компонентов**.\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -328,7 +328,7 @@
             "type": "grafana-clickhouse-datasource",
             "uid": "clickhouse-siem"
           },
-          "rawSql": "SELECT formatDateTime(timestamp, '%H:%M:%S') AS Time, toString(source_type) AS Source, toString(severity) AS Severity, left(message, 55) AS Message, toString(source_ip) AS IP FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND (severity IN ('error','critical','warning') OR source_type = 'redis') ORDER BY timestamp DESC LIMIT 50",
+          "rawSql": "SELECT formatDateTime(timestamp, '%H:%i:%S') AS Time, toString(source_type) AS Source, toString(severity) AS Severity, left(message, 55) AS Message, toString(source_ip) AS IP FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND (severity IN ('error','critical','warning') OR source_type = 'redis') ORDER BY timestamp DESC LIMIT 50",
           "format": 1
         }
       ],
@@ -848,7 +848,7 @@
             "type": "grafana-clickhouse-datasource",
             "uid": "clickhouse-siem"
           },
-          "rawSql": "SELECT formatDateTime(triggered_at, '%Y-%m-%d %H:%M:%S') AS Time, rule_title AS Rule, severity AS Severity, toString(source_ip) AS SourceIP, left(description, 80) AS Description, status AS Status FROM siem.alerts ORDER BY triggered_at DESC LIMIT 50",
+          "rawSql": "SELECT formatDateTime(triggered_at, '%Y-%m-%d %H:%i:%S') AS Time, rule_title AS Rule, severity AS Severity, toString(source_ip) AS SourceIP, left(description, 80) AS Description, status AS Status FROM siem.alerts ORDER BY triggered_at DESC LIMIT 50",
           "format": 1
         }
       ],
@@ -1073,6 +1073,44 @@
           "displayMode": "table",
           "placement": "bottom"
         }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ]

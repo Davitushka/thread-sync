@@ -45,7 +45,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "## Операционный мониторинг\n\nСводка по **Prometheus**: доступность scrape-целей, нагрузка **ClickHouse** (из встроенного `/metrics`), поток **Redpanda** (`siem.events`), смещения consumer group **clickhouse_siem_events**, **Vector** и **detection**.\n\n- События и дашборды безопасности — **SIEM-Lite Overview** (ссылка сверху).\n- Пошаговый чек-лист и таблицы проверок — **проверки компонентов**.\n\nЕсли панели ClickHouse пустые, убедитесь, что в контейнере поднят endpoint `9363` и цель `clickhouse` в Prometheus в статусе UP."
+        "content": "## Операционный мониторинг\n\nСводка по **Prometheus**: доступность scrape-целей, нагрузка **ClickHouse** (из встроенного `/metrics`), поток **Redpanda** (`siem.events`), смещения consumer group **clickhouse_siem_events**, **Vector** и **detection**.\n\n- События и дашборды безопасности — **SIEM-Lite Overview** (ссылка сверху).\n- Пошаговый чек-лист и таблицы проверок — **проверки компонентов**.\n\nЕсли панели ClickHouse пустые, убедитесь, что в контейнере поднят endpoint `9363` и цель `clickhouse` в Prometheus в статусе UP.\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true,
       "description": "Вводный текст: откуда берутся метрики стека."
@@ -1083,7 +1083,7 @@
             "uid": "clickhouse-siem"
           },
           "format": 1,
-          "rawSql": "SELECT formatDateTime(triggered_at, '%m-%d %H:%M') AS t, rule_id, toString(severity), left(description, 48) AS msg FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 15",
+          "rawSql": "SELECT formatDateTime(triggered_at, '%m-%d %H:%i') AS t, rule_id, toString(severity), left(description, 48) AS msg FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 15",
           "meta": {
             "builderOptions": {
               "fields": []
@@ -1093,6 +1093,44 @@
       ],
       "options": {
         "showHeader": true
+      }
+    },
+    {
+      "id": 320,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ]

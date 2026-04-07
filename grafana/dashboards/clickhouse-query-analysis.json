@@ -4,18 +4,30 @@
   "version": 1,
   "refresh": "1m",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["clickhouse", "query_log", "siem"],
+  "tags": [
+    "clickhouse",
+    "query_log",
+    "siem"
+  ],
   "panels": [
     {
       "id": 1,
       "title": "ℹ️ О дашборде Query Analysis",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "markdown",
-        "content": "## Анализ запросов ClickHouse\n\nДашборд показывает **самые медленные запросы** к ClickHouse для оптимизации производительности.\n\n**Панели:**\n- **Top queries по длительности** — 40 самых долгих запросов за 24ч\n- **Медленные запросы (>1000ms)** — запросы дольше 1 секунды\n\n**Если таблицы пустые:**\n- Включите логирование запросов в ClickHouse config\n- Подождите появления нагрузки на базу данных\n- После заполнения SIEM данных (Events/Alerts) запросы появятся автоматически\n\n**Как включить query_log:**\n```xml\n<!-- В config.xml ClickHouse -->\n<query_log>\n    <database>system</database>\n    <table>query_log</table>\n    <flush_interval_milliseconds>7500</flush_interval_milliseconds>\n</query_log>\n```\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
+        "content": "## Анализ запросов ClickHouse\n\nДашборд показывает **самые медленные запросы** к ClickHouse для оптимизации производительности.\n\n**Панели:**\n- **Top queries по длительности** — 40 самых долгих запросов за 24ч\n- **Медленные запросы (>1000ms)** — запросы дольше 1 секунды\n\n**Если таблицы пустые:**\n- Включите логирование запросов в ClickHouse config\n- Подождите появления нагрузки на базу данных\n- После заполнения SIEM данных (Events/Alerts) запросы появятся автоматически\n\n**Как включить query_log:**\n```xml\n<!-- В config.xml ClickHouse -->\n<query_log>\n    <database>system</database>\n    <table>query_log</table>\n    <flush_interval_milliseconds>7500</flush_interval_milliseconds>\n</query_log>\n```\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -23,31 +35,95 @@
       "id": 2,
       "title": "Top queries по длительности (24 ч)",
       "type": "table",
-      "gridPos": { "x": 0, "y": 3, "w": 24, "h": 10 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
           "format": 1,
-          "rawSql": "SELECT formatDateTime(event_time, '%Y-%m-%d %H:%M:%S') AS event_time, query_duration_ms, read_rows, read_bytes, substring(query, 1, 200) AS query FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND type = 2 AND query_duration_ms IS NOT NULL ORDER BY query_duration_ms DESC LIMIT 40"
+          "rawSql": "SELECT formatDateTime(event_time, '%Y-%m-%d %H:%i:%S') AS event_time, toUInt64(query_duration_ms) AS query_duration_ms, toUInt64(read_rows) AS read_rows, toUInt64(read_bytes) AS read_bytes, substring(query, 1, 200) AS query FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND query_duration_ms IS NOT NULL ORDER BY query_duration_ms DESC LIMIT 40 UNION ALL SELECT formatDateTime(now(), '%Y-%m-%d %H:%i:%S') AS event_time, toUInt64(0) AS query_duration_ms, toUInt64(0) AS read_rows, toUInt64(0) AS read_bytes, 'Нет данных в system.query_log за 24ч. Запустите scripts/fill-dashboard-data.ps1' AS query WHERE (SELECT count() FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND query_duration_ms IS NOT NULL) = 0"
         }
       ],
-      "options": { "showHeader": true, "sortBy": [{ "displayName": "query_duration_ms", "desc": true }] }
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "query_duration_ms",
+            "desc": true
+          }
+        ]
+      }
     },
     {
       "id": 3,
       "title": "Медленные запросы (> 1000 ms), 24 ч",
       "type": "table",
-      "gridPos": { "x": 0, "y": 13, "w": 24, "h": 10 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-siem"
+      },
       "targets": [
         {
           "refId": "A",
           "format": 1,
-          "rawSql": "SELECT formatDateTime(event_time, '%Y-%m-%d %H:%M:%S') AS event_time, query_duration_ms, user, substring(query, 1, 220) AS query FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND type = 2 AND query_duration_ms > 1000 ORDER BY query_duration_ms DESC LIMIT 50"
+          "rawSql": "SELECT formatDateTime(event_time, '%Y-%m-%d %H:%i:%S') AS event_time, toUInt64(query_duration_ms) AS query_duration_ms, toString(user) AS user, substring(query, 1, 220) AS query FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND query_duration_ms > 1000 ORDER BY query_duration_ms DESC LIMIT 50 UNION ALL SELECT formatDateTime(now(), '%Y-%m-%d %H:%i:%S') AS event_time, toUInt64(0) AS query_duration_ms, 'system' AS user, 'Нет slow queries >1000ms. Это нормально при легкой нагрузке.' AS query WHERE (SELECT count() FROM system.query_log WHERE event_time >= now() - INTERVAL 24 HOUR AND query_duration_ms > 1000) = 0"
         }
       ],
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 4,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
     }
   ]
 }

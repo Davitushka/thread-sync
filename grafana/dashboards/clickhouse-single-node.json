@@ -4,18 +4,30 @@
   "version": 1,
   "refresh": "30s",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["clickhouse", "single-node", "siem"],
+  "tags": [
+    "clickhouse",
+    "single-node",
+    "siem"
+  ],
   "panels": [
     {
       "id": 1,
       "title": "ℹ️ О дашборде Single Node",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "markdown",
-        "content": "## ClickHouse — мониторинг одиночного узла\n\nДашборд адаптирован для **single-node** установки ClickHouse (не кластер!).\n\n**Панели:**\n- **Запросы (все типы) / с** — общая скорость запросов\n- **Вставки и выборки / с** — SELECT и INSERT отдельно\n- **Память** — потребление RAM ClickHouse\n- **Свободное место** — диск default storage\n- **Неудачные запросы** — ошибки выполнения\n- **Merged rows** — скорость слияния партиций\n\n**Если графики показывают 0:**\n- ClickHouse ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep clickhouse`\n- Метрики появятся после первого scrape (30 сек)\n\n**Это не SIEM события!** SIEM события в дашборде **SIEM-Lite Overview**.\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
+        "content": "## ClickHouse — мониторинг одиночного узла\n\nДашборд адаптирован для **single-node** установки ClickHouse (не кластер!).\n\n**Панели:**\n- **Запросы (все типы) / с** — общая скорость запросов\n- **Вставки и выборки / с** — SELECT и INSERT отдельно\n- **Память** — потребление RAM ClickHouse\n- **Свободное место** — диск default storage\n- **Неудачные запросы** — ошибки выполнения\n- **Merged rows** — скорость слияния партиций\n\n**Если графики показывают 0:**\n- ClickHouse ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep clickhouse`\n- Метрики появятся после первого scrape (30 сек)\n\n**Это не SIEM события!** SIEM события в дашборде **SIEM-Lite Overview**.\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -23,111 +35,391 @@
       "id": 2,
       "title": "Запросы (все типы) / с",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_Query{job=\"clickhouse\"}[2m])", "legendFormat": "Query" }
+        {
+          "refId": "A",
+          "expr": "rate(ClickHouseProfileEvents_Query{job=\"clickhouse\"}[2m])",
+          "legendFormat": "Query"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 3,
       "title": "Вставки и выборки / с",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m])", "legendFormat": "SELECT/s" },
-        { "refId": "B", "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m])", "legendFormat": "INSERT/s" }
+        {
+          "refId": "A",
+          "expr": "rate(ClickHouseProfileEvents_SelectQuery{job=\"clickhouse\"}[2m])",
+          "legendFormat": "SELECT/s"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(ClickHouseProfileEvents_InsertQuery{job=\"clickhouse\"}[2m])",
+          "legendFormat": "INSERT/s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 4,
       "title": "Память (async resident)",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 11, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"clickhouse\"}", "instant": true }
+        {
+          "refId": "A",
+          "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"clickhouse\"}",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
     {
       "id": 5,
       "title": "Свободное место default",
       "type": "stat",
-      "gridPos": { "x": 6, "y": 11, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 6,
+        "y": 11,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "ClickHouseAsyncMetrics_DiskAvailable_default{job=\"clickhouse\"}", "instant": true }
+        {
+          "refId": "A",
+          "expr": "ClickHouseAsyncMetrics_DiskAvailable_default{job=\"clickhouse\"}",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
       "id": 6,
       "title": "Неудачные запросы / с",
       "type": "stat",
-      "gridPos": { "x": 12, "y": 11, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\"}[5m]))", "instant": true }
+        {
+          "refId": "A",
+          "expr": "sum(rate(ClickHouseProfileEvents_FailedQuery{job=\"clickhouse\"}[5m]))",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 3 } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "decimals": 3
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 7,
       "title": "Merged rows / с",
       "type": "stat",
-      "gridPos": { "x": 18, "y": 11, "w": 6, "h": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 18,
+        "y": 11,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(ClickHouseProfileEvents_MergedRows{job=\"clickhouse\"}[5m]))", "instant": true }
+        {
+          "refId": "A",
+          "expr": "sum(rate(ClickHouseProfileEvents_MergedRows{job=\"clickhouse\"}[5m]))",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "decimals": 2 } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "decimals": 2
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
     {
       "id": 8,
       "title": "Память (время): resident + MemoryTracking",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"clickhouse\"}", "legendFormat": "resident" },
-        { "refId": "B", "expr": "ClickHouseMetrics_MemoryTracking{job=\"clickhouse\"}", "legendFormat": "MemoryTracking" }
+        {
+          "refId": "A",
+          "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"clickhouse\"}",
+          "legendFormat": "resident"
+        },
+        {
+          "refId": "B",
+          "expr": "ClickHouseMetrics_MemoryTracking{job=\"clickhouse\"}",
+          "legendFormat": "MemoryTracking"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      }
     },
     {
       "id": 9,
       "title": "Свободно на диске (default), время",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "ClickHouseAsyncMetrics_DiskAvailable_default{job=\"clickhouse\"}", "legendFormat": "available" }
+        {
+          "refId": "A",
+          "expr": "ClickHouseAsyncMetrics_DiskAvailable_default{job=\"clickhouse\"}",
+          "legendFormat": "available"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
     },
     {
       "id": 10,
       "title": "Вставленные строки / с",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 22, "w": 24, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_InsertedRows{job=\"clickhouse\"}[2m])", "legendFormat": "rows/s" }
+        {
+          "refId": "A",
+          "expr": "rate(ClickHouseProfileEvents_InsertedRows{job=\"clickhouse\"}[2m])",
+          "legendFormat": "rows/s"
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single"
+        },
+        "legend": {
+          "displayMode": "hidden"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
     }
   ]
 }

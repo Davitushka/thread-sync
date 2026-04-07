@@ -30,7 +30,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Нужны строки в **`siem.events`**. Прогоните **`bootstrap_clickhouse.sh`** или **Fill All Data**; метрики **siem-parser** в Prometheus появятся только при трафике **`/parse`**."
+        "content": "Нужны строки в **`siem.events`**. Прогоните **`bootstrap_clickhouse.sh`** или **Fill All Data**; метрики **siem-parser** в Prometheus появятся только при трафике **`/parse`**.\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -221,6 +221,44 @@
           "displayMode": "list",
           "placement": "bottom"
         }
+      }
+    },
+    {
+      "id": 51,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ]

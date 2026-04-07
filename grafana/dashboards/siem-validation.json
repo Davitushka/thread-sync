@@ -29,7 +29,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "### Пустые панели в Grafana\n\nЕсли конкретный график **No data**, откройте таблицу проверок ниже: там указано **OK** / **ПУСТО** и что сделать (seed, parser, Prometheus).\n\n## Быстрый сценарий\n\n**Два типа панелей:** таблицы **ClickHouse** (`siem.events`, алерты, IoC) и графики **Prometheus** (`siem_events_total`, Vector, detection). Они заполняются **разными путями**: SQL-сид и прямой INSERT в CH **не** создают серии `siem_events_total` — эту метрику наращивает только **siem-parser** (`/parse` и ingest). Сводная таблица дашбордов и метрик: `docs/DATA_PROMETHEUS_GRAFANA.md` в репозитории.\n\n**Чтобы ClickHouse-панели не были пустыми:** `bash scripts/seed-data/bootstrap_clickhouse.sh`, compose `--profile seed`, или **SIEM Admin → Fill All Data**.\n\n**Операции стека:** дашборд *SIEM-Lite — операции*.\n\n1. **Ingest → Redpanda → ClickHouse**  \n   `cd scripts/seed-data && pip install -r requirements.txt` → `python generate_logs.py --eps 100 --duration 90`  \n   Ожидание: растёт `vector_component_*`, в CH появляются строки (Kafka consumer).\n\n2. **Prometheus: правила алертов (`siem_events_total`)**  \n   Нужен трафик через **siem-parser** или кнопка **Fill All Data** / **Critical Surge** в SIEM Admin (прогрев `/parse`). Один только `siem-stress` → Vector → Kafka → CH **не** гарантирует рост `siem_events_total`.\n\n3. **siem-parser**  \n   Vector по умолчанию **не** шлёт в `/parse`. См. `docs/RUNBOOK.md`.\n\n4. **ClickHouse :9363 в Prometheus**  \n   Нужен `config.d/prometheus.xml` в образе clickhouse.\n\n5. **Алерты в таблице CH**  \n   После сида есть демо-строки в `siem.alerts`."
+        "content": "### Пустые панели в Grafana\n\nЕсли конкретный график **No data**, откройте таблицу проверок ниже: там указано **OK** / **ПУСТО** и что сделать (seed, parser, Prometheus).\n\n## Быстрый сценарий\n\n**Два типа панелей:** таблицы **ClickHouse** (`siem.events`, алерты, IoC) и графики **Prometheus** (`siem_events_total`, Vector, detection). Они заполняются **разными путями**: SQL-сид и прямой INSERT в CH **не** создают серии `siem_events_total` — эту метрику наращивает только **siem-parser** (`/parse` и ingest). Сводная таблица дашбордов и метрик: `docs/DATA_PROMETHEUS_GRAFANA.md` в репозитории.\n\n**Чтобы ClickHouse-панели не были пустыми:** `bash scripts/seed-data/bootstrap_clickhouse.sh`, compose `--profile seed`, или **SIEM Admin → Fill All Data**.\n\n**Операции стека:** дашборд *SIEM-Lite — операции*.\n\n1. **Ingest → Redpanda → ClickHouse**  \n   `cd scripts/seed-data && pip install -r requirements.txt` → `python generate_logs.py --eps 100 --duration 90`  \n   Ожидание: растёт `vector_component_*`, в CH появляются строки (Kafka consumer).\n\n2. **Prometheus: правила алертов (`siem_events_total`)**  \n   Нужен трафик через **siem-parser** или кнопка **Fill All Data** / **Critical Surge** в SIEM Admin (прогрев `/parse`). Один только `siem-stress` → Vector → Kafka → CH **не** гарантирует рост `siem_events_total`.\n\n3. **siem-parser**  \n   Vector по умолчанию **не** шлёт в `/parse`. См. `docs/RUNBOOK.md`.\n\n4. **ClickHouse :9363 в Prometheus**  \n   Нужен `config.d/prometheus.xml` в образе clickhouse.\n\n5. **Алерты в таблице CH**  \n   После сида есть демо-строки в `siem.alerts`.\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "pluginVersion": "11.4.0"
     },
@@ -539,11 +539,49 @@
             "uid": "clickhouse-siem"
           },
           "format": 1,
-          "rawSql": "SELECT formatDateTime(triggered_at, '%m-%d %H:%M') AS t, rule_id, toString(severity), left(description, 40) AS msg FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 10"
+          "rawSql": "SELECT formatDateTime(triggered_at, '%m-%d %H:%i') AS t, rule_id, toString(severity), left(description, 40) AS msg FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 10"
         }
       ],
       "options": {
         "showHeader": true
+      }
+    },
+    {
+      "id": 211,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ]

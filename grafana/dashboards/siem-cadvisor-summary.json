@@ -4,18 +4,30 @@
   "version": 2,
   "refresh": "30s",
   "schemaVersion": 38,
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["siem", "cadvisor", "containers"],
+  "tags": [
+    "siem",
+    "cadvisor",
+    "containers"
+  ],
   "panels": [
     {
       "id": 1,
       "title": "ℹ️ О дашборде cAdvisor",
       "type": "text",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
       "options": {
         "mode": "markdown",
-        "content": "## cAdvisor — полная статистика контейнеров\n\nДашборд показывает **детальную статистику всех Docker контейнеров** через cAdvisor.\n\n**Панели:**\n- **CPU контейнеров** — загрузка процессора на контейнер\n- **Память** — потребление RAM на контейнер\n- **Сеть RX/TX** — входящий/исходящий трафик\n- **Filesystem I/O** — операции чтения/записи\n- **OOM kills** — контейнеры с нехваткой памяти\n- **Top 5 по CPU** — самые нагруженные контейнеры\n- **Суммарный CPU/Memory** — общая нагрузка\n\n**Если графики показывают 0:**\n- cAdvisor ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep cadvisor`\n- Метрики появятся после первого scrape (15 сек)\n\n**На Windows/Docker Desktop:** разбивка по контейнерам может быть обобщённой.\n\n**Настройка:** job `cadvisor` в `deploy/docker/prometheus.yml`"
+        "content": "## cAdvisor — полная статистика контейнеров\n\nДашборд показывает **детальную статистику всех Docker контейнеров** через cAdvisor.\n\n**Панели:**\n- **CPU контейнеров** — загрузка процессора на контейнер\n- **Память** — потребление RAM на контейнер\n- **Сеть RX/TX** — входящий/исходящий трафик\n- **Filesystem I/O** — операции чтения/записи\n- **OOM kills** — контейнеры с нехваткой памяти\n- **Top 5 по CPU** — самые нагруженные контейнеры\n- **Суммарный CPU/Memory** — общая нагрузка\n\n**Если графики показывают 0:**\n- cAdvisor ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep cadvisor`\n- Метрики появятся после первого scrape (15 сек)\n\n**На Windows/Docker Desktop:** разбивка по контейнерам может быть обобщённой.\n\n**Настройка:** job `cadvisor` в `deploy/docker/prometheus.yml`\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -24,8 +36,16 @@
       "title": "CPU контейнеров (%)",
       "description": "Процент CPU на контейнер. Fallback: если нет разбивки по контейнерам, показывает суммарный CPU.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -33,16 +53,40 @@
           "legendFormat": "{{container}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
     },
     {
       "id": 3,
       "title": "Память контейнеров (bytes)",
       "description": "Использование RAM на контейнер. Fallback: суммарная память если нет разбивки.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -50,43 +94,138 @@
           "legendFormat": "{{container}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
     },
     {
       "id": 4,
       "title": "cAdvisor UP",
       "type": "stat",
-      "gridPos": { "x": 0, "y": 11, "w": 6, "h": 3 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
-      "targets": [{ "refId": "A", "expr": "up{job=\"cadvisor\"} or vector(0)", "instant": true }],
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 6,
+        "h": 3
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"cadvisor\"} or vector(0)",
+          "instant": true
+        }
+      ],
       "fieldConfig": {
         "defaults": {
-          "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }],
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      }
     },
     {
       "id": 5,
       "title": "Кол-во контейнеров",
       "type": "stat",
-      "gridPos": { "x": 6, "y": 11, "w": 6, "h": 3 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 6,
+        "y": 11,
+        "w": 6,
+        "h": 3
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or count(container_memory_usage_bytes{job=\"cadvisor\"}) or vector(0)", "instant": true }
+        {
+          "refId": "A",
+          "expr": "count(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or count(container_memory_usage_bytes{job=\"cadvisor\"}) or vector(0)",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "short" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      }
     },
     {
       "id": 6,
       "title": "Сеть: RX контейнеров (bytes/sec)",
       "description": "Входящий трафик на контейнер.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -94,16 +233,40 @@
           "legendFormat": "{{container}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
     },
     {
       "id": 7,
       "title": "Сеть: TX контейнеров (bytes/sec)",
       "description": "Исходящий трафик на контейнер.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -111,16 +274,40 @@
           "legendFormat": "{{container}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
     },
     {
       "id": 8,
       "title": "Filesystem: чтение I/O (ops/sec)",
       "description": "Операции чтения файловой системы на контейнер.",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -128,16 +315,40 @@
           "legendFormat": "{{container}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
     },
     {
       "id": 9,
       "title": "Filesystem: запись I/O (ops/sec)",
       "description": "Операции записи файловой системы на контейнер.",
       "type": "timeseries",
-      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -145,16 +356,40 @@
           "legendFormat": "{{container}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
-      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12
+          }
+        }
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      }
     },
     {
       "id": 10,
       "title": "OOM kills (24h)",
       "description": "Контейнеры, получившие OOM kill за последние 24 часа.",
       "type": "table",
-      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -164,22 +399,77 @@
         }
       ],
       "transformations": [
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true }, "renameByName": { "container": "Container", "Value": "OOM Kills" } } }
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true
+            },
+            "renameByName": {
+              "container": "Container",
+              "Value": "OOM Kills"
+            }
+          }
+        }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "auto" } },
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "OOM Kills" }, "properties": [{ "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, { "id": "color", "value": { "mode": "thresholds" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "OOM Kills"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true
+      }
     },
     {
       "id": 11,
       "title": "Top 5 контейнеров по CPU (среднее за 5м)",
       "type": "barchart",
-      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -189,55 +479,155 @@
         }
       ],
       "transformations": [
-        { "id": "organize", "options": { "renameByName": { "container": "Container", "Value": "CPU %" } } }
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "container": "Container",
+              "Value": "CPU %"
+            }
+          }
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "percent" },
-        "overrides": [{ "matcher": { "id": "byName", "options": "CPU %" }, "properties": [{ "id": "custom.displayMode", "value": "gradient-gauge" }] }]
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU %"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "gradient-gauge"
+              }
+            ]
+          }
+        ]
       },
-      "options": { "orientation": "horizontal", "xField": "Container", "barWidth": 0.7, "showValue": "auto" }
+      "options": {
+        "orientation": "horizontal",
+        "xField": "Container",
+        "barWidth": 0.7,
+        "showValue": "auto"
+      }
     },
     {
       "id": 12,
       "title": "Суммарный CPU всех контейнеров (%)",
       "type": "gauge",
-      "gridPos": { "x": 0, "y": 35, "w": 8, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100 or vector(0)", "instant": true }
+        {
+          "refId": "A",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[2m])) * 100 or sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\"}[2m])) * 100 or vector(0)",
+          "instant": true
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "thresholds": { "mode": "percentage", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 60 }, { "color": "red", "value": 80 }] },
-          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
           "min": 0,
           "max": 100
         }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
     },
     {
       "id": 13,
       "title": "Суммарная память всех контейнеров",
       "type": "stat",
-      "gridPos": { "x": 8, "y": 35, "w": 8, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 8,
+        "y": 35,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or sum(container_memory_usage_bytes{job=\"cadvisor\"}) or vector(0)", "instant": true }
+        {
+          "refId": "A",
+          "expr": "sum(container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or sum(container_memory_usage_bytes{job=\"cadvisor\"}) or vector(0)",
+          "instant": true
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "color": { "fixedColor": "blue", "mode": "fixed" } }
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "fixedColor": "blue",
+            "mode": "fixed"
+          }
+        }
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" }
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      }
     },
     {
       "id": 14,
       "title": "Tasks state по контейнерам",
       "description": "Количество задач в разных состояниях (running, sleeping, stopped).",
       "type": "table",
-      "gridPos": { "x": 16, "y": 35, "w": 8, "h": 6 },
-      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "gridPos": {
+        "x": 16,
+        "y": 35,
+        "w": 8,
+        "h": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-siem"
+      },
       "targets": [
         {
           "refId": "A",
@@ -247,12 +637,70 @@
         }
       ],
       "transformations": [
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true }, "renameByName": { "container": "Container", "state": "State", "Value": "Tasks" } } }
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true
+            },
+            "renameByName": {
+              "container": "Container",
+              "state": "State",
+              "Value": "Tasks"
+            }
+          }
+        }
       ],
       "fieldConfig": {
-        "defaults": { "custom": { "align": "auto" } }
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        }
       },
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 15,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
     }
   ]
 }

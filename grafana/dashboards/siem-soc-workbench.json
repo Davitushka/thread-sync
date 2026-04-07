@@ -59,7 +59,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "### Threat intelligence (`siem.threat_intel`)\n\n1. Загрузите IoC через ClickHouse: `INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence) VALUES ('ipv4', '198.51.100.7', 'manual', 'C2 suspect', ['c2'], 80);`\n2. Ниже — события за выбранный интервал, где `source_ip` совпал с IoC типа **ipv4**.\n3. Очередь кейсов: **Case UI** (ссылка в шапке) или алерты → `case-management` webhook.\n\n#### Таблица `siem.threat_intel` пуста\nПанели с JOIN к IoC будут **пустыми**, пока нет строк в **`siem.threat_intel`**. Добавьте записи вручную (**INSERT**), выполните **`bootstrap_clickhouse.sh`** (сиды) или загрузите ленту через SIEM Admin.\nПример: `INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence) VALUES ('ipv4', '198.51.100.7', 'manual', 'C2 suspect', ['c2'], 80);`"
+        "content": "### Threat intelligence (`siem.threat_intel`)\n\n1. Загрузите IoC через ClickHouse: `INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence) VALUES ('ipv4', '198.51.100.7', 'manual', 'C2 suspect', ['c2'], 80);`\n2. Ниже — события за выбранный интервал, где `source_ip` совпал с IoC типа **ipv4**.\n3. Очередь кейсов: **Case UI** (ссылка в шапке) или алерты → `case-management` webhook.\n\n#### Таблица `siem.threat_intel` пуста\nПанели с JOIN к IoC будут **пустыми**, пока нет строк в **`siem.threat_intel`**. Добавьте записи вручную (**INSERT**), выполните **`bootstrap_clickhouse.sh`** (сиды) или загрузите ленту через SIEM Admin.\nПример: `INSERT INTO siem.threat_intel (ioc_type, ioc_value, feed, threat_label, tags, confidence) VALUES ('ipv4', '198.51.100.7', 'manual', 'C2 suspect', ['c2'], 80);`\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       }
     },
     {
@@ -277,7 +277,7 @@
             "uid": "clickhouse-siem"
           },
           "format": 1,
-          "rawSql": "SELECT formatDateTime(e.timestamp, '%Y-%m-%d %H:%M:%S') AS ts, toString(e.source_ip) AS ip, toString(e.severity) AS sev, e.user_id AS user, e.url_path AS path, t.feed AS ioc_feed, t.threat_label AS label, arrayStringConcat(t.tags, ', ') AS ioc_tags, left(e.message, 120) AS msg FROM siem.events e INNER JOIN siem.threat_intel t ON t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip) WHERE e.timestamp >= now() - INTERVAL 24 HOUR ORDER BY e.timestamp DESC LIMIT 300"
+          "rawSql": "SELECT formatDateTime(e.timestamp, '%Y-%m-%d %H:%i:%S') AS ts, toString(e.source_ip) AS ip, toString(e.severity) AS sev, e.user_id AS user, e.url_path AS path, t.feed AS ioc_feed, t.threat_label AS label, arrayStringConcat(t.tags, ', ') AS ioc_tags, left(e.message, 120) AS msg FROM siem.events e INNER JOIN siem.threat_intel t ON t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip) WHERE e.timestamp >= now() - INTERVAL 24 HOUR ORDER BY e.timestamp DESC LIMIT 300"
         }
       ],
       "options": {
@@ -312,11 +312,49 @@
             "uid": "clickhouse-siem"
           },
           "format": 1,
-          "rawSql": "SELECT ioc_type, ioc_value, feed, threat_label, arrayStringConcat(tags, ', ') AS tags, confidence, formatDateTime(first_seen, '%Y-%m-%d %H:%M:%S') AS first_seen, formatDateTime(last_seen, '%Y-%m-%d %H:%M:%S') AS last_seen FROM siem.threat_intel ORDER BY last_seen DESC LIMIT 500"
+          "rawSql": "SELECT ioc_type, ioc_value, feed, threat_label, arrayStringConcat(tags, ', ') AS tags, confidence, formatDateTime(first_seen, '%Y-%m-%d %H:%i:%S') AS first_seen, formatDateTime(last_seen, '%Y-%m-%d %H:%i:%S') AS last_seen FROM siem.threat_intel ORDER BY last_seen DESC LIMIT 500"
         }
       ],
       "options": {
         "showHeader": true
+      }
+    },
+    {
+      "id": 621,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ]

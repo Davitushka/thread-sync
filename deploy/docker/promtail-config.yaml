@@ -1,4 +1,4 @@
-# Promtail: Docker service discovery → Loki (path_prefix /loki в loki-config.yaml)
+# Promtail: Docker service discovery → Loki (HTTP API на корне :3100, см. loki-config.yaml)
 
 server:
   http_listen_port: 9080
@@ -8,7 +8,7 @@ positions:
   filename: /tmp/positions.yaml
 
 clients:
-  - url: http://loki:3100/loki/api/v1/push
+  - url: http://loki:3100/api/v1/push
 
 scrape_configs:
   - job_name: docker

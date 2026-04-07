@@ -31,8 +31,8 @@ datasources:
   - name: Loki
     type: loki
     uid: loki-siem
-    # Совпадает с path_prefix: /loki в loki-config.yaml
-    url: http://loki:3100/loki
+    # Без subpath: иначе проверки вида …/ready превращаются в /loki/ready → 404 у Loki
+    url: http://loki:3100
     access: proxy
     jsonData:
       maxLines: 1000

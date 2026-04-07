@@ -3,6 +3,8 @@
 
 param(
     [string] $ClickHouseUrl = "http://localhost:8123",
+    [string] $ClickHouseUser = "siem",
+    [string] $ClickHousePassword = "ClickHousePass123!",
     [string] $PrometheusUrl = "http://localhost:9090"
 )
 
@@ -13,8 +15,9 @@ function Write-Section($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
 function Invoke-ChQuery([string] $sql) {
     $enc = [uri]::EscapeDataString($sql)
     $u = "$ClickHouseUrl/?query=$enc"
+    $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${ClickHouseUser}:${ClickHousePassword}"))
     try {
-        return (Invoke-RestMethod -Uri $u -Method Get -TimeoutSec 15)
+        return (Invoke-RestMethod -Uri $u -Method Get -TimeoutSec 15 -Headers @{ Authorization = "Basic $auth" })
     } catch {
         return $null
     }

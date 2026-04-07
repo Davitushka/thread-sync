@@ -66,7 +66,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "## Жизненный цикл\n\n1. **Detection-engine** сравнивает события из Kafka с правилами и увеличивает `detection_alerts_fired_total`; записи в **`siem.alerts`** создаются при срабатывании пайплайна (Kafka → ClickHouse / correlator / write-back).\n2. Панели **ClickHouse** (счётчики, таблицы) показывают строки из **`siem.alerts`**.\n3. **Prometheus** ниже: **`ALERTS`** — только если загружены recording/alert **rules** и условие в статусе *firing*.\n\nЕсли в CH пусто — сид: **`bootstrap_clickhouse.sh`** или **Fill All Data**."
+        "content": "## Жизненный цикл\n\n1. **Detection-engine** сравнивает события из Kafka с правилами и увеличивает `detection_alerts_fired_total`; записи в **`siem.alerts`** создаются при срабатывании пайплайна (Kafka → ClickHouse / correlator / write-back).\n2. Панели **ClickHouse** (счётчики, таблицы) показывают строки из **`siem.alerts`**.\n3. **Prometheus** ниже: **`ALERTS`** — только если загружены recording/alert **rules** и условие в статусе *firing*.\n\nЕсли в CH пусто — сид: **`bootstrap_clickhouse.sh`** или **Fill All Data**.\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -540,7 +540,7 @@
             "uid": "clickhouse-siem"
           },
           "format": 1,
-          "rawSql": "SELECT formatDateTime(triggered_at, '%Y-%m-%d %H:%M:%S') AS Triggered, rule_id AS Rule, rule_title AS Title, toString(severity) AS Severity, toString(source_ip) AS IP, user_id AS User, left(description, 70) AS Description, toString(status) AS Status, acknowledged_by AS AckBy, arrayStringConcat(mitre_tags, ', ') AS MITRE FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 100",
+          "rawSql": "SELECT formatDateTime(triggered_at, '%Y-%m-%d %H:%i:%S') AS Triggered, rule_id AS Rule, rule_title AS Title, toString(severity) AS Severity, toString(source_ip) AS IP, user_id AS User, left(description, 70) AS Description, toString(status) AS Status, acknowledged_by AS AckBy, arrayStringConcat(mitre_tags, ', ') AS MITRE FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY ORDER BY triggered_at DESC LIMIT 100",
           "meta": {
             "builderOptions": {
               "fields": []
@@ -833,6 +833,44 @@
       },
       "options": {
         "showHeader": true
+      }
+    },
+    {
+      "id": 541,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ]

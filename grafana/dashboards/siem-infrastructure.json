@@ -60,7 +60,7 @@
       "description": "Предупреждение о node-exporter внутри VM Docker Desktop.",
       "options": {
         "mode": "markdown",
-        "content": "> **Ограничение:** на **Windows + Docker Desktop** метрики **node-exporter** отражают Linux-ВМ Docker, **а не** вашу хост-машину Windows. Для «настоящего» хоста используйте отдельный экспортер на хосте или Hyper-V/WSL2 вне compose."
+        "content": "> **Ограничение:** на **Windows + Docker Desktop** метрики **node-exporter** отражают Linux-ВМ Docker, **а не** вашу хост-машину Windows. Для «настоящего» хоста используйте отдельный экспортер на хосте или Hyper-V/WSL2 вне compose.\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -1645,6 +1645,44 @@
         },
         "colorMode": "background",
         "graphMode": "none"
+      }
+    },
+    {
+      "id": 311,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ]

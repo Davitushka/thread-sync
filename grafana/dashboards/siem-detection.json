@@ -59,7 +59,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**Детектирование:** таблицы читают **`siem.events`** / **`siem.alerts`**. При пустых графиках выполните **`scripts/seed-data/bootstrap_clickhouse.sh`** и убедитесь, что **detection-engine** и **Redpanda** в статусе UP (дашборд **Операции** / **Проверки**)."
+        "content": "**Детектирование:** таблицы читают **`siem.events`** / **`siem.alerts`**. При пустых графиках выполните **`scripts/seed-data/bootstrap_clickhouse.sh`** и убедитесь, что **detection-engine** и **Redpanda** в статусе UP (дашборд **Операции** / **Проверки**).\n\n---\n**Логи Docker:** внизу дашборда панель **«Loki: логи контейнеров SIEM»** (Promtail → Loki). Фильтр по `container` именам контейнеров."
       },
       "transparent": true
     },
@@ -582,7 +582,7 @@
             "uid": "clickhouse-siem"
           },
           "format": 1,
-          "rawSql": "SELECT formatDateTime(timestamp, '%H:%M:%S') AS Time, toString(source_ip) AS IP, status_code AS Code, left(url_path, 80) AS URL, toString(severity) AS Sev FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND url_path IS NOT NULL AND (url_path ILIKE '%union%' OR url_path ILIKE '%select%' OR url_path ILIKE '%drop%' OR url_path LIKE '%xp_%' OR url_path LIKE '%27%') ORDER BY timestamp DESC LIMIT 30",
+          "rawSql": "SELECT formatDateTime(timestamp, '%H:%i:%S') AS Time, toString(source_ip) AS IP, status_code AS Code, left(url_path, 80) AS URL, toString(severity) AS Sev FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR AND url_path IS NOT NULL AND (url_path ILIKE '%union%' OR url_path ILIKE '%select%' OR url_path ILIKE '%drop%' OR url_path LIKE '%xp_%' OR url_path LIKE '%27%') ORDER BY timestamp DESC LIMIT 30",
           "meta": {
             "builderOptions": {
               "fields": []
@@ -968,6 +968,44 @@
             "desc": true
           }
         ]
+      }
+    },
+    {
+      "id": 451,
+      "title": "Loki: логи контейнеров SIEM",
+      "description": "Стрим логов ключевых сервисов из Loki (docker_sd → label container).",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-siem"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-siem"
+          },
+          "editorMode": "code",
+          "expr": "{container=~\"siem-clickhouse|siem-parser|detection-engine|siem-correlator|siem-vector-aggregator|siem-admin|siem-grafana|siem-prometheus|siem-redpanda\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       }
     }
   ]
