@@ -20,23 +20,6 @@ spec:
       targetPort: 9100
   type: ClusterIP
 ---
-# detection-engine — внутренний ClusterIP
-apiVersion: v1
-kind: Service
-metadata:
-  name: detection-engine
-  namespace: siem-lite
-  labels:
-    app: detection-engine
-spec:
-  selector:
-    app: detection-engine
-  ports:
-    - name: metrics
-      port: 9110
-      targetPort: 9110
-  type: ClusterIP
----
 # vector-aggregator — принимает логи от агентов
 apiVersion: v1
 kind: Service

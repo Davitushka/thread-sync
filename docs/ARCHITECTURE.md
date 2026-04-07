@@ -34,8 +34,7 @@ flowchart TD
     end
 
     subgraph Detection["🔍 Detection Layer (Rust)"]
-        SIGMA["detection-engine-rs\nrule engine"]
-        CORR["Correlator\n(Rust, stateful windows)"]
+        CORR_ENGINE["correlator\n(detection-engine-rs:\nправила + stateful окна)"]
         ML["Anomaly baseline\n(roadmap)"]
     end
 
@@ -68,12 +67,10 @@ flowchart TD
     ENRICH -->|"enriched JSON\nRedpanda topic: siem.events"| KAFKA
 
     KAFKA -->|"consumer group\nClickHouse sink"| CH
-    KAFKA -->|"consumer group\ndetection-engine-rs"| SIGMA
-    KAFKA -->|"consumer group\ncorrelation"| CORR
+    KAFKA -->|"consumer group\ncorrelator"| CORR_ENGINE
 
-    SIGMA -->|"rule matches\nseverity ≥ medium"| ALERT
-    CORR -->|"correlated incidents"| ALERT
-    ML -->|"anomaly scores"| CORR
+    CORR_ENGINE -->|"alerts → Alertmanager"| ALERT
+    ML -.->|"roadmap"| CORR_ENGINE
 
     CH --> CH_TIERED
     CH_TIERED -->|"TTL move\nto S3"| S3
@@ -83,7 +80,7 @@ flowchart TD
     CH_PLUGIN --> GRAFANA
 
     VEC_AGG --> OTEL
-    SIGMA --> OTEL
+    CORR_ENGINE --> OTEL
     OTEL --> PROM
     OTEL --> LOKI
     PROM --> GRAFANA
@@ -117,8 +114,7 @@ flowchart TD
 - Материализованные представления для агрегатов: топ IP, топ users, rate counters.
 
 ### Detection Layer (Rust)
-- **detection-engine-rs** — потребляет `siem.events` из Redpanda, применяет набор правил на Rust (логика согласована с YAML в `sigma-rules/`, без загрузки Sigma в рантайме).
-- **Correlator** — stateful временны́е окна (sliding window) для brute-force, rate limit и т.д. Состояние в Redis с TTL.
+- **correlator** (крейт **detection-engine-rs**) — единый consumer `siem.events` в Docker Compose и в `deploy/k8s`: stateless-правила и stateful окна (brute-force, rate limit и т.д.) в одном процессе, состояние в Redis с TTL. Логика согласована с YAML в `sigma-rules/` (без загрузки Sigma в рантайме). Отдельный бинарь `detector` не поднимается, чтобы не дублировать consumer и Redis-счётчики.
 - Детекция латентность: <500ms от события до генерации алерта (критические правила).
 
 ### Alerting Layer (Alertmanager 0.27)

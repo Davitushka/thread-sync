@@ -55,16 +55,16 @@ spec:
         - port: 53
           protocol: TCP
 ---
-# detection-engine: читает из Kafka, пишет в Redis
+# correlator: читает Kafka, Redis, шлёт алерты в Alertmanager; метрики на 9111
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: detection-engine-netpol
+  name: correlator-netpol
   namespace: siem-lite
 spec:
   podSelector:
     matchLabels:
-      app: detection-engine
+      app: correlator
   policyTypes:
     - Ingress
     - Egress
@@ -74,7 +74,7 @@ spec:
             matchLabels:
               app: prometheus
       ports:
-        - port: 9110
+        - port: 9111
           protocol: TCP
   egress:
     - to:

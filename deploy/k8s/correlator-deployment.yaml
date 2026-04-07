@@ -1,21 +1,23 @@
+# Correlator: единый Kafka consumer с правилами детекции → Alertmanager.
+# Образ тот же, что и для legacy detector (Dockerfile.detection), точка входа — бинарь correlator.
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: detection-engine
+  name: correlator
   namespace: siem-lite
   labels:
-    app: detection-engine
+    app: correlator
     app.kubernetes.io/component: detection
     app.kubernetes.io/part-of: siem-lite
   annotations:
     prometheus.io/scrape: "true"
-    prometheus.io/port: "9110"
+    prometheus.io/port: "9111"
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: detection-engine
+      app: correlator
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -24,11 +26,11 @@ spec:
   template:
     metadata:
       labels:
-        app: detection-engine
+        app: correlator
         app.kubernetes.io/component: detection
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9110"
+        prometheus.io/port: "9111"
     spec:
       affinity:
         podAntiAffinity:
@@ -37,7 +39,7 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    app: detection-engine
+                    app: correlator
                 topologyKey: kubernetes.io/hostname
 
       securityContext:
@@ -48,17 +50,18 @@ spec:
           type: RuntimeDefault
 
       containers:
-        - name: detection-engine
+        - name: correlator
           image: detection-engine:latest
           imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/correlator"]
           ports:
-            - name: metrics
-              containerPort: 9110
+            - name: http-metrics
+              containerPort: 9111
               protocol: TCP
 
           envFrom:
             - configMapRef:
-                name: detection-engine-config
+                name: correlator-config
 
           env:
             - name: REDIS_PASSWORD
@@ -78,7 +81,7 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 9110
+              port: 9111
             initialDelaySeconds: 10
             periodSeconds: 15
             failureThreshold: 3
@@ -86,7 +89,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /ready
-              port: 9110
+              port: 9111
             initialDelaySeconds: 5
             periodSeconds: 10
 
@@ -101,10 +104,10 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: detection-engine-pdb
+  name: correlator-pdb
   namespace: siem-lite
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: detection-engine
+      app: correlator

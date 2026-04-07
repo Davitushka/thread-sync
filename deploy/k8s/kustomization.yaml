@@ -8,7 +8,7 @@ resources:
   - configmap.yaml
   - secret.yaml
   - siem-parser-deployment.yaml
-  - detection-engine-deployment.yaml
+  - correlator-deployment.yaml
   - vector-aggregator-deployment.yaml
   - clickhouse-statefulset.yaml
   - redpanda-statefulset.yaml

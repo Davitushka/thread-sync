@@ -19,14 +19,19 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: detection-engine-config
+  name: correlator-config
   namespace: siem-lite
 data:
   KAFKA_BOOTSTRAP_SERVERS: "redpanda:9092"
   KAFKA_TOPIC: "siem.events"
-  KAFKA_GROUP_ID: "detection-engine"
+  KAFKA_GROUP_ID: "correlator"
   REDIS_ADDR: "redis-master:6379"
-  METRICS_ADDR: ":9110"
+  ALERTMANAGER_URL: "http://alertmanager:9093"
+  CORRELATOR_HTTP_ADDR: ":9111"
+  BRUTE_FORCE_THRESHOLD: "10"
+  RATE_LIMIT_THRESHOLD: "500"
+  LOG_LEVEL: "info"
+  RUST_LOG: "detection_engine_rs=info,correlator=info"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -128,7 +133,7 @@ data:
             target_label: __address__
             replacement: "${1}:9100"
 
-      - job_name: detection-engine
+      - job_name: correlator
         kubernetes_sd_configs:
           - role: pod
             namespaces:
@@ -136,10 +141,10 @@ data:
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: keep
-            regex: detection-engine
+            regex: correlator
           - source_labels: [__meta_kubernetes_pod_ip]
             target_label: __address__
-            replacement: "${1}:9110"
+            replacement: "${1}:9111"
 
       - job_name: vector-aggregator
         kubernetes_sd_configs:

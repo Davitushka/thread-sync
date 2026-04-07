@@ -80,17 +80,17 @@ spec:
           value: 1
           periodSeconds: 120
 ---
-# HPA для detection-engine: масштабирование по CPU
+# HPA для correlator: масштабирование по CPU (consumer group делит партиции)
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: detection-engine-hpa
+  name: correlator-hpa
   namespace: siem-lite
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: detection-engine
+    name: correlator
   minReplicas: 2
   maxReplicas: 6
   metrics:
