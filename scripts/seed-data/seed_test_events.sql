@@ -3,6 +3,26 @@
 -- Запуск: docker exec -i siem-clickhouse clickhouse-client < scripts/seed-data/seed_test_events.sql
 -- ============================================================
 
+-- Старые volume без полной init: таблица IoC могла отсутствовать.
+CREATE TABLE IF NOT EXISTS siem.threat_intel
+(
+    ioc_type      LowCardinality(String),
+    ioc_value     String,
+    feed          LowCardinality(String) DEFAULT 'manual',
+    threat_label  String                 DEFAULT '',
+    tags          Array(String)          DEFAULT [],
+    confidence    UInt8                  DEFAULT 50,
+    first_seen    DateTime64(3, 'UTC')   DEFAULT now(),
+    last_seen     DateTime64(3, 'UTC')   DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(last_seen)
+PARTITION BY toYYYYMM(first_seen)
+ORDER BY (ioc_type, ioc_value, feed)
+SETTINGS index_granularity = 8192;
+
+ALTER TABLE siem.threat_intel
+    ADD INDEX IF NOT EXISTS idx_threat_ioc_value ioc_value TYPE bloom_filter(0.01) GRANULARITY 4;
+
 -- 1. Базовые события (1000 шт., 24 часа, правильное распределение severity)
 -- 60% info, 20% warning, 15% error, 5% critical
 -- Source types: dotnet(50%), nginx(20%), postgresql(15%), redis(15%)
@@ -11,7 +31,7 @@
 INSERT INTO siem.events
   (timestamp, event_id, source_type, event_type, severity, message, host,
    source_ip, user_id, action, status_code, url_path, http_method, duration_ms,
-   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon,
+   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon, geo_asn, geo_org,
    metadata, agent_version, ingest_ts)
 SELECT
     -- timestamp: равномерно за последние 24 часа
@@ -132,7 +152,7 @@ FROM numbers(1000);
 INSERT INTO siem.events
   (timestamp, event_id, source_type, event_type, severity, message, host,
    source_ip, user_id, action, status_code, url_path, http_method, duration_ms,
-   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon,
+   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon, geo_asn, geo_org,
    metadata, agent_version, ingest_ts)
 SELECT
     now() - INTERVAL toUInt32(rand() % 300) SECOND,
@@ -167,7 +187,7 @@ FROM numbers(20);
 INSERT INTO siem.events
   (timestamp, event_id, source_type, event_type, severity, message, host,
    source_ip, user_id, action, status_code, url_path, http_method, duration_ms,
-   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon,
+   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon, geo_asn, geo_org,
    metadata, agent_version, ingest_ts)
 VALUES
     (now() - INTERVAL 60 SECOND, generateUUIDv4(), 'dotnet', 'security', 'critical',
@@ -198,10 +218,9 @@ VALUES
 INSERT INTO siem.events
   (timestamp, event_id, source_type, event_type, severity, message, host,
    source_ip, user_id, action, status_code, url_path, http_method, duration_ms,
-   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon,
+   geo_country_iso, geo_country_name, geo_city, geo_lat, geo_lon, geo_asn, geo_org,
    metadata, agent_version, ingest_ts)
 VALUES
-    -- Попытка доступа к admin → 401
     (now() - INTERVAL 90 SECOND, generateUUIDv4(), 'dotnet', 'auth', 'warning',
      'Unauthorized admin access attempt', 'siem-app-01',
      toIPv4('45.55.210.33'), 'user-2', 'GET', 401,
@@ -209,7 +228,6 @@ VALUES
      'GET', toFloat32(5.0),
      NULL, NULL, NULL, NULL, NULL, NULL, NULL,
      map(), 'seed-v1', now64(3)),
-    -- Успешный доступ после попытки → 200 (escalation)
     (now() - INTERVAL 20 SECOND, generateUUIDv4(), 'dotnet', 'auth', 'critical',
      'Privilege escalation: admin access granted after failed attempts', 'siem-app-01',
      toIPv4('45.55.210.33'), 'user-2', 'POST', 200,
@@ -221,31 +239,32 @@ VALUES
 -- ============================================================
 -- 5. Тестовый алерт в siem.alerts
 -- ============================================================
+-- fingerprint опущен: в старых схемах колонки нет; в актуальной init.sql подставится DEFAULT ''.
 INSERT INTO siem.alerts
-  (alert_id, fingerprint, triggered_at, rule_id, rule_title, severity, description,
+  (triggered_at, rule_id, rule_title, severity, description,
    source_ip, user_id, event_ids, mitre_tags, status)
 VALUES
-    (generateUUIDv4(), 'seed-brute-1', now() - INTERVAL 5 MINUTE,
-     'brute_force_api', 'Brute-force on API auth', 'critical',
+    (now64(3) - INTERVAL 5 MINUTE,
+     'brute_force_api', 'Brute-force on API auth', CAST('critical', 'Enum8(\'low\'=1,\'medium\'=2,\'high\'=3,\'critical\'=4)'),
      '18 failed auth attempts in 2 minutes from 185.220.101.1',
      toIPv4('185.220.101.1'), 'user-3',
      [],
      ['T1110', 'T1110.001'],
-     'new'),
-    (generateUUIDv4(), 'seed-sqli-1', now() - INTERVAL 2 MINUTE,
-     'sql_injection', 'SQL injection attempt', 'critical',
+     CAST('new', 'Enum8(\'new\'=0,\'acknowledged\'=1,\'resolved\'=2,\'false_positive\'=3)')),
+    (now64(3) - INTERVAL 2 MINUTE,
+     'sql_injection', 'SQL injection attempt', CAST('critical', 'Enum8(\'low\'=1,\'medium\'=2,\'high\'=3,\'critical\'=4)'),
      'SQL keywords in URL from 91.108.4.200: UNION SELECT, DROP TABLE, xp_cmdshell',
-     toIPv4('91.108.4.200'), NULL,
+     toIPv4('91.108.4.200'), CAST(NULL, 'Nullable(String)'),
      [],
      ['T1190'],
-     'new'),
-    (generateUUIDv4(), 'seed-priv-1', now() - INTERVAL 1 MINUTE,
-     'privilege_escalation', 'Privilege escalation attempt', 'high',
+     CAST('new', 'Enum8(\'new\'=0,\'acknowledged\'=1,\'resolved\'=2,\'false_positive\'=3)')),
+    (now64(3) - INTERVAL 1 MINUTE,
+     'privilege_escalation', 'Privilege escalation attempt', CAST('high', 'Enum8(\'low\'=1,\'medium\'=2,\'high\'=3,\'critical\'=4)'),
      'IP 45.55.210.33 accessed /api/admin after 401 denial',
      toIPv4('45.55.210.33'), 'user-2',
      [],
      ['T1068', 'T1078.003'],
-     'acknowledged');
+     CAST('acknowledged', 'Enum8(\'new\'=0,\'acknowledged\'=1,\'resolved\'=2,\'false_positive\'=3)'));
 
 -- ============================================================
 -- 6. Threat intelligence (SOC Workbench: JOIN с siem.events)
@@ -300,6 +319,10 @@ SELECT
     CAST('seed-v1', 'LowCardinality(String)'),
     now64(3)
 FROM numbers(40);
+
+-- END_SEED_DATA
+-- Всё ниже — только ручные проверки. SIEM Admin (Fill All Data) отправляет в ClickHouse только SQL выше этой метки,
+-- чтобы HTTP allow_multiquery не смешивал десятки SELECT с вставками.
 
 -- ============================================================
 -- ПРОВЕРОЧНЫЕ ЗАПРОСЫ (запускать после вставки)
@@ -371,12 +394,11 @@ FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR;
 SELECT 'Threat intel (feed=seed)' AS check, count() AS cnt
 FROM siem.threat_intel WHERE feed = 'seed';
 
--- Проверка 14: События, пересекающиеся с IoC IPv4
+-- Проверка 14: События, пересекающиеся с IoC IPv4 (без коррелированного EXISTS — CH 24.8)
 SELECT 'Events hitting IOC ipv4' AS check, count() AS cnt
 FROM siem.events e
 WHERE e.timestamp >= now() - INTERVAL 24 HOUR
   AND e.source_ip IS NOT NULL
-  AND EXISTS (
-    SELECT 1 FROM siem.threat_intel t
-    WHERE t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip) AND t.feed = 'seed'
+  AND toString(e.source_ip) IN (
+    SELECT ioc_value FROM siem.threat_intel WHERE ioc_type = 'ipv4' AND feed = 'seed'
   );

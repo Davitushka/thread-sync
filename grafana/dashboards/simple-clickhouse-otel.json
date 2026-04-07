@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Назначение",
+      "title": "ℹ️ О дашборде ClickHouse (Prometheus)",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Встроенный `/metrics` ClickHouse\n\nДашборд переведён с OTel на **Prometheus** (`job=\"clickhouse\"`, порт **9363**). **OpenTelemetry Collector не нужен.**\n\nПанели: «CPU» как прокси по **SelectQuery** (как в ТЗ), память **ClickHouseMetrics_MemoryTracking**, диск **ClickHouseAsyncMetrics_DiskAvailable_default**, общая интенсивность **Query**."
+        "content": "## ClickHouse Monitoring через Prometheus\n\nДашборд использует **встроенный экспорт метрик ClickHouse** (порт 9363). **OpenTelemetry Collector не нужен!**\n\n**Панели:**\n- **CPU (прокси)** — скорость SELECT запросов как индикатор нагрузки\n- **Memory** — потребление памяти ClickHouse\n- **Disk available** — свободное место на диске\n- **Queries / s** — общая скорость запросов\n\n**Если графики показывают 0:**\n- ClickHouse ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep clickhouse`\n- Метрики появятся после первого scrape (30 сек)\n\n**Это не SIEM события!** SIEM события в дашборде **SIEM-Lite Overview**.\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
       },
       "transparent": true
     },

@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Инфраструктура мониторинга",
+      "title": "ℹ️ О дашборде TSDB",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Метрики сервера Prometheus\n\nДашборд отражает **саму систему мониторинга** (TSDB, head block), а не прикладной SIEM. Источник: **`job=\"prometheus\"`** (self-scrape на `localhost:9090` внутри контейнера).\n\nПустые графики — проверьте, что Prometheus запущен и правила загружены."
+        "content": "## Prometheus TSDB — состояние базы данных временных рядов\n\nTSDB (Time Series Database) — это **хранилище метрик** Prometheus. Дашборд показывает:\n\n**Панели:**\n- **Ряды в head TSDB** — активные метрики в памяти\n- **Append sample rate** — скорость записи новых данных\n- **Активные запросы** — текущие PromQL запросы\n- **Alertmanager targets** — подключённые Alertmanager\n\n**Если графики пустые:**\n- Prometheus ещё не собрал данные — подождите 1-2 минуты\n- После запуска SIEM-стека метрики появятся автоматически\n- Нормальное значение рядов: 500-2000 (зависит от количества контейнеров)\n\n**Это не SIEM события!** SIEM события в ClickHouse (`siem.events`)."
       },
       "transparent": true
     },

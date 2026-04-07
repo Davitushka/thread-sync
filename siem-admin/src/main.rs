@@ -375,12 +375,20 @@ fn soc_seed_sql_path() -> String {
 
 fn load_soc_seed_sql() -> Result<String, String> {
     let path = soc_seed_sql_path();
-    std::fs::read_to_string(&path).map_err(|e| {
+    let raw = std::fs::read_to_string(&path).map_err(|e| {
         format!(
             "cannot read SOC seed SQL from {}: {} (set SOC_SEED_SQL_PATH or mount seed_test_events.sql)",
             path, e
         )
-    })
+    })?;
+    // Только блок данных: проверочные SELECT в конце seed_test_events.sql после -- END_SEED_DATA
+    // не должны идти в один HTTP POST (иначе часть клиентов/прокси ведёт себя непредсказуемо).
+    let trimmed = if let Some(pos) = raw.find("-- END_SEED_DATA") {
+        raw[..pos].to_string()
+    } else {
+        raw
+    };
+    Ok(trimmed)
 }
 
 async fn execute_clickhouse_multiquery(
@@ -423,28 +431,39 @@ async fn fill_all_data(
         soc_bytes
     ));
 
-    let stress_name = resolve_container_name(&state.docker, "siem-stress")
-        .await
-        .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "service not found: siem-stress"))?;
-
-    let stress_action = match state
-        .docker
-        .restart_container(&stress_name, Some(RestartContainerOptions { t: 15 }))
-        .await
+    let stress_action = if let Some(stress_name) =
+        resolve_container_name(&state.docker, "siem-stress").await
     {
-        Ok(_) => {
-            details.push("siem-stress restarted".to_string());
-            "restarted".to_string()
+        match state
+            .docker
+            .restart_container(&stress_name, Some(RestartContainerOptions { t: 15 }))
+            .await
+        {
+            Ok(_) => {
+                details.push("siem-stress restarted".to_string());
+                "restarted".to_string()
+            }
+            Err(_) => {
+                state
+                    .docker
+                    .start_container(&stress_name, None::<StartContainerOptions<String>>)
+                    .await
+                    .map_err(|e| {
+                        json_error(
+                            StatusCode::BAD_GATEWAY,
+                            format!("start failed for {}: {}", stress_name, e),
+                        )
+                    })?;
+                details.push("siem-stress started".to_string());
+                "started".to_string()
+            }
         }
-        Err(_) => {
-            state
-                .docker
-                .start_container(&stress_name, None::<StartContainerOptions<String>>)
-                .await
-                .map_err(|e| json_error(StatusCode::BAD_GATEWAY, format!("start failed for {}: {}", stress_name, e)))?;
-            details.push("siem-stress started".to_string());
-            "started".to_string()
-        }
+    } else {
+        details.push(
+            "siem-stress not found — пропуск (данные в CH уже засеяны; для нагрузки запустите сервис stress)"
+                .to_string(),
+        );
+        "skipped".to_string()
     };
 
     let seeded_alerts = seed_alerts_into_clickhouse(&state.http)
@@ -481,38 +500,45 @@ struct QuickFillResult {
 /// Встроенный минимальный seed SQL для быстрого заполнения siem.events
 /// Используется как fallback если seed_test_events.sql не найден
 const MINIMAL_SEED_EVENTS_SQL: &str = r#"
--- Очищаем старые данные
 ALTER TABLE siem.events DELETE WHERE 1=1;
 ALTER TABLE siem.alerts DELETE WHERE 1=1;
 
--- Вставляем демо-события siem.events
-INSERT INTO siem.events (timestamp, source_type, severity, source_ip, user_id, url_path, status_code, duration_ms, message, ingest_ts, ingest_lag_ms)
+INSERT INTO siem.events
+  (timestamp, event_id, source_type, event_type, severity, message, host,
+   source_ip, user_id, url_path, status_code, duration_ms, metadata, agent_version, ingest_ts)
 SELECT
-    now() - toIntervalSecond(number % 86400) AS timestamp,
-    multiIf(number % 5 = 0, 'dotnet', number % 5 = 1, 'nginx', number % 5 = 2, 'postgresql', number % 5 = 3, 'redis', 'kafka') AS source_type,
-    multiIf(number % 10 = 0, 'critical', number % 5 = 0, 'error', number % 3 = 0, 'warning', 'info') AS severity,
-    toString(10 + (number % 20)) || '.' || toString(10 + (number % 20)) || '.' || toString(1 + (number % 50)) || '.' || toString(1 + (number % 250)) AS source_ip,
-    multiIf(number % 7 = 0, 'admin', number % 5 = 0, 'user_' || toString(number % 20), 'guest') AS user_id,
-    multiIf(number % 8 = 0, '/api/auth/login', number % 7 = 0, '/api/search/union/select/users', number % 6 = 0, '/api/admin/dashboard', number % 5 = 0, '/api/reports/export.csv', number % 4 = 0, '/api/downloads/dump.zip', '/api/data/list') AS url_path,
-    multiIf(number % 15 = 0, 401, number % 10 = 0, 403, number % 8 = 0, 500, number % 6 = 0, 201, 200) AS status_code,
-    round(rand() % 500 + 10, 2) AS duration_ms,
-    multiIf(number % 10 = 0, 'Brute-force attempt detected', number % 8 = 0, 'SQL injection payload in request', number % 6 = 0, 'Unauthorized access to admin panel', number % 4 = 0, 'Large data export completed', 'Normal request processed') AS message,
-    now() AS ingest_ts,
-    rand() % 100 AS ingest_lag_ms
+    now64(3) - toIntervalSecond(number % 86400),
+    generateUUIDv4(),
+    CAST(multiIf(number % 5 = 0, 'dotnet', number % 5 = 1, 'nginx', number % 5 = 2, 'postgresql', number % 5 = 3, 'redis', 'kafka'), 'LowCardinality(String)'),
+    CAST('application', 'LowCardinality(String)'),
+    CAST(multiIf(number % 10 = 0, 'critical', number % 5 = 0, 'error', number % 3 = 0, 'warning', 'info'), 'Enum8(\'debug\'=0,\'info\'=1,\'warning\'=2,\'error\'=3,\'critical\'=4)'),
+    multiIf(number % 10 = 0, 'Brute-force attempt', number % 8 = 0, 'SQLi payload', number % 6 = 0, 'Admin access', number % 4 = 0, 'Export done', 'OK') AS message,
+    CAST('siem-demo', 'LowCardinality(String)'),
+    CAST(toIPv4(concat(toString(10 + (number % 20)), '.', toString(10 + (number % 20)), '.', toString(1 + (number % 50)), '.', toString(1 + (number % 250)))), 'Nullable(IPv4)'),
+    CAST(multiIf(number % 7 = 0, 'admin', number % 5 = 0, concat('user_', toString(number % 20)), 'guest'), 'Nullable(String)'),
+    CAST(multiIf(number % 8 = 0, '/api/auth/login', number % 7 = 0, '/api/search/union/select', number % 6 = 0, '/api/admin/dashboard', number % 5 = 0, '/api/reports/export.csv', '/api/data'), 'Nullable(String)'),
+    CAST(multiIf(number % 15 = 0, 401, number % 10 = 0, 403, number % 8 = 0, 500, number % 6 = 0, 201, 200), 'Nullable(UInt16)'),
+    CAST(toFloat32(rand() % 500 + 10), 'Nullable(Float32)'),
+    CAST(map(), 'Map(String, String)'),
+    CAST('minimal-seed', 'LowCardinality(String)'),
+    now64(3)
 FROM numbers(500);
 
--- Вставляем демо-алерты
-INSERT INTO siem.alerts (triggered_at, rule_id, rule_title, severity, source_ip, user_id, description, status, mitre_tags)
+INSERT INTO siem.alerts
+  (triggered_at, rule_id, rule_title, severity, source_ip, user_id, description, status, mitre_tags)
 SELECT
-    now() - toIntervalSecond(number % 86400) AS triggered_at,
-    multiIf(number % 5 = 0, 'brute_force_api', number % 4 = 0, 'sql_injection', number % 3 = 0, 'privilege_escalation', number % 2 = 0, 'data_exfiltration', 'account_takeover') AS rule_id,
-    multiIf(number % 5 = 0, 'Brute-force on API auth', number % 4 = 0, 'SQL injection attempt', number % 3 = 0, 'Privilege escalation detected', number % 2 = 0, 'Data exfiltration suspected', 'Account takeover suspected') AS rule_title,
-    multiIf(number % 4 = 0, 'critical', number % 3 = 0, 'high', number % 2 = 0, 'medium', 'low') AS severity,
-    toString(10 + (number % 20)) || '.' || toString(10 + (number % 20)) || '.' || toString(1 + (number % 50)) || '.' || toString(1 + (number % 250)) AS source_ip,
-    multiIf(number % 7 = 0, 'admin', number % 5 = 0, 'user_' || toString(number % 20), 'guest') AS user_id,
-    multiIf(number % 5 = 0, 'Multiple failed auth attempts from single IP', number % 4 = 0, 'SQL patterns detected in URL', number % 3 = 0, '401/403 followed by 200 on admin path', number % 2 = 0, 'Abnormal download volume from export endpoint', 'Failed auth followed by successful login') AS description,
-    multiIf(number % 4 = 0, 'new', number % 3 = 0, 'acknowledged', number % 2 = 0, 'resolved', 'false_positive') AS status,
-    multiIf(number % 5 = 0, 'T1110,T1110.001', number % 4 = 0, 'T1190', number % 3 = 0, 'T1068,T1078.003', number % 2 = 0, 'T1041,T1530', 'T1110,T1078') AS mitre_tags
+    now64(3) - toIntervalSecond(number % 86400),
+    multiIf(number % 5 = 0, 'brute_force_api', number % 4 = 0, 'sql_injection', number % 3 = 0, 'privilege_escalation', number % 2 = 0, 'data_exfiltration', 'account_takeover'),
+    multiIf(number % 5 = 0, 'Brute-force on API auth', number % 4 = 0, 'SQL injection attempt', number % 3 = 0, 'Privilege escalation', number % 2 = 0, 'Data exfiltration', 'Account takeover'),
+    CAST(multiIf(number % 4 = 0, 'critical', number % 3 = 0, 'high', number % 2 = 0, 'medium', 'low'), 'Enum8(\'low\'=1,\'medium\'=2,\'high\'=3,\'critical\'=4)'),
+    CAST(toIPv4(concat(toString(10 + (number % 20)), '.', toString(10 + (number % 20)), '.', toString(1 + (number % 50)), '.', toString(1 + (number % 250)))), 'Nullable(IPv4)'),
+    CAST(multiIf(number % 7 = 0, 'admin', number % 5 = 0, concat('user_', toString(number % 20)), 'guest'), 'Nullable(String)'),
+    multiIf(number % 5 = 0, 'Failed auth burst', number % 4 = 0, 'SQL in URL', number % 3 = 0, '401 then 200', number % 2 = 0, 'Heavy export', 'Login pattern') AS description,
+    CAST(multiIf(number % 4 = 0, 'new', number % 3 = 0, 'acknowledged', number % 2 = 0, 'resolved', 'false_positive'), 'Enum8(\'new\'=0,\'acknowledged\'=1,\'resolved\'=2,\'false_positive\'=3)'),
+    CAST(
+        [multiIf(number % 5 = 0, 'T1110', number % 4 = 0, 'T1190', number % 3 = 0, 'T1068', number % 2 = 0, 'T1041', 'T1110')],
+        'Array(String)'
+    )
 FROM numbers(50);
 "#;
 
@@ -557,19 +583,28 @@ async fn fill_alerts(
             let sql = r#"
 INSERT INTO siem.alerts (triggered_at, rule_id, rule_title, severity, source_ip, user_id, description, status, mitre_tags)
 SELECT
-    now() - toIntervalSecond(number % 86400) AS triggered_at,
+    now64(3) - toIntervalSecond(number % 86400) AS triggered_at,
     multiIf(number % 5 = 0, 'brute_force_api', number % 4 = 0, 'sql_injection', number % 3 = 0, 'privilege_escalation', number % 2 = 0, 'data_exfiltration', 'account_takeover') AS rule_id,
     multiIf(number % 5 = 0, 'Brute-force on API auth', number % 4 = 0, 'SQL injection attempt', number % 3 = 0, 'Privilege escalation detected', number % 2 = 0, 'Data exfiltration suspected', 'Account takeover suspected') AS rule_title,
-    multiIf(number % 4 = 0, 'critical', number % 3 = 0, 'high', number % 2 = 0, 'medium', 'low') AS severity,
-    toString(10 + (number % 20)) || '.' || toString(10 + (number % 20)) || '.' || toString(1 + (number % 50)) || '.' || toString(1 + (number % 250)) AS source_ip,
-    multiIf(number % 7 = 0, 'admin', number % 5 = 0, 'user_' || toString(number % 20), 'guest') AS user_id,
+    CAST(multiIf(number % 4 = 0, 'critical', number % 3 = 0, 'high', number % 2 = 0, 'medium', 'low'), 'Enum8(\'low\'=1,\'medium\'=2,\'high\'=3,\'critical\'=4)') AS severity,
+    CAST(toIPv4(concat(toString(10 + (number % 20)), '.', toString(10 + (number % 20)), '.', toString(1 + (number % 50)), '.', toString(1 + (number % 250)))), 'Nullable(IPv4)') AS source_ip,
+    CAST(multiIf(number % 7 = 0, 'admin', number % 5 = 0, concat('user_', toString(number % 20)), 'guest'), 'Nullable(String)') AS user_id,
     multiIf(number % 5 = 0, 'Multiple failed auth attempts from single IP', number % 4 = 0, 'SQL patterns detected in URL', number % 3 = 0, '401/403 followed by 200 on admin path', number % 2 = 0, 'Abnormal download volume from export endpoint', 'Failed auth followed by successful login') AS description,
-    multiIf(number % 4 = 0, 'new', number % 3 = 0, 'acknowledged', number % 2 = 0, 'resolved', 'false_positive') AS status,
-    multiIf(number % 5 = 0, 'T1110,T1110.001', number % 4 = 0, 'T1190', number % 3 = 0, 'T1068,T1078.003', number % 2 = 0, 'T1041,T1530', 'T1110,T1078') AS mitre_tags
+    CAST(multiIf(number % 4 = 0, 'new', number % 3 = 0, 'acknowledged', number % 2 = 0, 'resolved', 'false_positive'), 'Enum8(\'new\'=0,\'acknowledged\'=1,\'resolved\'=2,\'false_positive\'=3)') AS status,
+    CAST(
+        [multiIf(number % 5 = 0, 'T1110', number % 4 = 0, 'T1190', number % 3 = 0, 'T1068', number % 2 = 0, 'T1041', 'T1110')],
+        'Array(String)'
+    ) AS mitre_tags
 FROM numbers(50);
 "#;
-            execute_clickhouse_multiquery(&state.http, sql).await
-                .map_err(|e| format!("built-in alerts seed failed: {}", e))?;
+            execute_clickhouse_multiquery(&state.http, sql)
+                .await
+                .map_err(|e| {
+                    json_error(
+                        StatusCode::BAD_GATEWAY,
+                        format!("built-in alerts seed failed: {}", e),
+                    )
+                })?;
             50
         }
     };

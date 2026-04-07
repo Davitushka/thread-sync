@@ -19,7 +19,11 @@ docker compose -f deploy/docker/docker-compose.yml --profile seed up soc-seed
 
 Выполняется `seed_test_events.sql`: ~1000+ строк в `siem.events`, демо `siem.alerts`, `siem.threat_intel` (feed=`seed`) для **SOC Workbench**.
 
-То же самое из UI: **SIEM Admin** (профиль `admin`, порт 8089) → **Fill All Data**.
+В файле после маркера `-- END_SEED_DATA` идут только **проверочные SELECT** (для ручного прогона `clickhouse-client < seed_test_events.sql`). **Fill All Data** в SIEM Admin отправляет в ClickHouse только фрагмент **до** этой метки.
+
+Если таблицы `siem.threat_intel` ещё нет (старый volume), сид сам создаёт её (`CREATE TABLE IF NOT EXISTS` в начале файла).
+
+То же самое из UI: **SIEM Admin** (профиль `admin`, порт 8089) → **Fill All Data** (пароль ClickHouse должен совпадать с `CLICKHOUSE_PASSWORD` в compose — в `siem-admin` он проброшен из `.env`).
 
 Связка Grafana (ClickHouse vs Prometheus): [`docs/DATA_PROMETHEUS_GRAFANA.md`](../../docs/DATA_PROMETHEUS_GRAFANA.md).
 

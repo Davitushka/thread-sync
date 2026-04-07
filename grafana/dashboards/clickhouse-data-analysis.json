@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Источник данных",
+      "title": "ℹ️ О дашборде Data Analysis",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Прямые запросы к ClickHouse\n\nПанели используют дatasource **`clickhouse-siem`**. Бизнес-данные — **`siem.events`**; нагрузка и задержки — **`system.query_log`** (должен быть включён в конфигурации сервера).\n\nПустые таблицы — выполните **`bootstrap_clickhouse.sh`** или **Fill All Data**."
+        "content": "## Анализ данных ClickHouse\n\nДашборд показывает **сырые данные** из ClickHouse и **нагрузку на базу данных**.\n\n**Панели:**\n- **События по часам** — количество событий в `siem.events` по часам (7 дней)\n- **Топ source_type** — распределение источников данных за 24ч\n- **query_log: запросов / мин** — нагрузка на ClickHouse\n- **query_log: средняя длительность** — скорость выполнения запросов\n\n**Если таблицы пустые:**\n- Заполните данные через **Control Panel** → кнопки заполнения\n- Или выполните: `bash scripts/seed-data/bootstrap_clickhouse.sh`\n- Или через Grafana: **SIEM Admin** → **Fill All Data**\n\n**После заполнения подождите 30 секунд** — данные появятся автоматически.\n\n**Datasource:** `clickhouse-siem` (прямые SQL запросы)"
       },
       "transparent": true
     },

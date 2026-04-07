@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Инфраструктура мониторинга",
+      "title": "ℹ️ О дашборде Prometheus",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Метрики Prometheus (сервер)\n\nПоказатели **инфраструктуры мониторинга**: цели scrape, блоки TSDB, уведомления. Не путать с **`siem_events_total`** и прикладными метриками стека.\n\nДанные с **`job=\"prometheus\"`**."
+        "content": "## Prometheus Server — мониторинг системы сбора метрик\n\nЭтот дашборд показывает **здоровье самого Prometheus** (не SIEM события!):\n\n**Панели:**\n- **Targets ready** — количество scrape целей\n- **Scrape failures** — ошибки сбора метрик (должно быть 0)\n- **WAL коррупции** — проблемы базы данных (должно быть 0)\n- **Prometheus UP** — статус сервера\n\n**Если графики пустые:**\n- Prometheus ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep prometheus`\n- Метрики появятся после первого scrape цикла (15 сек)\n\n**Настройка:** `deploy/docker/prometheus.yml`"
       },
       "transparent": true
     },

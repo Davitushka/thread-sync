@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Подсказка",
+      "title": "ℹ️ О дашборде Correlator",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 2 },
       "options": {
         "mode": "markdown",
-        "content": "Метрики **`correlator`** (порт **9111**). Если панели пустые — проверьте таргет в Prometheus и логи контейнера **correlator**."
+        "content": "## Correlator — компонент обработки событий\n\nМетрики **`correlator`** (порт **9111**). Correlator обрабатывает события из Kafka и передаёт алерты в detection-engine.\n\n**Если панели показывают 0:**\n- Correlator ещё не запустился — подождите 30-60 секунд\n- Проверьте статус: `docker ps | grep correlator`\n- Посмотрите логи: `docker logs siem-correlator`\n\n**Метрики:**\n- `correlator_events_processed_total` — обработанные события\n- `correlator_parse_errors_total` — ошибки парсинга\n- `correlator_alerts_forwarded_total` — пересланные алерты"
       },
       "transparent": true
     },

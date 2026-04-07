@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Источник метрик",
+      "title": "ℹ️ О дашборде Advanced Monitoring",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Встроенный экспорт ClickHouse → Prometheus\n\nМетрики снимаются с **`clickhouse:9363`** (job `clickhouse` в Prometheus). **OpenTelemetry Collector не требуется.**\n\nЗапросы переведены на префиксы **`ClickHouseProfileEvents_*`** (события) и **`ClickHouseAsyncMetrics_*`** (асинхронные показатели вместо устаревших `ClickHouseMetrics_*` в части панелей)."
+        "content": "## ClickHouse — расширенный мониторинг\n\nДашборд использует **встроенный экспорт метрик ClickHouse** через Prometheus (порт 9363). **OpenTelemetry Collector не требуется!**\n\n**Панели:**\n- **ProfileEvents: запросы / с** — Query, SelectQuery, InsertQuery\n- **ProfileEvents: ошибки / с** — FailedQuery, FailedInsert\n- **AsyncMetrics: память** — RSS потребление\n- **AsyncMetrics: диск** — свободное место\n- **AsyncMetrics: партиции** — количество частей\n\n**Если графики показывают 0:**\n- ClickHouse ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep clickhouse`\n- Метрики появятся после первого scrape (30 сек)\n\n**Префиксы метрик:**\n- `ClickHouseProfileEvents_*` — счётчики событий\n- `ClickHouseAsyncMetrics_*` — асинхронные метрики\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
       },
       "transparent": true
     },

@@ -85,7 +85,7 @@
             "uid": "clickhouse-siem"
           },
           "format": 1,
-          "rawSql": "SELECT count() AS hits FROM siem.events e WHERE e.timestamp >= now() - INTERVAL 24 HOUR AND e.source_ip IS NOT NULL AND EXISTS (SELECT 1 FROM siem.threat_intel t WHERE t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip))"
+          "rawSql": "SELECT count() AS hits FROM siem.events e WHERE e.timestamp >= now() - INTERVAL 24 HOUR AND e.source_ip IS NOT NULL AND toString(e.source_ip) IN (SELECT ioc_value FROM siem.threat_intel WHERE ioc_type = 'ipv4')"
         }
       ],
       "fieldConfig": {
@@ -141,7 +141,7 @@
             "uid": "clickhouse-siem"
           },
           "format": 1,
-          "rawSql": "SELECT uniqExact(e.source_ip) AS uniq_bad_ips FROM siem.events e WHERE e.timestamp >= now() - INTERVAL 24 HOUR AND e.source_ip IS NOT NULL AND EXISTS (SELECT 1 FROM siem.threat_intel t WHERE t.ioc_type = 'ipv4' AND t.ioc_value = toString(e.source_ip))"
+          "rawSql": "SELECT uniqExact(e.source_ip) AS uniq_bad_ips FROM siem.events e WHERE e.timestamp >= now() - INTERVAL 24 HOUR AND e.source_ip IS NOT NULL AND toString(e.source_ip) IN (SELECT ioc_value FROM siem.threat_intel WHERE ioc_type = 'ipv4')"
         }
       ],
       "fieldConfig": {

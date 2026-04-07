@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "system.query_log",
+      "title": "ℹ️ О дашборде Query Analysis",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Анализ запросов\n\nВсе панели читают **`system.query_log`** через **`clickhouse-siem`**. Если таблица пуста — включите логирование запросов в конфигурации ClickHouse и дождитесь нагрузки.\n\n**Top by duration** — самые долгие завершённые запросы; **Slow** — порог > 1 с (настройте под себя)."
+        "content": "## Анализ запросов ClickHouse\n\nДашборд показывает **самые медленные запросы** к ClickHouse для оптимизации производительности.\n\n**Панели:**\n- **Top queries по длительности** — 40 самых долгих запросов за 24ч\n- **Медленные запросы (>1000ms)** — запросы дольше 1 секунды\n\n**Если таблицы пустые:**\n- Включите логирование запросов в ClickHouse config\n- Подождите появления нагрузки на базу данных\n- После заполнения SIEM данных (Events/Alerts) запросы появятся автоматически\n\n**Как включить query_log:**\n```xml\n<!-- В config.xml ClickHouse -->\n<query_log>\n    <database>system</database>\n    <table>query_log</table>\n    <flush_interval_milliseconds>7500</flush_interval_milliseconds>\n</query_log>\n```\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
       },
       "transparent": true
     },

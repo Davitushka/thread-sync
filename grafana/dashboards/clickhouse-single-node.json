@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Один инстанс",
+      "title": "ℹ️ О дашборде Single Node",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Адаптация под single node\n\nИсходные кластерные дашборды с группировкой по `cluster` здесь **не используются**: один таргет **`clickhouse:9363`**, все ряды без агрегации по кластеру.\n\nЕсли график пустой — проверьте цель **`clickhouse`** в Prometheus и `config.d/prometheus.xml` в контейнере CH."
+        "content": "## ClickHouse — мониторинг одиночного узла\n\nДашборд адаптирован для **single-node** установки ClickHouse (не кластер!).\n\n**Панели:**\n- **Запросы (все типы) / с** — общая скорость запросов\n- **Вставки и выборки / с** — SELECT и INSERT отдельно\n- **Память** — потребление RAM ClickHouse\n- **Свободное место** — диск default storage\n- **Неудачные запросы** — ошибки выполнения\n- **Merged rows** — скорость слияния партиций\n\n**Если графики показывают 0:**\n- ClickHouse ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep clickhouse`\n- Метрики появятся после первого scrape (30 сек)\n\n**Это не SIEM события!** SIEM события в дашборде **SIEM-Lite Overview**.\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
       },
       "transparent": true
     },

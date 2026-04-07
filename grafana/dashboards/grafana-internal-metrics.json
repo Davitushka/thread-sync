@@ -10,12 +10,12 @@
   "panels": [
     {
       "id": 1,
-      "title": "Инфраструктура мониторинга",
+      "title": "ℹ️ О дашборде Grafana",
       "type": "text",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Метрики самой Grafana\n\nЭтот дашборд показывает **инфраструктуру мониторинга** (процесс Grafana), а не события SIEM. Prometheus должен скрейпить **`grafana:3000/metrics`** (job `grafana` в `prometheus.yml`).\n\nЕсли пусто — проверьте таргет **grafana** в Prometheus и сеть Docker."
+        "content": "## Grafana Server — мониторинг веб-интерфейса\n\nЭтот дашборд показывает **здоровье самой Grafana** (не SIEM события!):\n\n**Панели:**\n- **CPU (process)** — загрузка процессора Grafana\n- **RSS память** — потребление оперативной памяти\n- **Grafana UP** — статус сервера (должен быть зелёный)\n- **Открытые файлы** — количество открытых FD (норма: 50-200)\n\n**Если графики показывают 0:**\n- Grafana ещё не запустилась — подождите 30 секунд\n- Проверьте: `docker ps | grep grafana`\n- Откройте Grafana: http://localhost:3000\n\n**Это не SIEM события!** SIEM события в дашборде **SIEM-Lite Overview**.\n\n**Настройка:** job `grafana` в `deploy/docker/prometheus.yml`"
       },
       "transparent": true
     },
