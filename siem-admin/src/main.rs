@@ -391,29 +391,106 @@ fn load_soc_seed_sql() -> Result<String, String> {
     Ok(trimmed)
 }
 
+/// Разбивает SQL на отдельные запросы для HTTP-интерфейса ClickHouse без `allow_multiquery`
+/// (в 24.8 настройка через `?allow_multiquery=1` даёт `UNKNOWN_SETTING` и ломает SIEM Admin).
+fn split_clickhouse_statements(sql: &str) -> Vec<String> {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    let mut i = 0usize;
+    let mut in_string = false;
+
+    while i < chars.len() {
+        let c = chars[i];
+
+        if in_string {
+            if c == '\\' && i + 1 < chars.len() {
+                buf.push(c);
+                buf.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            if c == '\'' && i + 1 < chars.len() && chars[i + 1] == '\'' {
+                buf.push('\'');
+                buf.push('\'');
+                i += 2;
+                continue;
+            }
+            if c == '\'' {
+                in_string = false;
+                buf.push('\'');
+                i += 1;
+                continue;
+            }
+            buf.push(c);
+            i += 1;
+            continue;
+        }
+
+        if c == '-' && i + 1 < chars.len() && chars[i + 1] == '-' {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if c == '/' && i + 1 < chars.len() && chars[i + 1] == '*' {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i = (i + 2).min(chars.len());
+            continue;
+        }
+        if c == '\'' {
+            in_string = true;
+            buf.push('\'');
+            i += 1;
+            continue;
+        }
+        if c == ';' {
+            let stmt = buf.trim();
+            if !stmt.is_empty() {
+                out.push(stmt.to_string());
+            }
+            buf.clear();
+            i += 1;
+            continue;
+        }
+
+        buf.push(c);
+        i += 1;
+    }
+
+    let tail = buf.trim();
+    if !tail.is_empty() {
+        out.push(tail.to_string());
+    }
+    out
+}
+
 async fn execute_clickhouse_multiquery(
     http: &reqwest::Client,
     sql: &str,
 ) -> Result<String, String> {
-    let (url, user, password) = clickhouse_config();
-    let base = url.trim_end_matches('/').to_string();
-    let sep = if base.contains('?') { '&' } else { '?' };
-    let url = format!("{base}{sep}allow_multiquery=1");
-    let resp = http
-        .post(url)
-        .basic_auth(user, Some(password))
-        .timeout(Duration::from_secs(120))
-        .body(sql.to_string())
-        .send()
-        .await
-        .map_err(|e| format!("clickhouse multiquery request failed: {}", e))?;
-
-    let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!("clickhouse returned {}: {}", status, body));
+    let statements = split_clickhouse_statements(sql);
+    if statements.is_empty() {
+        return Ok(String::new());
     }
-    Ok(body)
+
+    let mut last_body = String::new();
+    for (idx, stmt) in statements.iter().enumerate() {
+        last_body = execute_clickhouse_query(http, stmt.clone())
+            .await
+            .map_err(|e| {
+                format!(
+                    "multi-statement #{} (of {}) failed: {}",
+                    idx + 1,
+                    statements.len(),
+                    e
+                )
+            })?;
+    }
+    Ok(last_body)
 }
 
 async fn fill_all_data(
@@ -565,7 +642,7 @@ async fn fill_events(
     Ok(Json(QuickFillResult {
         ok: true,
         message: format!(
-            "✅ siem.events: 500 events, siem.alerts: 50 alerts seeded ({} bytes)",
+            "✅ Выполнен seed SQL ({} байт): siem.events + siem.alerts + siem.threat_intel (см. seed_test_events.sql или встроенный минимальный seed)",
             seed_sql.len()
         ),
     }))
@@ -1532,6 +1609,8 @@ async fn execute_clickhouse_query(http: &reqwest::Client, query: String) -> Resu
     let resp = http
         .post(url)
         .basic_auth(user, Some(password))
+        // Большие INSERT из seed_test_events.sql; глобальный timeout клиента 10s слишком мал.
+        .timeout(Duration::from_secs(300))
         .body(query)
         .send()
         .await
