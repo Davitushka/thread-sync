@@ -15,7 +15,7 @@
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Prometheus TSDB — состояние базы данных временных рядов\n\nTSDB (Time Series Database) — это **хранилище метрик** Prometheus. Дашборд показывает:\n\n**Панели:**\n- **Ряды в head TSDB** — активные метрики в памяти\n- **Append sample rate** — скорость записи новых данных\n- **Активные запросы** — текущие PromQL запросы\n- **Alertmanager targets** — подключённые Alertmanager\n\n**Если графики пустые:**\n- Prometheus ещё не собрал данные — подождите 1-2 минуты\n- После запуска SIEM-стека метрики появятся автоматически\n- Нормальное значение рядов: 500-2000 (зависит от количества контейнеров)\n\n**Это не SIEM события!** SIEM события в ClickHouse (`siem.events`)."
+        "content": "## Prometheus TSDB — состояние базы данных временных рядов\n\n**Почему «мало движения»:** в дев-стеке TSDB быстро выходит на плато: рядов ~8–15k, append rate почти константа, `engine_queries` часто 0 между редкими запросами. Это **не баг**.\n\nНиже добавлена панель **ряды + чанки + скорость создания** — больше линий и смысла при сравнении нагрузки.\n\n**SIEM-события** смотрите в ClickHouse (`siem.events`) и дашборде **SIEM-Lite Overview**."
       },
       "transparent": true
     },
@@ -66,6 +66,34 @@
       ],
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 6,
+      "title": "TSDB head: ряды, чанки, создание",
+      "description": "Несколько шкал на одном графике; для bytes/chunks смотрите относительную динамику.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 18, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "prometheus_tsdb_head_series{job=\"prometheus\"} or vector(0)", "legendFormat": "head series" },
+        { "refId": "B", "expr": "prometheus_tsdb_head_chunks{job=\"prometheus\"} or vector(0)", "legendFormat": "head chunks" },
+        { "refId": "C", "expr": "rate(prometheus_tsdb_head_series_created_total{job=\"prometheus\"}[5m]) or vector(0)", "legendFormat": "series created/s" },
+        { "refId": "D", "expr": "rate(prometheus_tsdb_head_chunks_created_total{job=\"prometheus\"}[5m]) or vector(0)", "legendFormat": "chunks created/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 8 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 7,
+      "title": "Сэмплов за последний scrape (по job)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (job) (scrape_samples_scraped)", "legendFormat": "{{job}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
     }
   ]
 }

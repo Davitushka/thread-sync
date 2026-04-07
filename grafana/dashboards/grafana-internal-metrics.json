@@ -15,7 +15,7 @@
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Grafana Server — мониторинг веб-интерфейса\n\nЭтот дашборд показывает **здоровье самой Grafana** (не SIEM события!):\n\n**Панели:**\n- **CPU (process)** — загрузка процессора Grafana\n- **RSS память** — потребление оперативной памяти\n- **Grafana UP** — статус сервера (должен быть зелёный)\n- **Открытые файлы** — количество открытых FD (норма: 50-200)\n\n**Если графики показывают 0:**\n- Grafana ещё не запустилась — подождите 30 секунд\n- Проверьте: `docker ps | grep grafana`\n- Откройте Grafana: http://localhost:3000\n\n**Это не SIEM события!** SIEM события в дашборде **SIEM-Lite Overview**.\n\n**Настройка:** job `grafana` в `deploy/docker/prometheus.yml`"
+        "content": "## Grafana Server — внутренние метрики\n\nМало «динамики» на графиках — **норма**, пока никто не кликает по UI. Ниже добавлены **HTTP** и **запросы datasource** — там больше линий при работе в Grafana.\n\nДубликат с англ. **Grafana metrics** в списке — обычно другой UID (импорт). Этот файл: **siem-grafana-metrics**.\n\n**SIEM-события:** дашборд **SIEM-Lite Overview**.\n\n**Настройка:** job `grafana` в `deploy/docker/prometheus.yml`"
       },
       "transparent": true
     },
@@ -71,6 +71,30 @@
       ],
       "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 6,
+      "title": "HTTP Grafana / с (топ handler)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, sum by (handler) (rate(grafana_http_request_duration_seconds_count{job=\"grafana\"}[5m])))", "legendFormat": "{{handler}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 7,
+      "title": "Запросы datasource / с (по type)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (datasource_type) (rate(grafana_datasource_request_total{job=\"grafana\"}[5m]))", "legendFormat": "{{datasource_type}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
     }
   ]
 }

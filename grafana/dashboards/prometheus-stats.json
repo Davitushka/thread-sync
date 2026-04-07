@@ -15,7 +15,7 @@
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## Prometheus Server — мониторинг системы сбора метрик\n\nЭтот дашборд показывает **здоровье самого Prometheus** (не SIEM события!):\n\n**Панели:**\n- **Targets ready** — количество scrape целей\n- **Scrape failures** — ошибки сбора метрик (должно быть 0)\n- **WAL коррупции** — проблемы базы данных (должно быть 0)\n- **Prometheus UP** — статус сервера\n\n**Если графики пустые:**\n- Prometheus ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep prometheus`\n- Метрики появятся после первого scrape цикла (15 сек)\n\n**Настройка:** `deploy/docker/prometheus.yml`"
+        "content": "## Prometheus Server — мониторинг системы сбора метрик\n\nЭтот дашборд про **сам Prometheus**, не про объём SIEM-событий. Часть панелей намеренно **«скучные»**: в стабильном стеке нет ошибок scrape, WAL и всплесков — линии около нуля или ровные.\n\n**Ниже добавлены панели «богаче по линиям»:** сколько сэмплов снимает каждый job, длительность scrape, HTTP к самому Prometheus — там обычно **несколько десятков рядов**.\n\nЕсли в списке дашбордов видите **дубликаты** (English / русский) — это разные UIDs (импорт + provisioning). Скрывайте лишнее в UI, **не удаляйте** провиженные JSON из репозитория без нужды.\n\n**Настройка:** `deploy/docker/prometheus.yml`"
       },
       "transparent": true
     },
@@ -71,6 +71,44 @@
         }
       },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" }
+    },
+    {
+      "id": 6,
+      "title": "Сэмплов за последний scrape (по job)",
+      "description": "Одна линия на каждый scrape target — визуально насыщеннее, чем «рожденные» счётчики правил.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (job) (scrape_samples_scraped)", "legendFormat": "{{job}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 7,
+      "title": "Длительность scrape (rate, по job)",
+      "description": "PromQL: rate(scrape_duration_seconds) — нагрузка сбора по целям.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (job) (rate(scrape_duration_seconds[5m]))", "legendFormat": "{{job}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
+    },
+    {
+      "id": 8,
+      "title": "HTTP к Prometheus / с (топ handler)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 22, "w": 24, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "topk(15, sum by (handler) (rate(prometheus_http_requests_total{job=\"prometheus\"}[5m])))", "legendFormat": "{{handler}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 12 } } },
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "right" } }
     }
   ]
 }

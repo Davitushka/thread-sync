@@ -15,7 +15,7 @@
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
       "options": {
         "mode": "markdown",
-        "content": "## ClickHouse Monitoring через Prometheus\n\nДашборд использует **встроенный экспорт метрик ClickHouse** (порт 9363). **OpenTelemetry Collector не нужен!**\n\n**Панели:**\n- **CPU (прокси)** — скорость SELECT запросов как индикатор нагрузки\n- **Memory** — потребление памяти ClickHouse\n- **Disk available** — свободное место на диске\n- **Queries / s** — общая скорость запросов\n\n**Если графики показывают 0:**\n- ClickHouse ещё не запустился — подождите 60 секунд\n- Проверьте: `docker ps | grep clickhouse`\n- Метрики появятся после первого scrape (30 сек)\n\n**Это не SIEM события!** SIEM события в дашборде **SIEM-Lite Overview**.\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
+        "content": "## ClickHouse через Prometheus (без OTel)\n\n**Почему линии «скучные»:** память и свободный диск меняются медленно; **rate(Query)** и **InsertedRows** живее. Если в списке ещё есть старый **Simple ClickHouse OTel** с пустыми OTel-панелями — это другой дашборд; используйте этот (**uid** `ch-simple-prometheus`).\n\n**SIEM-события** — дашборд **SIEM-Lite Overview** (ClickHouse SQL).\n\n**Настройка:** `deploy/docker/clickhouse/config.d/prometheus.xml`"
       },
       "transparent": true
     },
@@ -39,10 +39,11 @@
       "gridPos": { "x": 12, "y": 3, "w": 12, "h": 7 },
       "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
       "targets": [
-        { "refId": "A", "expr": "ClickHouseMetrics_MemoryTracking{job=\"clickhouse\"}", "legendFormat": "tracking" }
+        { "refId": "A", "expr": "ClickHouseMetrics_MemoryTracking{job=\"clickhouse\"}", "legendFormat": "MemoryTracking" },
+        { "refId": "B", "expr": "ClickHouseAsyncMetrics_MemoryResident{job=\"clickhouse\"}", "legendFormat": "MemoryResident (async)" }
       ],
       "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } },
-      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+      "options": { "tooltip": { "mode": "multi" }, "legend": { "displayMode": "table", "placement": "bottom" } }
     },
     {
       "id": 4,
@@ -66,6 +67,18 @@
         { "refId": "A", "expr": "rate(ClickHouseProfileEvents_Query{job=\"clickhouse\"}[2m])", "legendFormat": "Query/s" }
       ],
       "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2 } } },
+      "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
+    },
+    {
+      "id": 6,
+      "title": "Вставленные строки / с",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-siem" },
+      "targets": [
+        { "refId": "A", "expr": "rate(ClickHouseProfileEvents_InsertedRows{job=\"clickhouse\"}[2m])", "legendFormat": "inserted rows/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps", "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
       "options": { "tooltip": { "mode": "single" }, "legend": { "displayMode": "hidden" } }
     }
   ]
