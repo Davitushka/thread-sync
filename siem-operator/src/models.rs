@@ -69,3 +69,31 @@ pub struct EventStatus {
     #[serde(default, rename = "silencedBy")]
     pub silenced_by: Vec<String>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PromQueryResponse {
+    #[serde(default)]
+    pub data: PromData,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PromData {
+    #[serde(default)]
+    pub result: Vec<PromSeries>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PromSeries {
+    #[serde(default)]
+    pub metric: serde_json::Value,
+    #[serde(default)]
+    pub value: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct InvestigationResponse {
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub findings: Vec<String>,
+}

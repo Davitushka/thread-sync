@@ -4,9 +4,13 @@ use serde::{Deserialize, Serialize};
 pub(super) enum Section {
     #[default]
     Overview,
+    Detections,
     Alerts,
     Events,
+    Investigations,
     Assets,
+    Cases,
+    StackControl,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,4 +66,11 @@ pub(super) struct AssetFilters {
     pub risk: String,
     pub source: String,
     pub stale_only: bool,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub(super) struct DetectionFilters {
+    pub search: String,
+    pub severity: String,
+    pub state: String,
 }

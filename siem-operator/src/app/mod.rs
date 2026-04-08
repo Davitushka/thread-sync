@@ -2,11 +2,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use eframe::egui;
 
-use crate::models::{AlertItem, AlertState, CaseBrief, CasesResponse, PortalEvent};
+use crate::models::{
+    AlertItem, AlertState, CaseBrief, CasesResponse, InvestigationResponse, PortalEvent,
+    PromQueryResponse,
+};
 use crate::ui::widgets::{pill_label, section_nav_button, severity_color, stack_action_card};
 mod state;
 mod types;
@@ -18,7 +22,10 @@ use bootstrap::seed_alerts;
 use metrics::{average_hours, kpi_card, sparkline_card};
 use panels::build_case_sparkline_series;
 use state::{load_state, save_state, PersistedState};
-use types::{AssetFilters, AuditEntry, CaseFilters, EventFilters, PendingAction, SavedView, Section, UserRole};
+use types::{
+    AssetFilters, AuditEntry, CaseFilters, DetectionFilters, EventFilters, PendingAction, SavedView,
+    Section, UserRole,
+};
 
 #[derive(Debug, Clone)]
 struct EventRow {
@@ -38,6 +45,14 @@ struct AssetRow {
     risk: String,
     open_cases: usize,
     stale_cases: usize,
+}
+
+#[derive(Debug, Clone)]
+struct DetectionRow {
+    rule: String,
+    severity: String,
+    state: String,
+    signal: String,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -61,6 +76,7 @@ pub struct OperatorApp {
     asset_filters: AssetFilters,
     events: Vec<EventRow>,
     assets: Vec<AssetRow>,
+    detections: Vec<DetectionRow>,
     active_view: SavedView,
     close_reason: String,
     whoami: String,
@@ -71,14 +87,24 @@ pub struct OperatorApp {
     obs_snapshot: Option<ObsSnapshot>,
     events_loading: bool,
     events_rx: Option<Receiver<Result<Vec<EventRow>, String>>>,
+    detections_loading: bool,
+    detections_rx: Option<Receiver<Result<Vec<DetectionRow>, String>>>,
+    investigation_loading: bool,
+    investigation_rx: Option<Receiver<Result<Vec<String>, String>>>,
     assets_loading: bool,
     docker_loading: bool,
     docker_rx: Option<Receiver<Result<String, String>>>,
     docker_last_output: String,
+    detection_filters: DetectionFilters,
+    investigation_entity: String,
+    investigation_notes: Vec<String>,
     role: UserRole,
     pending_action: Option<PendingAction>,
     audit_log: Vec<AuditEntry>,
     auto_triage_enabled: bool,
+    auto_refresh_enabled: bool,
+    auto_refresh_interval_sec: u64,
+    last_auto_refresh_at: Instant,
     playbook_steps: Vec<(String, bool)>,
     last_persist_blob: String,
 }
@@ -102,6 +128,7 @@ impl Default for OperatorApp {
             asset_filters: AssetFilters::default(),
             events: Vec::new(),
             assets: Vec::new(),
+            detections: Vec::new(),
             active_view: SavedView::All,
             close_reason: String::new(),
             whoami: "analyst".to_string(),
@@ -112,14 +139,24 @@ impl Default for OperatorApp {
             obs_snapshot: None,
             events_loading: false,
             events_rx: None,
+            detections_loading: false,
+            detections_rx: None,
+            investigation_loading: false,
+            investigation_rx: None,
             assets_loading: false,
             docker_loading: false,
             docker_rx: None,
             docker_last_output: "No docker action executed yet.".to_string(),
+            detection_filters: DetectionFilters::default(),
+            investigation_entity: String::new(),
+            investigation_notes: Vec::new(),
             role: UserRole::Analyst,
             pending_action: None,
             audit_log: Vec::new(),
             auto_triage_enabled: true,
+            auto_refresh_enabled: true,
+            auto_refresh_interval_sec: 20,
+            last_auto_refresh_at: Instant::now(),
             playbook_steps: vec![
                 ("Validate alert context".to_string(), false),
                 ("Collect IOC artifacts".to_string(), false),
@@ -235,17 +272,25 @@ impl OperatorApp {
     fn section_as_str(section: Section) -> &'static str {
         match section {
             Section::Overview => "overview",
+            Section::Detections => "detections",
             Section::Alerts => "alerts",
             Section::Events => "events",
+            Section::Investigations => "investigations",
             Section::Assets => "assets",
+            Section::Cases => "cases",
+            Section::StackControl => "stack_control",
         }
     }
 
     fn section_from_str(v: &str) -> Section {
         match v {
+            "detections" => Section::Detections,
             "alerts" => Section::Alerts,
             "events" => Section::Events,
+            "investigations" => Section::Investigations,
             "assets" => Section::Assets,
+            "cases" => Section::Cases,
+            "stack_control" => Section::StackControl,
             _ => Section::Overview,
         }
     }
@@ -261,6 +306,10 @@ impl OperatorApp {
             filters: self.filters.clone(),
             event_filters: self.event_filters.clone(),
             asset_filters: self.asset_filters.clone(),
+            detection_filters: self.detection_filters.clone(),
+            selected_investigation_entity: self.investigation_entity.clone(),
+            auto_refresh_enabled: self.auto_refresh_enabled,
+            auto_refresh_interval_sec: self.auto_refresh_interval_sec,
         }
     }
 
@@ -279,6 +328,10 @@ impl OperatorApp {
             self.filters = saved.filters;
             self.event_filters = saved.event_filters;
             self.asset_filters = saved.asset_filters;
+            self.detection_filters = saved.detection_filters;
+            self.investigation_entity = saved.selected_investigation_entity;
+            self.auto_refresh_enabled = saved.auto_refresh_enabled;
+            self.auto_refresh_interval_sec = saved.auto_refresh_interval_sec.clamp(10, 120);
             if let Ok(blob) = serde_json::to_string(&self.to_persisted_state()) {
                 self.last_persist_blob = blob;
             }
@@ -296,6 +349,41 @@ impl OperatorApp {
         let path = Self::state_path();
         if save_state(&path, &state).is_ok() {
             self.last_persist_blob = blob;
+        }
+    }
+
+    fn has_active_fetches(&self) -> bool {
+        self.loading
+            || self.obs_loading
+            || self.events_loading
+            || self.detections_loading
+            || self.investigation_loading
+            || self.assets_loading
+            || self.rx.is_some()
+            || self.obs_rx.is_some()
+            || self.events_rx.is_some()
+            || self.detections_rx.is_some()
+            || self.investigation_rx.is_some()
+    }
+
+    fn tick_auto_refresh(&mut self, ctx: &egui::Context) {
+        if !self.auto_refresh_enabled {
+            return;
+        }
+        let interval = self.auto_refresh_interval_sec.clamp(10, 120);
+        let elapsed = self.last_auto_refresh_at.elapsed();
+        if elapsed >= Duration::from_secs(interval) && !self.has_active_fetches() {
+            self.fetch_cases();
+            self.fetch_events();
+            self.fetch_detections();
+            self.fetch_assets();
+            self.fetch_observability_snapshot();
+            self.last_auto_refresh_at = Instant::now();
+            self.status = format!("Auto-refresh sync started ({}s)", interval);
+        } else {
+            let remaining = Duration::from_secs(interval).saturating_sub(elapsed);
+            let ms = remaining.as_millis().clamp(200, 1000) as u64;
+            ctx.request_repaint_after(Duration::from_millis(ms));
         }
     }
 
@@ -410,6 +498,89 @@ impl OperatorApp {
             let _ = tx.send(result);
         });
         self.events_rx = Some(rx);
+    }
+
+    fn fetch_detections(&mut self) {
+        self.detections_loading = true;
+        let base = self.portal_base();
+        let url = format!("{base}/api/v1/proxy/prometheus/query?query=ALERTS");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Vec<DetectionRow>, String> {
+                let client = reqwest::blocking::Client::builder()
+                    .timeout(std::time::Duration::from_secs(15))
+                    .build()
+                    .map_err(|e| e.to_string())?;
+                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                let body = resp.json::<PromQueryResponse>().map_err(|e| e.to_string())?;
+                let rows = body
+                    .data
+                    .result
+                    .into_iter()
+                    .map(|s| {
+                        let rule = s.metric["alertname"].as_str().unwrap_or("alert").to_string();
+                        let severity = s.metric["severity"].as_str().unwrap_or("unknown").to_string();
+                        let state = s.metric["alertstate"].as_str().unwrap_or("firing").to_string();
+                        let signal = s.value.get(1).and_then(|v| v.as_str()).unwrap_or("0").to_string();
+                        DetectionRow {
+                            rule,
+                            severity,
+                            state,
+                            signal,
+                        }
+                    })
+                    .collect();
+                Ok(rows)
+            })();
+            let _ = tx.send(result);
+        });
+        self.detections_rx = Some(rx);
+    }
+
+    fn fetch_investigation_for_entity(&mut self, entity: &str) {
+        let entity = entity.trim().to_string();
+        if entity.is_empty() {
+            return;
+        }
+        self.investigation_loading = true;
+        let base = self.api_base.trim_end_matches('/').to_string();
+        let url = format!("{base}/api/v1/cases/{entity}/investigate");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Vec<String>, String> {
+                let client = reqwest::blocking::Client::builder()
+                    .timeout(std::time::Duration::from_secs(15))
+                    .build()
+                    .map_err(|e| e.to_string())?;
+                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                let raw = resp.text().map_err(|e| e.to_string())?;
+                if let Ok(parsed) = serde_json::from_str::<InvestigationResponse>(&raw) {
+                    let mut rows = vec![format!("Summary: {}", parsed.summary)];
+                    rows.extend(parsed.findings);
+                    return Ok(rows);
+                }
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let Some(arr) = v["items"].as_array() {
+                        let rows = arr
+                            .iter()
+                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>();
+                        if !rows.is_empty() {
+                            return Ok(rows);
+                        }
+                    }
+                }
+                Ok(vec![raw])
+            })();
+            let _ = tx.send(result);
+        });
+        self.investigation_rx = Some(rx);
     }
 
     fn rebuild_assets_from_cases(&mut self) {
@@ -808,14 +979,36 @@ impl OperatorApp {
                     if section_nav_button(ui, "Overview", "KPI и SLA", self.section == Section::Overview) {
                         self.section = Section::Overview;
                     }
+                    if section_nav_button(ui, "Detections", "Rules и сигналы", self.section == Section::Detections) {
+                        self.section = Section::Detections;
+                    }
                     if section_nav_button(ui, "Alerts", "Inbox и Promote", self.section == Section::Alerts) {
                         self.section = Section::Alerts;
                     }
                     if section_nav_button(ui, "Events", "Поток и триаж", self.section == Section::Events) {
                         self.section = Section::Events;
                     }
+                    if section_nav_button(
+                        ui,
+                        "Investigations",
+                        "Timeline и workbench",
+                        self.section == Section::Investigations,
+                    ) {
+                        self.section = Section::Investigations;
+                    }
                     if section_nav_button(ui, "Assets", "Хосты и риск", self.section == Section::Assets) {
                         self.section = Section::Assets;
+                    }
+                    if section_nav_button(ui, "Cases", "Lifecycle response", self.section == Section::Cases) {
+                        self.section = Section::Cases;
+                    }
+                    if section_nav_button(
+                        ui,
+                        "Stack Control",
+                        "Docker и health",
+                        self.section == Section::StackControl,
+                    ) {
+                        self.section = Section::StackControl;
                     }
                 });
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
@@ -1363,6 +1556,12 @@ impl OperatorApp {
                     }
                 });
             ui.checkbox(&mut self.auto_triage_enabled, "Auto-triage rules");
+            ui.checkbox(&mut self.auto_refresh_enabled, "Auto-refresh");
+            ui.add(
+                egui::Slider::new(&mut self.auto_refresh_interval_sec, 10..=120)
+                    .text("sec")
+                    .suffix("s"),
+            );
             if ui.button("Run triage now").clicked() {
                 self.apply_auto_triage_rules();
             }
@@ -1435,6 +1634,8 @@ impl OperatorApp {
         ui.label("Минимальный поток: alert -> Promote to Case.");
         ui.add_space(10.0);
         let mut promote_idx: Option<usize> = None;
+        let mut audit_ack: Option<String> = None;
+        let mut open_investigation: Option<String> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, alert) in self.alerts.iter_mut().enumerate() {
                 egui::Frame::none()
@@ -1464,6 +1665,10 @@ impl OperatorApp {
                             if ui.button("Acknowledge").clicked() {
                                 alert.state = AlertState::Acknowledged;
                                 self.status = format!("{} acknowledged", alert.id);
+                                audit_ack = Some(format!("Acknowledged alert {}", alert.id));
+                            }
+                            if ui.button("Investigate").clicked() {
+                                open_investigation = Some(alert.id.clone());
                             }
                             if ui.button("Promote to Case").clicked() {
                                 promote_idx = Some(i);
@@ -1490,6 +1695,14 @@ impl OperatorApp {
                 self.append_audit(format!("Promoted alert {} to case", alert.id));
                 self.alerts.remove(i);
             }
+        }
+        if let Some(msg) = audit_ack {
+            self.append_audit(msg);
+        }
+        if let Some(entity) = open_investigation {
+            self.investigation_entity = entity.clone();
+            self.fetch_investigation_for_entity(&entity);
+            self.section = Section::Investigations;
         }
     }
 
@@ -1901,6 +2114,7 @@ impl OperatorApp {
 impl eframe::App for OperatorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_hotkeys(ctx);
+        self.tick_auto_refresh(ctx);
         if let Some(rx) = &self.obs_rx {
             match rx.try_recv() {
                 Ok(Ok(snapshot)) => {
@@ -1973,6 +2187,46 @@ impl eframe::App for OperatorApp {
                 }
             }
         }
+        if let Some(rx) = &self.detections_rx {
+            match rx.try_recv() {
+                Ok(Ok(rows)) => {
+                    self.detections = rows;
+                    self.detections_loading = false;
+                    self.detections_rx = None;
+                    self.status = format!("Detections synced: {}", self.detections.len());
+                }
+                Ok(Err(e)) => {
+                    self.detections_loading = false;
+                    self.detections_rx = None;
+                    self.status = format!("Detections error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.detections_loading = false;
+                    self.detections_rx = None;
+                }
+            }
+        }
+        if let Some(rx) = &self.investigation_rx {
+            match rx.try_recv() {
+                Ok(Ok(rows)) => {
+                    self.investigation_notes = rows;
+                    self.investigation_loading = false;
+                    self.investigation_rx = None;
+                    self.status = "Investigation loaded".to_string();
+                }
+                Ok(Err(e)) => {
+                    self.investigation_loading = false;
+                    self.investigation_rx = None;
+                    self.status = format!("Investigation error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.investigation_loading = false;
+                    self.investigation_rx = None;
+                }
+            }
+        }
         if let Some(rx) = &self.docker_rx {
             match rx.try_recv() {
                 Ok(Ok(out)) => {
@@ -2006,9 +2260,13 @@ impl eframe::App for OperatorApp {
             )
             .show(ctx, |ui| match self.section {
                 Section::Overview => self.show_home_panel(ui),
+                Section::Detections => self.show_detections_panel(ui),
                 Section::Alerts => self.show_alerts_panel(ui),
                 Section::Events => self.show_events_panel(ui),
+                Section::Investigations => self.show_investigations_panel(ui),
                 Section::Assets => self.show_assets_panel(ui),
+                Section::Cases => self.show_cases_panel(ui),
+                Section::StackControl => self.show_stack_control_panel(ui),
             });
         self.show_critical_confirmation(ctx);
         self.show_command_palette(ctx);
@@ -2016,6 +2274,7 @@ impl eframe::App for OperatorApp {
         if self.cases.is_empty() && !self.loading && self.rx.is_none() && self.status.contains("Нажми") {
             self.fetch_cases();
             self.fetch_events();
+            self.fetch_detections();
             self.fetch_assets();
             self.fetch_observability_snapshot();
         }

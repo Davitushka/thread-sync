@@ -83,3 +83,15 @@ Desktop-клиент `siem-operator` (вкладки `Overview/Alerts/Events/Ass
 - `GET /api/v1/proxy/prometheus/query?...` для `Overview` observability KPI.
 
 Рекомендация: для оператора выставлять `SIEM_OPERATOR_API` на адрес `siem-portal`, чтобы убрать прямые обращения к localhost-сервисам.
+
+### Hybrid SIEM вкладки в Operator
+
+Для нового UX `siem-operator` использует следующие потоки:
+
+- `Detections`: `GET /api/v1/proxy/prometheus/query?query=ALERTS`
+- `Alerts`/`Events`: `GET /api/v1/proxy/alertmanager/v2/alerts`
+- `Investigations`: `GET {case-management}/api/v1/cases/:id/investigate` (через `SIEM_OPERATOR_API`)
+- `Assets`/`Cases`: `GET {case-management}/api/v1/cases?...`
+- `StackControl`: локальные `docker compose` команды из `deploy/docker`
+
+Контекст triage->investigation->case сохраняется в persisted state (`selected_investigation_entity`), чтобы оператор мог продолжить расследование после перезапуска UI.

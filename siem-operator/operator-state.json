@@ -4,7 +4,7 @@
   "role": "analyst",
   "active_view": "all",
   "auto_triage_enabled": true,
-  "last_section": "overview",
+  "last_section": "assets",
   "filters": {
     "search": "",
     "severity": "",
@@ -25,5 +25,13 @@
     "risk": "",
     "source": "",
     "stale_only": false
-  }
+  },
+  "detection_filters": {
+    "search": "",
+    "severity": "",
+    "state": ""
+  },
+  "selected_investigation_entity": "",
+  "auto_refresh_enabled": true,
+  "auto_refresh_interval_sec": 10
 }
