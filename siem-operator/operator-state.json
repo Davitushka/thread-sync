@@ -1,0 +1,16 @@
+{
+  "api_base": "http://127.0.0.1:8088",
+  "whoami": "analyst",
+  "role": "analyst",
+  "active_view": "all",
+  "auto_triage_enabled": true,
+  "filters": {
+    "search": "",
+    "severity": "",
+    "status": "",
+    "assignee": "",
+    "source": "",
+    "mitre": "",
+    "stale_only": false
+  }
+}

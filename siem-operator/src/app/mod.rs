@@ -7,55 +7,15 @@ use eframe::egui;
 
 use crate::models::{AlertItem, AlertState, CaseBrief, CasesResponse};
 use crate::ui::widgets::{pill_label, section_nav_button, severity_color, stack_action_card};
+mod state;
+mod types;
+mod metrics;
+mod bootstrap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Section {
-    #[default]
-    Home,
-    Cases,
-    Alerts,
-    Stack,
-    Connection,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SavedView {
-    All,
-    MyQueue,
-    Critical24h,
-    NoAssignee,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UserRole {
-    Analyst,
-    Senior,
-    Manager,
-}
-
-#[derive(Debug, Clone)]
-struct AuditEntry {
-    timestamp: String,
-    actor: String,
-    action: String,
-}
-
-#[derive(Debug, Clone)]
-enum PendingAction {
-    Close { reason: String },
-    MoveStatus { status: String },
-}
-
-#[derive(Default)]
-struct CaseFilters {
-    search: String,
-    severity: String,
-    status: String,
-    assignee: String,
-    source: String,
-    mitre: String,
-    stale_only: bool,
-}
+use bootstrap::seed_alerts;
+use metrics::{average_hours, kpi_card, sparkline_card};
+use state::{load_state, save_state, PersistedState};
+use types::{AuditEntry, CaseFilters, PendingAction, SavedView, Section, UserRole};
 
 pub struct OperatorApp {
     api_base: String,
@@ -81,13 +41,14 @@ pub struct OperatorApp {
     audit_log: Vec<AuditEntry>,
     auto_triage_enabled: bool,
     playbook_steps: Vec<(String, bool)>,
+    last_persist_blob: String,
 }
 
 impl Default for OperatorApp {
     fn default() -> Self {
         let api_base =
             std::env::var("SIEM_OPERATOR_API").unwrap_or_else(|_| "http://127.0.0.1:8088".to_string());
-        Self {
+        let mut app = Self {
             api_base,
             section: Section::default(),
             cases: Vec::new(),
@@ -116,7 +77,10 @@ impl Default for OperatorApp {
                 ("Contain impacted asset".to_string(), false),
                 ("Document evidence".to_string(), false),
             ],
-        }
+            last_persist_blob: String::new(),
+        };
+        app.load_persisted_state_if_exists();
+        app
     }
 }
 
@@ -160,6 +124,87 @@ impl OperatorApp {
             },
         );
         self.audit_log.truncate(150);
+    }
+
+    fn state_path() -> PathBuf {
+        PathBuf::from("operator-state.json")
+    }
+
+    fn saved_view_as_str(view: SavedView) -> &'static str {
+        match view {
+            SavedView::All => "all",
+            SavedView::MyQueue => "my_queue",
+            SavedView::Critical24h => "critical_24h",
+            SavedView::NoAssignee => "no_assignee",
+        }
+    }
+
+    fn saved_view_from_str(v: &str) -> SavedView {
+        match v {
+            "my_queue" => SavedView::MyQueue,
+            "critical_24h" => SavedView::Critical24h,
+            "no_assignee" => SavedView::NoAssignee,
+            _ => SavedView::All,
+        }
+    }
+
+    fn role_as_str(role: UserRole) -> &'static str {
+        match role {
+            UserRole::Analyst => "analyst",
+            UserRole::Senior => "senior",
+            UserRole::Manager => "manager",
+        }
+    }
+
+    fn role_from_str(v: &str) -> UserRole {
+        match v {
+            "senior" => UserRole::Senior,
+            "manager" => UserRole::Manager,
+            _ => UserRole::Analyst,
+        }
+    }
+
+    fn to_persisted_state(&self) -> PersistedState {
+        PersistedState {
+            api_base: self.api_base.clone(),
+            whoami: self.whoami.clone(),
+            role: Self::role_as_str(self.role).to_string(),
+            active_view: Self::saved_view_as_str(self.active_view).to_string(),
+            auto_triage_enabled: self.auto_triage_enabled,
+            filters: self.filters.clone(),
+        }
+    }
+
+    fn load_persisted_state_if_exists(&mut self) {
+        let path = Self::state_path();
+        if !path.exists() {
+            return;
+        }
+        if let Ok(saved) = load_state(&path) {
+            self.api_base = saved.api_base;
+            self.whoami = saved.whoami;
+            self.role = Self::role_from_str(&saved.role);
+            self.active_view = Self::saved_view_from_str(&saved.active_view);
+            self.auto_triage_enabled = saved.auto_triage_enabled;
+            self.filters = saved.filters;
+            if let Ok(blob) = serde_json::to_string(&self.to_persisted_state()) {
+                self.last_persist_blob = blob;
+            }
+        }
+    }
+
+    fn maybe_persist_state(&mut self) {
+        let state = self.to_persisted_state();
+        let Ok(blob) = serde_json::to_string(&state) else {
+            return;
+        };
+        if blob == self.last_persist_blob {
+            return;
+        }
+        let path = Self::state_path();
+        if save_state(&path, &state).is_ok() {
+            self.last_persist_blob = blob;
+        }
     }
 
     fn apply_hotkeys(&mut self, ctx: &egui::Context) {
@@ -1532,28 +1577,8 @@ impl eframe::App for OperatorApp {
             self.fetch_cases();
             self.fetch_observability_snapshot();
         }
+        self.maybe_persist_state();
     }
-}
-
-fn average_hours(values: impl Iterator<Item = i64>) -> i64 {
-    let v: Vec<i64> = values.collect();
-    if v.is_empty() {
-        return 0;
-    }
-    v.iter().sum::<i64>() / i64::try_from(v.len()).unwrap_or(1)
-}
-
-fn kpi_card(ui: &mut egui::Ui, label: &str, value: &str, accent: egui::Color32) {
-    egui::Frame::none()
-        .fill(egui::Color32::from_rgb(30, 36, 48))
-        .rounding(egui::Rounding::same(10.0))
-        .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.7)))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
-        .show(ui, |ui| {
-            ui.set_min_width(140.0);
-            ui.label(egui::RichText::new(label).small());
-            ui.label(egui::RichText::new(value).strong().size(24.0).color(accent));
-        });
 }
 
 fn build_case_sparkline_series(cases: &[CaseBrief]) -> (Vec<f32>, Vec<f32>) {
@@ -1571,68 +1596,4 @@ fn build_case_sparkline_series(cases: &[CaseBrief]) -> (Vec<f32>, Vec<f32>) {
         }
     }
     (open, critical)
-}
-
-fn sparkline_card(ui: &mut egui::Ui, title: &str, values: &[f32], color: egui::Color32) {
-    egui::Frame::none()
-        .fill(egui::Color32::from_rgb(30, 36, 48))
-        .rounding(egui::Rounding::same(10.0))
-        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.7)))
-        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
-        .show(ui, |ui| {
-            ui.set_min_width(250.0);
-            ui.label(egui::RichText::new(title).small());
-            let desired = egui::vec2(240.0, 52.0);
-            let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
-            if values.len() < 2 {
-                return;
-            }
-            let max = values
-                .iter()
-                .copied()
-                .fold(0.0_f32, f32::max)
-                .max(1.0);
-            let mut points: Vec<egui::Pos2> = Vec::with_capacity(values.len());
-            for (i, v) in values.iter().enumerate() {
-                let x = rect.left() + (i as f32 / (values.len() - 1) as f32) * rect.width();
-                let y = rect.bottom() - (v / max) * rect.height();
-                points.push(egui::pos2(x, y));
-            }
-            ui.painter()
-                .line_segment([egui::pos2(rect.left(), rect.bottom()), egui::pos2(rect.right(), rect.bottom())], egui::Stroke::new(1.0, egui::Color32::from_gray(70)));
-            ui.painter()
-                .add(egui::Shape::line(points, egui::Stroke::new(2.0, color)));
-        });
-}
-
-fn seed_alerts() -> Vec<AlertItem> {
-    vec![
-        AlertItem {
-            id: "ALRT-1001".to_string(),
-            title: "Multiple failed admin logins from rare geo".to_string(),
-            severity: "high".to_string(),
-            source: "Identity".to_string(),
-            mitre_tactic: "TA0006 Credential Access".to_string(),
-            fired_at: Utc::now().to_rfc3339(),
-            state: AlertState::Firing,
-        },
-        AlertItem {
-            id: "ALRT-1002".to_string(),
-            title: "Suspicious lateral movement via SMB".to_string(),
-            severity: "critical".to_string(),
-            source: "Network".to_string(),
-            mitre_tactic: "TA0008 Lateral Movement".to_string(),
-            fired_at: Utc::now().to_rfc3339(),
-            state: AlertState::Firing,
-        },
-        AlertItem {
-            id: "ALRT-1003".to_string(),
-            title: "EDR detected unsigned powershell execution".to_string(),
-            severity: "medium".to_string(),
-            source: "Endpoint".to_string(),
-            mitre_tactic: "TA0005 Defense Evasion".to_string(),
-            fired_at: Utc::now().to_rfc3339(),
-            state: AlertState::Acknowledged,
-        },
-    ]
 }
