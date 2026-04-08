@@ -11,6 +11,7 @@ pub(super) enum Section {
     Assets,
     Cases,
     StackControl,
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +27,14 @@ pub(super) enum UserRole {
     Analyst,
     Senior,
     Manager,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum DashboardPreset {
+    #[default]
+    Soc,
+    Executive,
+    Hunting,
 }
 
 #[derive(Debug, Clone)]

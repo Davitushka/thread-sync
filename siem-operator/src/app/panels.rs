@@ -59,6 +59,7 @@ impl OperatorApp {
                 action("assets", "Go: Assets", &mut |s| s.section = Section::Assets);
                 action("cases", "Go: Cases", &mut |s| s.section = Section::Cases);
                 action("stack", "Go: Stack Control", &mut |s| s.section = Section::StackControl);
+                action("settings", "Go: Settings", &mut |s| s.section = Section::Settings);
                 action("refresh", "Action: Refresh cases", &mut |s| s.fetch_cases());
                 action("refresh events", "Action: Refresh events", &mut |s| s.fetch_events());
                 action("refresh assets", "Action: Refresh assets", &mut |s| s.fetch_assets());
@@ -137,43 +138,103 @@ impl OperatorApp {
     }
 
     pub(super) fn show_detections_panel(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading("Detections");
-            if ui.button("Refresh").clicked() {
-                self.fetch_detections();
-            }
-            if self.detections_loading {
-                ui.spinner();
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Search:");
-            ui.add(egui::TextEdit::singleline(&mut self.detection_filters.search));
-            egui::ComboBox::from_label("Severity")
-                .selected_text(if self.detection_filters.severity.is_empty() {
-                    "All"
-                } else {
-                    &self.detection_filters.severity
-                })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "critical", "high", "medium", "low", "unknown"] {
-                        if ui
-                            .selectable_label(
-                                self.detection_filters.severity == v
-                                    || (self.detection_filters.severity.is_empty() && v == "All"),
-                                v,
-                            )
-                            .clicked()
-                        {
-                            self.detection_filters.severity =
-                                if v == "All" { String::new() } else { v.to_string() };
-                        }
-                    }
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Detections").strong().size(24.0));
+                    ui.label(
+                        egui::RichText::new("Correlated rules, severity and firing states")
+                            .small()
+                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                    );
                 });
-        });
+                ui.add_space(8.0);
+                if ui.available_width() < 1100.0 {
+                    ui.vertical(|ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.button("Refresh").clicked() {
+                                self.fetch_detections();
+                            }
+                            if self.detections_loading {
+                                ui.spinner();
+                            }
+                        });
+                        ui.label("Search:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.detection_filters.search)
+                                .desired_width(f32::INFINITY),
+                        );
+                        egui::ComboBox::from_label("Severity")
+                            .selected_text(if self.detection_filters.severity.is_empty() {
+                                "All"
+                            } else {
+                                &self.detection_filters.severity
+                            })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "critical", "high", "medium", "low", "unknown"] {
+                                    if ui
+                                        .selectable_label(
+                                            self.detection_filters.severity == v
+                                                || (self.detection_filters.severity.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.detection_filters.severity =
+                                            if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                    });
+                } else {
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button("Refresh").clicked() {
+                            self.fetch_detections();
+                        }
+                        if self.detections_loading {
+                            ui.spinner();
+                        }
+                        ui.label("Search:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.detection_filters.search)
+                                .desired_width(220.0),
+                        );
+                        egui::ComboBox::from_label("Severity")
+                            .selected_text(if self.detection_filters.severity.is_empty() {
+                                "All"
+                            } else {
+                                &self.detection_filters.severity
+                            })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "critical", "high", "medium", "low", "unknown"] {
+                                    if ui
+                                        .selectable_label(
+                                            self.detection_filters.severity == v
+                                                || (self.detection_filters.severity.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.detection_filters.severity =
+                                            if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                    });
+                }
+            });
         ui.add_space(8.0);
         let mut open_investigation: Option<String> = None;
-        egui::Grid::new("detections_grid").striped(true).show(ui, |ui| {
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| egui::Grid::new("detections_grid").striped(true).show(ui, |ui| {
             ui.strong("Rule");
             ui.strong("Severity");
             ui.strong("State");
@@ -197,7 +258,7 @@ impl OperatorApp {
                 ui.label(&d.signal);
                 ui.end_row();
             }
-        });
+        }));
         if let Some(entity) = open_investigation {
             self.investigation_entity = entity.clone();
             self.section = Section::Investigations;
@@ -206,91 +267,126 @@ impl OperatorApp {
     }
 
     pub(super) fn show_investigations_panel(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.heading("Investigations");
-            if self.investigation_loading {
-                ui.spinner();
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Entity / Case ID:");
-            ui.add(egui::TextEdit::singleline(&mut self.investigation_entity).desired_width(260.0));
-            if ui.button("Load").clicked() {
-                let entity = self.investigation_entity.clone();
-                self.fetch_investigation_for_entity(&entity);
-            }
-            if ui.button("Promote to Case").clicked() {
-                let title = if self.investigation_entity.trim().is_empty() {
-                    "Investigation finding".to_string()
-                } else {
-                    format!("Investigation: {}", self.investigation_entity)
-                };
-                self.cases.insert(
-                    0,
-                    crate::models::CaseBrief {
-                        id: format!("inv-{}", chrono::Utc::now().timestamp()),
-                        display_key: format!("CASE-{}", self.cases.len() + 1),
-                        title,
-                        severity: "high".to_string(),
-                        status: "New".to_string(),
-                        assignee: None,
-                        created_at: chrono::Utc::now().to_rfc3339(),
-                    },
-                );
-                self.total += 1;
-                self.append_audit("Promoted investigation to case".to_string());
-                self.status = "Investigation promoted to case".to_string();
-                self.section = Section::Cases;
-            }
-        });
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Investigations").strong().size(24.0));
+                    ui.label(
+                        egui::RichText::new("Entity timeline and findings workbench")
+                            .small()
+                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                    );
+                    if self.investigation_loading {
+                        ui.spinner();
+                    }
+                });
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Entity / Case ID:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.investigation_entity)
+                            .desired_width(280.0),
+                    );
+                    if ui.button("Load").clicked() {
+                        let entity = self.investigation_entity.clone();
+                        self.fetch_investigation_for_entity(&entity);
+                    }
+                    if ui.button("Promote to Case").clicked() {
+                        let title = if self.investigation_entity.trim().is_empty() {
+                            "Investigation finding".to_string()
+                        } else {
+                            format!("Investigation: {}", self.investigation_entity)
+                        };
+                        self.cases.insert(
+                            0,
+                            crate::models::CaseBrief {
+                                id: format!("inv-{}", chrono::Utc::now().timestamp()),
+                                display_key: format!("CASE-{}", self.cases.len() + 1),
+                                title,
+                                severity: "high".to_string(),
+                                status: "New".to_string(),
+                                assignee: None,
+                                created_at: chrono::Utc::now().to_rfc3339(),
+                            },
+                        );
+                        self.total += 1;
+                        self.append_audit("Promoted investigation to case".to_string());
+                        self.status = "Investigation promoted to case".to_string();
+                        self.section = Section::Cases;
+                    }
+                });
+            });
         ui.separator();
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            if self.investigation_notes.is_empty() {
-                ui.label("No investigation notes loaded.");
-            } else {
-                for line in &self.investigation_notes {
-                    ui.label(line);
-                }
-            }
-        });
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if self.investigation_notes.is_empty() {
+                        ui.label("No investigation notes loaded.");
+                    } else {
+                        for line in &self.investigation_notes {
+                            ui.label(line);
+                        }
+                    }
+                });
+            });
     }
 
     pub(super) fn show_stack_control_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Stack Control");
-        ui.label("Управление docker compose и быстрый status стека.");
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Stack Control").strong().size(24.0));
+                ui.label("Docker orchestration and live status for SIEM stack.");
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(!self.docker_loading, egui::Button::new("Start Stack"))
+                        .clicked()
+                    {
+                        self.run_docker_compose_action("up");
+                    }
+                    if ui
+                        .add_enabled(!self.docker_loading, egui::Button::new("Stop Stack"))
+                        .clicked()
+                    {
+                        self.run_docker_compose_action("down");
+                    }
+                    if ui
+                        .add_enabled(!self.docker_loading, egui::Button::new("Restart Stack"))
+                        .clicked()
+                    {
+                        self.run_docker_compose_action("restart");
+                    }
+                    if ui
+                        .add_enabled(!self.docker_loading, egui::Button::new("Stack Status"))
+                        .clicked()
+                    {
+                        self.run_docker_compose_action("ps");
+                    }
+                    if self.docker_loading {
+                        ui.spinner();
+                    }
+                });
+            });
         ui.add_space(8.0);
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .add_enabled(!self.docker_loading, egui::Button::new("Start Stack"))
-                .clicked()
-            {
-                self.run_docker_compose_action("up");
-            }
-            if ui
-                .add_enabled(!self.docker_loading, egui::Button::new("Stop Stack"))
-                .clicked()
-            {
-                self.run_docker_compose_action("down");
-            }
-            if ui
-                .add_enabled(!self.docker_loading, egui::Button::new("Restart Stack"))
-                .clicked()
-            {
-                self.run_docker_compose_action("restart");
-            }
-            if ui
-                .add_enabled(!self.docker_loading, egui::Button::new("Stack Status"))
-                .clicked()
-            {
-                self.run_docker_compose_action("ps");
-            }
-            if self.docker_loading {
-                ui.spinner();
-            }
-        });
-        ui.add_space(8.0);
-        egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-            ui.label(egui::RichText::new(&self.docker_last_output).monospace());
-        });
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                ui.label(egui::RichText::new(&self.docker_last_output).monospace());
+            }));
     }
 }

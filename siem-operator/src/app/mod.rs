@@ -23,8 +23,8 @@ use metrics::{average_hours, kpi_card, sparkline_card};
 use panels::build_case_sparkline_series;
 use state::{load_state, save_state, PersistedState};
 use types::{
-    AssetFilters, AuditEntry, CaseFilters, DetectionFilters, EventFilters, PendingAction, SavedView,
-    Section, UserRole,
+    AssetFilters, AuditEntry, CaseFilters, DashboardPreset, DetectionFilters, EventFilters,
+    PendingAction, SavedView, Section, UserRole,
 };
 
 #[derive(Debug, Clone)]
@@ -80,6 +80,7 @@ pub struct OperatorApp {
     active_view: SavedView,
     close_reason: String,
     whoami: String,
+    global_search_query: String,
     palette_open: bool,
     palette_query: String,
     obs_loading: bool,
@@ -105,6 +106,17 @@ pub struct OperatorApp {
     auto_refresh_enabled: bool,
     auto_refresh_interval_sec: u64,
     last_auto_refresh_at: Instant,
+    use_light_theme: bool,
+    compact_mode: bool,
+    wallpaper_preset: String,
+    wallpaper_tint: [u8; 3],
+    dashboard_preset: DashboardPreset,
+    widget_kpi: bool,
+    widget_trends: bool,
+    widget_sources: bool,
+    widget_severity_mix: bool,
+    widget_analyst_load: bool,
+    widget_audit: bool,
     playbook_steps: Vec<(String, bool)>,
     last_persist_blob: String,
 }
@@ -132,6 +144,7 @@ impl Default for OperatorApp {
             active_view: SavedView::All,
             close_reason: String::new(),
             whoami: "analyst".to_string(),
+            global_search_query: String::new(),
             palette_open: false,
             palette_query: String::new(),
             obs_loading: false,
@@ -157,6 +170,17 @@ impl Default for OperatorApp {
             auto_refresh_enabled: true,
             auto_refresh_interval_sec: 20,
             last_auto_refresh_at: Instant::now(),
+            use_light_theme: false,
+            compact_mode: false,
+            wallpaper_preset: "midnight".to_string(),
+            wallpaper_tint: [22, 27, 36],
+            dashboard_preset: DashboardPreset::Soc,
+            widget_kpi: true,
+            widget_trends: true,
+            widget_sources: true,
+            widget_severity_mix: true,
+            widget_analyst_load: true,
+            widget_audit: true,
             playbook_steps: vec![
                 ("Validate alert context".to_string(), false),
                 ("Collect IOC artifacts".to_string(), false),
@@ -279,6 +303,7 @@ impl OperatorApp {
             Section::Assets => "assets",
             Section::Cases => "cases",
             Section::StackControl => "stack_control",
+            Section::Settings => "settings",
         }
     }
 
@@ -291,6 +316,7 @@ impl OperatorApp {
             "assets" => Section::Assets,
             "cases" => Section::Cases,
             "stack_control" => Section::StackControl,
+            "settings" => Section::Settings,
             _ => Section::Overview,
         }
     }
@@ -310,6 +336,14 @@ impl OperatorApp {
             selected_investigation_entity: self.investigation_entity.clone(),
             auto_refresh_enabled: self.auto_refresh_enabled,
             auto_refresh_interval_sec: self.auto_refresh_interval_sec,
+            theme_mode: if self.use_light_theme {
+                "light".to_string()
+            } else {
+                "dark".to_string()
+            },
+            compact_mode: self.compact_mode,
+            wallpaper_preset: self.wallpaper_preset.clone(),
+            wallpaper_tint: self.wallpaper_tint,
         }
     }
 
@@ -332,6 +366,10 @@ impl OperatorApp {
             self.investigation_entity = saved.selected_investigation_entity;
             self.auto_refresh_enabled = saved.auto_refresh_enabled;
             self.auto_refresh_interval_sec = saved.auto_refresh_interval_sec.clamp(10, 120);
+            self.use_light_theme = saved.theme_mode.eq_ignore_ascii_case("light");
+            self.compact_mode = saved.compact_mode;
+            self.wallpaper_preset = saved.wallpaper_preset;
+            self.wallpaper_tint = saved.wallpaper_tint;
             if let Ok(blob) = serde_json::to_string(&self.to_persisted_state()) {
                 self.last_persist_blob = blob;
             }
@@ -384,6 +422,36 @@ impl OperatorApp {
             let remaining = Duration::from_secs(interval).saturating_sub(elapsed);
             let ms = remaining.as_millis().clamp(200, 1000) as u64;
             ctx.request_repaint_after(Duration::from_millis(ms));
+        }
+    }
+
+    fn apply_dashboard_preset(&mut self, preset: DashboardPreset) {
+        self.dashboard_preset = preset;
+        match preset {
+            DashboardPreset::Soc => {
+                self.widget_kpi = true;
+                self.widget_trends = true;
+                self.widget_sources = true;
+                self.widget_severity_mix = true;
+                self.widget_analyst_load = true;
+                self.widget_audit = true;
+            }
+            DashboardPreset::Executive => {
+                self.widget_kpi = true;
+                self.widget_trends = true;
+                self.widget_sources = false;
+                self.widget_severity_mix = true;
+                self.widget_analyst_load = true;
+                self.widget_audit = false;
+            }
+            DashboardPreset::Hunting => {
+                self.widget_kpi = true;
+                self.widget_trends = true;
+                self.widget_sources = true;
+                self.widget_severity_mix = true;
+                self.widget_analyst_load = false;
+                self.widget_audit = true;
+            }
         }
     }
 
@@ -956,80 +1024,100 @@ impl OperatorApp {
                     .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(32, 40, 54))),
             )
             .show(ctx, |ui| {
-                ui.vertical(|ui| {
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new("SIEM-Lite")
-                            .strong()
-                            .size(20.0)
-                            .color(egui::Color32::WHITE),
-                    );
-                    ui.label(
-                        egui::RichText::new("Operator")
-                            .size(13.0)
-                            .color(egui::Color32::from_rgb(120, 190, 255)),
-                    );
-                    ui.add_space(20.0);
-                    ui.label(
-                        egui::RichText::new("Разделы")
-                            .small()
-                            .color(egui::Color32::from_rgb(120, 128, 145)),
-                    );
-                    ui.add_space(8.0);
-                    if section_nav_button(ui, "Overview", "KPI и SLA", self.section == Section::Overview) {
-                        self.section = Section::Overview;
-                    }
-                    if section_nav_button(ui, "Detections", "Rules и сигналы", self.section == Section::Detections) {
-                        self.section = Section::Detections;
-                    }
-                    if section_nav_button(ui, "Alerts", "Inbox и Promote", self.section == Section::Alerts) {
-                        self.section = Section::Alerts;
-                    }
-                    if section_nav_button(ui, "Events", "Поток и триаж", self.section == Section::Events) {
-                        self.section = Section::Events;
-                    }
-                    if section_nav_button(
-                        ui,
-                        "Investigations",
-                        "Timeline и workbench",
-                        self.section == Section::Investigations,
-                    ) {
-                        self.section = Section::Investigations;
-                    }
-                    if section_nav_button(ui, "Assets", "Хосты и риск", self.section == Section::Assets) {
-                        self.section = Section::Assets;
-                    }
-                    if section_nav_button(ui, "Cases", "Lifecycle response", self.section == Section::Cases) {
-                        self.section = Section::Cases;
-                    }
-                    if section_nav_button(
-                        ui,
-                        "Stack Control",
-                        "Docker и health",
-                        self.section == Section::StackControl,
-                    ) {
-                        self.section = Section::StackControl;
-                    }
-                });
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.add_space(8.0);
-                    if ui
-                        .add_sized([ui.available_width(), 36.0], egui::Button::new("Выход из приложения"))
-                        .clicked()
-                    {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    ui.label(
-                        egui::RichText::new("v0.2")
-                            .small()
-                            .color(egui::Color32::from_rgb(90, 98, 115)),
-                    );
-                    ui.label(
-                        egui::RichText::new("Hotkeys: R / A / C / /")
-                            .small()
-                            .color(egui::Color32::from_rgb(90, 98, 115)),
-                    );
-                });
+                let footer_reserved = 102.0;
+                let nav_height = (ui.available_height() - footer_reserved).max(120.0);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), nav_height),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("SIEM-Lite")
+                                            .strong()
+                                            .size(20.0)
+                                            .color(egui::Color32::WHITE),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new("Operator")
+                                            .size(13.0)
+                                            .color(egui::Color32::from_rgb(120, 190, 255)),
+                                    );
+                                });
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui
+                                        .add_sized([32.0, 32.0], egui::Button::new(egui::RichText::new("⚙").size(16.0)))
+                                        .on_hover_text("Settings")
+                                        .clicked()
+                                    {
+                                        self.section = Section::Settings;
+                                    }
+                                });
+                            });
+                            ui.add_space(20.0);
+                            ui.label(
+                                egui::RichText::new("Разделы")
+                                    .small()
+                                    .color(egui::Color32::from_rgb(120, 128, 145)),
+                            );
+                            ui.add_space(8.0);
+                            if section_nav_button(ui, "Overview", "KPI и SLA", self.section == Section::Overview) {
+                                self.section = Section::Overview;
+                            }
+                            if section_nav_button(ui, "Detections", "Rules и сигналы", self.section == Section::Detections) {
+                                self.section = Section::Detections;
+                            }
+                            if section_nav_button(ui, "Alerts", "Inbox и Promote", self.section == Section::Alerts) {
+                                self.section = Section::Alerts;
+                            }
+                            if section_nav_button(ui, "Events", "Поток и триаж", self.section == Section::Events) {
+                                self.section = Section::Events;
+                            }
+                            if section_nav_button(
+                                ui,
+                                "Investigations",
+                                "Timeline и workbench",
+                                self.section == Section::Investigations,
+                            ) {
+                                self.section = Section::Investigations;
+                            }
+                            if section_nav_button(ui, "Assets", "Хосты и риск", self.section == Section::Assets) {
+                                self.section = Section::Assets;
+                            }
+                            if section_nav_button(ui, "Cases", "Lifecycle response", self.section == Section::Cases) {
+                                self.section = Section::Cases;
+                            }
+                            if section_nav_button(
+                                ui,
+                                "Stack Control",
+                                "Docker и health",
+                                self.section == Section::StackControl,
+                            ) {
+                                self.section = Section::StackControl;
+                            }
+                        });
+                    },
+                );
+                ui.separator();
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Hotkeys: R / A / C / /")
+                        .small()
+                        .color(egui::Color32::from_rgb(90, 98, 115)),
+                );
+                ui.label(
+                    egui::RichText::new("v0.2")
+                        .small()
+                        .color(egui::Color32::from_rgb(90, 98, 115)),
+                );
+                if ui
+                    .add_sized([ui.available_width(), 36.0], egui::Button::new("Выход из приложения"))
+                    .clicked()
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             });
     }
 
@@ -1053,26 +1141,149 @@ impl OperatorApp {
             });
     }
 
-    fn show_cases_panel(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("Кейсы")
-                    .strong()
-                    .size(22.0)
-                    .color(egui::Color32::WHITE),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add_sized(
-                        [130.0, 38.0],
-                        egui::Button::new(egui::RichText::new("⟳  Обновить").color(egui::Color32::WHITE)),
-                    )
-                    .clicked()
-                {
-                    self.fetch_cases();
-                }
+    fn current_section_label(&self) -> &'static str {
+        match self.section {
+            Section::Overview => "Overview",
+            Section::Detections => "Detections",
+            Section::Alerts => "Alerts",
+            Section::Events => "Events",
+            Section::Investigations => "Investigations",
+            Section::Assets => "Assets",
+            Section::Cases => "Cases",
+            Section::StackControl => "Stack Control",
+            Section::Settings => "Settings",
+        }
+    }
+
+    fn is_compact(&self, ui: &egui::Ui) -> bool {
+        self.compact_mode || ui.available_width() < 1100.0
+    }
+
+    fn show_top_toolbar(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("web_toolbar")
+            .exact_height(76.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(16, 20, 28))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(36, 45, 62)))
+                    .inner_margin(egui::Margin::symmetric(12.0, 8.0)),
+            )
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("SIEM-Lite")
+                                .strong()
+                                .size(18.0)
+                                .color(egui::Color32::WHITE),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!(" / {}", self.current_section_label()))
+                                .small()
+                                .color(egui::Color32::from_rgb(145, 165, 192)),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new(format!("{} ({})", self.whoami, self.role_label()))
+                                    .small()
+                                    .color(egui::Color32::from_rgb(190, 205, 230)),
+                            );
+                        });
+                    });
+                    ui.add_space(4.0);
+                    if self.is_compact(ui) {
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new("Global").small());
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.global_search_query)
+                                    .desired_width(f32::INFINITY)
+                                    .hint_text("Search case, alert, host, IOC..."),
+                            );
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.button("Search").clicked() {
+                                    let q = self.global_search_query.trim();
+                                    if !q.is_empty() {
+                                        self.filters.search = q.to_string();
+                                        self.event_filters.search = q.to_string();
+                                        self.asset_filters.search = q.to_string();
+                                        self.detection_filters.search = q.to_string();
+                                        self.section = Section::Cases;
+                                        self.status = format!("Global search applied: {}", q);
+                                    }
+                                }
+                                if ui.button("CmdK").clicked() {
+                                    self.palette_open = true;
+                                }
+                            });
+                        });
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Global").small());
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.global_search_query)
+                                    .desired_width(320.0)
+                                    .hint_text("Search case, alert, host, IOC..."),
+                            );
+                            if ui.button("Search").clicked() {
+                                let q = self.global_search_query.trim();
+                                if !q.is_empty() {
+                                    self.filters.search = q.to_string();
+                                    self.event_filters.search = q.to_string();
+                                    self.asset_filters.search = q.to_string();
+                                    self.detection_filters.search = q.to_string();
+                                    self.section = Section::Cases;
+                                    self.status = format!("Global search applied: {}", q);
+                                }
+                            }
+                            if ui.button("CmdK").clicked() {
+                                self.palette_open = true;
+                            }
+                        });
+                    }
+                });
             });
-        });
+    }
+
+    fn background_fill_color(&self) -> egui::Color32 {
+        if self.wallpaper_preset.eq_ignore_ascii_case("custom") {
+            return egui::Color32::from_rgb(
+                self.wallpaper_tint[0],
+                self.wallpaper_tint[1],
+                self.wallpaper_tint[2],
+            );
+        }
+        match self.wallpaper_preset.as_str() {
+            "graphite" => egui::Color32::from_rgb(28, 30, 34),
+            "ocean" => egui::Color32::from_rgb(17, 33, 52),
+            "sunset" => egui::Color32::from_rgb(44, 28, 36),
+            _ => egui::Color32::from_rgb(22, 27, 36),
+        }
+    }
+
+    fn show_cases_panel(&mut self, ui: &mut egui::Ui) {
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        egui::RichText::new("Cases")
+                            .strong()
+                            .size(24.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                    ui.label(
+                        egui::RichText::new("Incident lifecycle, ownership and SLA actions")
+                            .small()
+                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                    );
+                    if ui.button("Refresh").clicked() {
+                        self.fetch_cases();
+                    }
+                });
+            });
         ui.add_space(6.0);
         let filtered = self.filtered_case_indices();
         ui.label(egui::RichText::new(format!("Показано: {} · В ответе: {} · Всего: {}", filtered.len(), self.cases.len(), self.total)).size(13.0).color(egui::Color32::from_rgb(150, 160, 178)));
@@ -1093,60 +1304,128 @@ impl OperatorApp {
             }
         });
         ui.add_space(8.0);
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Search:");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.filters.search)
-                    .id_source("case_search")
-                    .desired_width(220.0),
-            );
-            egui::ComboBox::from_label("Severity")
-                .selected_text(if self.filters.severity.is_empty() { "All" } else { &self.filters.severity })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "critical", "high", "medium", "low", "info"] {
-                        if ui.selectable_label(self.filters.severity == v || (self.filters.severity.is_empty() && v == "All"), v).clicked() {
-                            self.filters.severity = if v == "All" { String::new() } else { v.to_string() };
-                        }
-                    }
-                });
-            egui::ComboBox::from_label("Status")
-                .selected_text(if self.filters.status.is_empty() { "All" } else { &self.filters.status })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "new", "in progress", "escalated", "closed"] {
-                        if ui.selectable_label(self.filters.status == v || (self.filters.status.is_empty() && v == "All"), v).clicked() {
-                            self.filters.status = if v == "All" { String::new() } else { v.to_string() };
-                        }
-                    }
-                });
-            egui::ComboBox::from_label("Assignee")
-                .selected_text(if self.filters.assignee.is_empty() { "All" } else { &self.filters.assignee })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "Assigned", "Unassigned"] {
-                        if ui.selectable_label(self.filters.assignee == v || (self.filters.assignee.is_empty() && v == "All"), v).clicked() {
-                            self.filters.assignee = if v == "All" { String::new() } else { v.to_string() };
-                        }
-                    }
-                });
-            egui::ComboBox::from_label("Source")
-                .selected_text(if self.filters.source.is_empty() { "All" } else { &self.filters.source })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
-                        if ui.selectable_label(self.filters.source == v || (self.filters.source.is_empty() && v == "All"), v).clicked() {
-                            self.filters.source = if v == "All" { String::new() } else { v.to_string() };
-                        }
-                    }
-                });
-            egui::ComboBox::from_label("MITRE")
-                .selected_text(if self.filters.mitre.is_empty() { "All" } else { &self.filters.mitre })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "TA0001 Initial Access", "TA0006 Credential Access", "TA0008 Lateral Movement", "TA0005 Defense Evasion"] {
-                        if ui.selectable_label(self.filters.mitre == v || (self.filters.mitre.is_empty() && v == "All"), v).clicked() {
-                            self.filters.mitre = if v == "All" { String::new() } else { v.to_string() };
-                        }
-                    }
-                });
-            ui.checkbox(&mut self.filters.stale_only, "SLA stale only");
-        });
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
+                let compact = self.is_compact(ui);
+                if compact {
+                    ui.vertical(|ui| {
+                        ui.label("Search:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.filters.search)
+                                .id_source("case_search")
+                                .desired_width(f32::INFINITY),
+                        );
+                        egui::ComboBox::from_label("Severity")
+                            .selected_text(if self.filters.severity.is_empty() { "All" } else { &self.filters.severity })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "critical", "high", "medium", "low", "info"] {
+                                    if ui.selectable_label(self.filters.severity == v || (self.filters.severity.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("Status")
+                            .selected_text(if self.filters.status.is_empty() { "All" } else { &self.filters.status })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "new", "in progress", "escalated", "closed"] {
+                                    if ui.selectable_label(self.filters.status == v || (self.filters.status.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.status = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("Assignee")
+                            .selected_text(if self.filters.assignee.is_empty() { "All" } else { &self.filters.assignee })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "Assigned", "Unassigned"] {
+                                    if ui.selectable_label(self.filters.assignee == v || (self.filters.assignee.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.assignee = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("Source")
+                            .selected_text(if self.filters.source.is_empty() { "All" } else { &self.filters.source })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
+                                    if ui.selectable_label(self.filters.source == v || (self.filters.source.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.source = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("MITRE")
+                            .selected_text(if self.filters.mitre.is_empty() { "All" } else { &self.filters.mitre })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "TA0001 Initial Access", "TA0006 Credential Access", "TA0008 Lateral Movement", "TA0005 Defense Evasion"] {
+                                    if ui.selectable_label(self.filters.mitre == v || (self.filters.mitre.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.mitre = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        ui.checkbox(&mut self.filters.stale_only, "SLA stale only");
+                    });
+                } else {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Search:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.filters.search)
+                                .id_source("case_search")
+                                .desired_width(220.0),
+                        );
+                        egui::ComboBox::from_label("Severity")
+                            .selected_text(if self.filters.severity.is_empty() { "All" } else { &self.filters.severity })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "critical", "high", "medium", "low", "info"] {
+                                    if ui.selectable_label(self.filters.severity == v || (self.filters.severity.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("Status")
+                            .selected_text(if self.filters.status.is_empty() { "All" } else { &self.filters.status })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "new", "in progress", "escalated", "closed"] {
+                                    if ui.selectable_label(self.filters.status == v || (self.filters.status.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.status = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        egui::ComboBox::from_label("Assignee")
+                            .selected_text(if self.filters.assignee.is_empty() { "All" } else { &self.filters.assignee })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "Assigned", "Unassigned"] {
+                                    if ui.selectable_label(self.filters.assignee == v || (self.filters.assignee.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.assignee = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("Source")
+                            .selected_text(if self.filters.source.is_empty() { "All" } else { &self.filters.source })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
+                                    if ui.selectable_label(self.filters.source == v || (self.filters.source.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.source = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("MITRE")
+                            .selected_text(if self.filters.mitre.is_empty() { "All" } else { &self.filters.mitre })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "TA0001 Initial Access", "TA0006 Credential Access", "TA0008 Lateral Movement", "TA0005 Defense Evasion"] {
+                                    if ui.selectable_label(self.filters.mitre == v || (self.filters.mitre.is_empty() && v == "All"), v).clicked() {
+                                        self.filters.mitre = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        ui.checkbox(&mut self.filters.stale_only, "SLA stale only");
+                    });
+                }
+            });
         ui.add_space(10.0);
 
         ui.horizontal_wrapped(|ui| {
@@ -1585,66 +1864,249 @@ impl OperatorApp {
                 });
             });
         ui.add_space(12.0);
-        ui.horizontal_wrapped(|ui| {
-            kpi_card(ui, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
-            kpi_card(
-                ui,
-                "Critical",
-                &critical_count.to_string(),
-                egui::Color32::from_rgb(235, 75, 85),
-            );
-            kpi_card(
-                ui,
-                "SLA breaches",
-                &stale_count.to_string(),
-                egui::Color32::from_rgb(245, 140, 70),
-            );
-            kpi_card(
-                ui,
-                "MTTA proxy",
-                &format!("{}h", mtta_proxy),
-                egui::Color32::from_rgb(235, 195, 80),
-            );
-            kpi_card(
-                ui,
-                "MTTR proxy",
-                &format!("{}h", mttr_proxy),
-                egui::Color32::from_rgb(90, 200, 140),
-            );
-        });
-        ui.add_space(12.0);
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Custom Dashboard").strong());
+                    if ui
+                        .selectable_label(matches!(self.dashboard_preset, DashboardPreset::Soc), "SOC preset")
+                        .clicked()
+                    {
+                        self.apply_dashboard_preset(DashboardPreset::Soc);
+                    }
+                    if ui
+                        .selectable_label(
+                            matches!(self.dashboard_preset, DashboardPreset::Executive),
+                            "Executive preset",
+                        )
+                        .clicked()
+                    {
+                        self.apply_dashboard_preset(DashboardPreset::Executive);
+                    }
+                    if ui
+                        .selectable_label(matches!(self.dashboard_preset, DashboardPreset::Hunting), "Hunting preset")
+                        .clicked()
+                    {
+                        self.apply_dashboard_preset(DashboardPreset::Hunting);
+                    }
+                });
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.checkbox(&mut self.widget_kpi, "KPI");
+                    ui.checkbox(&mut self.widget_trends, "Trends");
+                    ui.checkbox(&mut self.widget_sources, "Top Sources");
+                    ui.checkbox(&mut self.widget_severity_mix, "Severity Mix");
+                    ui.checkbox(&mut self.widget_analyst_load, "Analyst Load");
+                    ui.checkbox(&mut self.widget_audit, "Audit");
+                });
+            });
+        ui.add_space(10.0);
+
         let (open_series, crit_series) = build_case_sparkline_series(&self.cases);
-        ui.horizontal_wrapped(|ui| {
-            sparkline_card(
-                ui,
-                "Open trend (24h buckets)",
-                &open_series,
-                egui::Color32::from_rgb(110, 165, 235),
-            );
-            sparkline_card(
-                ui,
-                "Critical trend (24h buckets)",
-                &crit_series,
-                egui::Color32::from_rgb(235, 75, 85),
-            );
-        });
-        ui.add_space(12.0);
-        ui.label(egui::RichText::new("Audit trail (latest)").strong());
-        egui::ScrollArea::vertical().max_height(130.0).show(ui, |ui| {
-            if self.audit_log.is_empty() {
-                ui.label("No audit events yet.");
-            } else {
-                for event in self.audit_log.iter().take(10) {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(egui::RichText::new(&event.timestamp).monospace().small());
-                        ui.label(egui::RichText::new(&event.actor).strong());
-                        ui.label(&event.action);
-                    });
-                }
+        let mut by_source: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut by_severity: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut by_analyst: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for c in &self.cases {
+            *by_source.entry(Self::inferred_source(c).to_string()).or_insert(0) += 1;
+            *by_severity.entry(c.severity.to_lowercase()).or_insert(0) += 1;
+            *by_analyst
+                .entry(c.assignee.clone().unwrap_or_else(|| "unassigned".to_string()))
+                .or_insert(0) += 1;
+        }
+        let max_source = by_source.values().copied().max().unwrap_or(1) as f32;
+        let max_sev = by_severity.values().copied().max().unwrap_or(1) as f32;
+        let max_analyst = by_analyst.values().copied().max().unwrap_or(1) as f32;
+
+        let compact_dashboard = ui.available_width() < 1200.0;
+        if compact_dashboard {
+            if self.widget_kpi {
+                ui.label(egui::RichText::new("KPI").strong());
+                ui.horizontal_wrapped(|ui| {
+                    kpi_card(ui, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
+                    kpi_card(ui, "Critical", &critical_count.to_string(), egui::Color32::from_rgb(235, 75, 85));
+                    kpi_card(ui, "SLA breaches", &stale_count.to_string(), egui::Color32::from_rgb(245, 140, 70));
+                    kpi_card(ui, "MTTA proxy", &format!("{}h", mtta_proxy), egui::Color32::from_rgb(235, 195, 80));
+                    kpi_card(ui, "MTTR proxy", &format!("{}h", mttr_proxy), egui::Color32::from_rgb(90, 200, 140));
+                });
+                ui.add_space(10.0);
             }
-        });
+            if self.widget_trends {
+                ui.label(egui::RichText::new("Trends").strong());
+                sparkline_card(
+                    ui,
+                    "Open trend (24h buckets)",
+                    &open_series,
+                    egui::Color32::from_rgb(110, 165, 235),
+                );
+                sparkline_card(
+                    ui,
+                    "Critical trend (24h buckets)",
+                    &crit_series,
+                    egui::Color32::from_rgb(235, 75, 85),
+                );
+                ui.add_space(10.0);
+            }
+            if self.widget_sources {
+                ui.label(egui::RichText::new("Top Sources").strong());
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(24, 30, 42))
+                    .rounding(egui::Rounding::same(10.0))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+                    .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                    .show(ui, |ui| {
+                        for (name, count) in by_source.iter().rev() {
+                            ui.horizontal(|ui| {
+                                ui.label(name);
+                                ui.add(
+                                    egui::ProgressBar::new((*count as f32 / max_source).clamp(0.0, 1.0))
+                                        .desired_width(220.0)
+                                        .text(count.to_string()),
+                                );
+                            });
+                        }
+                    });
+                ui.add_space(10.0);
+            }
+            if self.widget_severity_mix {
+                ui.label(egui::RichText::new("Severity Mix").strong());
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(24, 30, 42))
+                    .rounding(egui::Rounding::same(10.0))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+                    .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                    .show(ui, |ui| {
+                        for (sev, count) in by_severity.iter().rev() {
+                            ui.horizontal(|ui| {
+                                pill_label(ui, sev, severity_color(sev));
+                                ui.add(
+                                    egui::ProgressBar::new((*count as f32 / max_sev).clamp(0.0, 1.0))
+                                        .desired_width(220.0)
+                                        .text(count.to_string()),
+                                );
+                            });
+                        }
+                    });
+            }
+        } else {
+            ui.columns(2, |cols| {
+                if self.widget_kpi {
+                    cols[0].label(egui::RichText::new("KPI").strong());
+                    cols[0].horizontal_wrapped(|ui| {
+                        kpi_card(ui, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
+                        kpi_card(ui, "Critical", &critical_count.to_string(), egui::Color32::from_rgb(235, 75, 85));
+                        kpi_card(ui, "SLA breaches", &stale_count.to_string(), egui::Color32::from_rgb(245, 140, 70));
+                        kpi_card(ui, "MTTA proxy", &format!("{}h", mtta_proxy), egui::Color32::from_rgb(235, 195, 80));
+                        kpi_card(ui, "MTTR proxy", &format!("{}h", mttr_proxy), egui::Color32::from_rgb(90, 200, 140));
+                    });
+                    cols[0].add_space(10.0);
+                }
+                if self.widget_sources {
+                    cols[0].label(egui::RichText::new("Top Sources").strong());
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_rgb(24, 30, 42))
+                        .rounding(egui::Rounding::same(10.0))
+                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+                        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                        .show(&mut cols[0], |ui| {
+                            for (name, count) in by_source.iter().rev() {
+                                ui.horizontal(|ui| {
+                                    ui.label(name);
+                                    ui.add(
+                                        egui::ProgressBar::new((*count as f32 / max_source).clamp(0.0, 1.0))
+                                            .desired_width(170.0)
+                                            .text(count.to_string()),
+                                    );
+                                });
+                            }
+                        });
+                }
+
+                if self.widget_trends {
+                    cols[1].label(egui::RichText::new("Trends").strong());
+                    cols[1].vertical(|ui| {
+                        sparkline_card(
+                            ui,
+                            "Open trend (24h buckets)",
+                            &open_series,
+                            egui::Color32::from_rgb(110, 165, 235),
+                        );
+                        sparkline_card(
+                            ui,
+                            "Critical trend (24h buckets)",
+                            &crit_series,
+                            egui::Color32::from_rgb(235, 75, 85),
+                        );
+                    });
+                    cols[1].add_space(10.0);
+                }
+                if self.widget_severity_mix {
+                    cols[1].label(egui::RichText::new("Severity Mix").strong());
+                    egui::Frame::none()
+                        .fill(egui::Color32::from_rgb(24, 30, 42))
+                        .rounding(egui::Rounding::same(10.0))
+                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+                        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                        .show(&mut cols[1], |ui| {
+                            for (sev, count) in by_severity.iter().rev() {
+                                ui.horizontal(|ui| {
+                                    pill_label(ui, sev, severity_color(sev));
+                                    ui.add(
+                                        egui::ProgressBar::new((*count as f32 / max_sev).clamp(0.0, 1.0))
+                                            .desired_width(170.0)
+                                            .text(count.to_string()),
+                                    );
+                                });
+                            }
+                        });
+                }
+            });
+        }
+
+        if self.widget_analyst_load {
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new("Analyst Load").strong());
+            egui::Frame::none()
+                .fill(egui::Color32::from_rgb(24, 30, 42))
+                .rounding(egui::Rounding::same(10.0))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+                .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                .show(ui, |ui| {
+                    for (name, count) in by_analyst.iter().rev().take(8) {
+                        ui.horizontal(|ui| {
+                            ui.label(name);
+                            ui.add(
+                                egui::ProgressBar::new((*count as f32 / max_analyst).clamp(0.0, 1.0))
+                                    .desired_width(260.0)
+                                    .text(count.to_string()),
+                            );
+                        });
+                    }
+                });
+        }
+
+        if self.widget_audit {
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new("Audit trail (latest)").strong());
+            egui::ScrollArea::vertical().max_height(130.0).show(ui, |ui| {
+                if self.audit_log.is_empty() {
+                    ui.label("No audit events yet.");
+                } else {
+                    for event in self.audit_log.iter().take(10) {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(egui::RichText::new(&event.timestamp).monospace().small());
+                            ui.label(egui::RichText::new(&event.actor).strong());
+                            ui.label(&event.action);
+                        });
+                    }
+                }
+            });
+        }
         ui.add_space(8.0);
-        ui.label("MTTA/MTTR пока считаются как прокси по age; после API событий подключим точный расчет.");
+        ui.label("Custom dashboard widgets inspired by Grafana-style panel composition.");
     }
 
     fn show_alerts_panel(&mut self, ui: &mut egui::Ui) {
@@ -1997,38 +2459,88 @@ impl OperatorApp {
     }
 
     fn show_events_panel(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading("Events");
-            if ui.button("Refresh").clicked() {
-                self.fetch_events();
-            }
-            if self.events_loading {
-                ui.spinner();
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Search:");
-            ui.add(egui::TextEdit::singleline(&mut self.event_filters.search).id_source("event_search"));
-            egui::ComboBox::from_label("Severity")
-                .selected_text(if self.event_filters.severity.is_empty() { "All" } else { &self.event_filters.severity })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "critical", "high", "medium", "low"] {
-                        if ui.selectable_label(self.event_filters.severity == v || (self.event_filters.severity.is_empty() && v == "All"), v).clicked() {
-                            self.event_filters.severity = if v == "All" { String::new() } else { v.to_string() };
-                        }
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Events").strong().size(24.0));
+                    ui.label(
+                        egui::RichText::new("Realtime flow of alerts and observability events")
+                            .small()
+                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                    );
+                    if ui.button("Refresh").clicked() {
+                        self.fetch_events();
+                    }
+                    if self.events_loading {
+                        ui.spinner();
                     }
                 });
-            egui::ComboBox::from_label("State")
-                .selected_text(if self.event_filters.state.is_empty() { "All" } else { &self.event_filters.state })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "active", "suppressed", "unprocessed"] {
-                        if ui.selectable_label(self.event_filters.state == v || (self.event_filters.state.is_empty() && v == "All"), v).clicked() {
-                            self.event_filters.state = if v == "All" { String::new() } else { v.to_string() };
-                        }
-                    }
-                });
-            ui.checkbox(&mut self.event_filters.silenced_only, "Silenced only");
-        });
+            });
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
+                let compact = self.is_compact(ui);
+                if compact {
+                    ui.vertical(|ui| {
+                        ui.label("Search:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.event_filters.search)
+                                .id_source("event_search")
+                                .desired_width(f32::INFINITY),
+                        );
+                        egui::ComboBox::from_label("Severity")
+                            .selected_text(if self.event_filters.severity.is_empty() { "All" } else { &self.event_filters.severity })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "critical", "high", "medium", "low"] {
+                                    if ui.selectable_label(self.event_filters.severity == v || (self.event_filters.severity.is_empty() && v == "All"), v).clicked() {
+                                        self.event_filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("State")
+                            .selected_text(if self.event_filters.state.is_empty() { "All" } else { &self.event_filters.state })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "active", "suppressed", "unprocessed"] {
+                                    if ui.selectable_label(self.event_filters.state == v || (self.event_filters.state.is_empty() && v == "All"), v).clicked() {
+                                        self.event_filters.state = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        ui.checkbox(&mut self.event_filters.silenced_only, "Silenced only");
+                    });
+                } else {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Search:");
+                        ui.add(egui::TextEdit::singleline(&mut self.event_filters.search).id_source("event_search"));
+                        egui::ComboBox::from_label("Severity")
+                            .selected_text(if self.event_filters.severity.is_empty() { "All" } else { &self.event_filters.severity })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "critical", "high", "medium", "low"] {
+                                    if ui.selectable_label(self.event_filters.severity == v || (self.event_filters.severity.is_empty() && v == "All"), v).clicked() {
+                                        self.event_filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("State")
+                            .selected_text(if self.event_filters.state.is_empty() { "All" } else { &self.event_filters.state })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "active", "suppressed", "unprocessed"] {
+                                    if ui.selectable_label(self.event_filters.state == v || (self.event_filters.state.is_empty() && v == "All"), v).clicked() {
+                                        self.event_filters.state = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        ui.checkbox(&mut self.event_filters.silenced_only, "Silenced only");
+                    });
+                }
+            });
         ui.add_space(8.0);
         let rows = self.filtered_events();
         ui.label(format!("Events shown: {}", rows.len()));
@@ -2056,38 +2568,83 @@ impl OperatorApp {
     }
 
     fn show_assets_panel(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.heading("Assets");
-            if ui.button("Refresh").clicked() {
-                self.fetch_assets();
-            }
-            if self.assets_loading {
-                ui.spinner();
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Search:");
-            ui.add(egui::TextEdit::singleline(&mut self.asset_filters.search));
-            egui::ComboBox::from_label("Risk")
-                .selected_text(if self.asset_filters.risk.is_empty() { "All" } else { &self.asset_filters.risk })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "critical", "high", "normal"] {
-                        if ui.selectable_label(self.asset_filters.risk == v || (self.asset_filters.risk.is_empty() && v == "All"), v).clicked() {
-                            self.asset_filters.risk = if v == "All" { String::new() } else { v.to_string() };
-                        }
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Assets").strong().size(24.0));
+                    ui.label(
+                        egui::RichText::new("Risk posture and workload across hosts and owners")
+                            .small()
+                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                    );
+                    if ui.button("Refresh").clicked() {
+                        self.fetch_assets();
+                    }
+                    if self.assets_loading {
+                        ui.spinner();
                     }
                 });
-            egui::ComboBox::from_label("Source")
-                .selected_text(if self.asset_filters.source.is_empty() { "All" } else { &self.asset_filters.source })
-                .show_ui(ui, |ui| {
-                    for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
-                        if ui.selectable_label(self.asset_filters.source == v || (self.asset_filters.source.is_empty() && v == "All"), v).clicked() {
-                            self.asset_filters.source = if v == "All" { String::new() } else { v.to_string() };
-                        }
-                    }
-                });
-            ui.checkbox(&mut self.asset_filters.stale_only, "SLA stale only");
-        });
+            });
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
+                if self.is_compact(ui) {
+                    ui.vertical(|ui| {
+                        ui.label("Search:");
+                        ui.add(egui::TextEdit::singleline(&mut self.asset_filters.search).desired_width(f32::INFINITY));
+                        egui::ComboBox::from_label("Risk")
+                            .selected_text(if self.asset_filters.risk.is_empty() { "All" } else { &self.asset_filters.risk })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "critical", "high", "normal"] {
+                                    if ui.selectable_label(self.asset_filters.risk == v || (self.asset_filters.risk.is_empty() && v == "All"), v).clicked() {
+                                        self.asset_filters.risk = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("Source")
+                            .selected_text(if self.asset_filters.source.is_empty() { "All" } else { &self.asset_filters.source })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
+                                    if ui.selectable_label(self.asset_filters.source == v || (self.asset_filters.source.is_empty() && v == "All"), v).clicked() {
+                                        self.asset_filters.source = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        ui.checkbox(&mut self.asset_filters.stale_only, "SLA stale only");
+                    });
+                } else {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Search:");
+                        ui.add(egui::TextEdit::singleline(&mut self.asset_filters.search));
+                        egui::ComboBox::from_label("Risk")
+                            .selected_text(if self.asset_filters.risk.is_empty() { "All" } else { &self.asset_filters.risk })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "critical", "high", "normal"] {
+                                    if ui.selectable_label(self.asset_filters.risk == v || (self.asset_filters.risk.is_empty() && v == "All"), v).clicked() {
+                                        self.asset_filters.risk = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        egui::ComboBox::from_label("Source")
+                            .selected_text(if self.asset_filters.source.is_empty() { "All" } else { &self.asset_filters.source })
+                            .show_ui(ui, |ui| {
+                                for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
+                                    if ui.selectable_label(self.asset_filters.source == v || (self.asset_filters.source.is_empty() && v == "All"), v).clicked() {
+                                        self.asset_filters.source = if v == "All" { String::new() } else { v.to_string() };
+                                    }
+                                }
+                            });
+                        ui.checkbox(&mut self.asset_filters.stale_only, "SLA stale only");
+                    });
+                }
+            });
         ui.add_space(8.0);
         let rows = self.filtered_assets();
         ui.label(format!("Assets shown: {}", rows.len()));
@@ -2107,6 +2664,123 @@ impl OperatorApp {
                 ui.end_row();
             }
         });
+    }
+
+    fn show_settings_panel(&mut self, ui: &mut egui::Ui) {
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Settings").strong().size(24.0));
+                ui.label(
+                    egui::RichText::new("Visual style, behavior, and connection settings")
+                        .small()
+                        .color(egui::Color32::from_rgb(150, 165, 188)),
+                );
+            });
+        ui.add_space(10.0);
+
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Appearance").strong());
+                ui.checkbox(&mut self.use_light_theme, "Light theme");
+                ui.checkbox(&mut self.compact_mode, "Compact mode (force compact layout)");
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("Custom wallpaper").strong());
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .selectable_label(self.wallpaper_preset == "midnight", "Midnight")
+                        .clicked()
+                    {
+                        self.wallpaper_preset = "midnight".to_string();
+                    }
+                    if ui
+                        .selectable_label(self.wallpaper_preset == "graphite", "Graphite")
+                        .clicked()
+                    {
+                        self.wallpaper_preset = "graphite".to_string();
+                    }
+                    if ui
+                        .selectable_label(self.wallpaper_preset == "ocean", "Ocean")
+                        .clicked()
+                    {
+                        self.wallpaper_preset = "ocean".to_string();
+                    }
+                    if ui
+                        .selectable_label(self.wallpaper_preset == "sunset", "Sunset")
+                        .clicked()
+                    {
+                        self.wallpaper_preset = "sunset".to_string();
+                    }
+                    if ui
+                        .selectable_label(self.wallpaper_preset == "custom", "Custom")
+                        .clicked()
+                    {
+                        self.wallpaper_preset = "custom".to_string();
+                    }
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Tint R");
+                    ui.add(egui::Slider::new(&mut self.wallpaper_tint[0], 0..=255));
+                    ui.label("G");
+                    ui.add(egui::Slider::new(&mut self.wallpaper_tint[1], 0..=255));
+                    ui.label("B");
+                    ui.add(egui::Slider::new(&mut self.wallpaper_tint[2], 0..=255));
+                });
+            });
+
+        ui.add_space(10.0);
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Behavior").strong());
+                ui.checkbox(&mut self.auto_refresh_enabled, "Auto refresh");
+                ui.add(
+                    egui::Slider::new(&mut self.auto_refresh_interval_sec, 10..=120)
+                        .text("Auto refresh interval")
+                        .suffix("s"),
+                );
+                ui.checkbox(&mut self.auto_triage_enabled, "Auto-triage");
+            });
+
+        ui.add_space(10.0);
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Connection").strong());
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.api_base)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("API / Portal URL"),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Apply URL and refresh").clicked() {
+                        self.api_base = self.api_base.trim().to_string();
+                        self.fetch_cases();
+                        self.fetch_events();
+                        self.fetch_detections();
+                        self.fetch_assets();
+                        self.fetch_observability_snapshot();
+                        self.status = "Connection settings applied".to_string();
+                    }
+                    if ui.button("Reset to default").clicked() {
+                        self.api_base = std::env::var("SIEM_OPERATOR_API")
+                            .unwrap_or_else(|_| "http://127.0.0.1:8088".to_string());
+                    }
+                });
+            });
     }
 
     fn fetch_observability_snapshot(&mut self) {
@@ -2186,6 +2860,11 @@ impl OperatorApp {
 
 impl eframe::App for OperatorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.use_light_theme {
+            ctx.set_visuals(egui::Visuals::light());
+        } else {
+            ctx.set_visuals(egui::Visuals::dark());
+        }
         self.apply_hotkeys(ctx);
         self.tick_auto_refresh(ctx);
         if let Some(rx) = &self.obs_rx {
@@ -2322,24 +3001,30 @@ impl eframe::App for OperatorApp {
             }
         }
 
+        self.show_top_toolbar(ctx);
         self.show_sidebar(ctx);
         self.show_status_bar(ctx);
 
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(22, 27, 36))
+                    .fill(self.background_fill_color())
                     .inner_margin(egui::Margin::same(22.0)),
             )
-            .show(ctx, |ui| match self.section {
-                Section::Overview => self.show_home_panel(ui),
-                Section::Detections => self.show_detections_panel(ui),
-                Section::Alerts => self.show_alerts_panel(ui),
-                Section::Events => self.show_events_panel(ui),
-                Section::Investigations => self.show_investigations_panel(ui),
-                Section::Assets => self.show_assets_panel(ui),
-                Section::Cases => self.show_cases_panel(ui),
-                Section::StackControl => self.show_stack_control_panel(ui),
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| match self.section {
+                        Section::Overview => self.show_home_panel(ui),
+                        Section::Detections => self.show_detections_panel(ui),
+                        Section::Alerts => self.show_alerts_panel(ui),
+                        Section::Events => self.show_events_panel(ui),
+                        Section::Investigations => self.show_investigations_panel(ui),
+                        Section::Assets => self.show_assets_panel(ui),
+                        Section::Cases => self.show_cases_panel(ui),
+                        Section::StackControl => self.show_stack_control_panel(ui),
+                        Section::Settings => self.show_settings_panel(ui),
+                    });
             });
         self.show_critical_confirmation(ctx);
         self.show_command_palette(ctx);

@@ -13,6 +13,22 @@ fn default_auto_refresh_interval_sec() -> u64 {
     20
 }
 
+fn default_theme_mode() -> String {
+    "dark".to_string()
+}
+
+fn default_compact_mode() -> bool {
+    false
+}
+
+fn default_wallpaper_preset() -> String {
+    "midnight".to_string()
+}
+
+fn default_wallpaper_tint() -> [u8; 3] {
+    [22, 27, 36]
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct PersistedState {
     pub api_base: String,
@@ -35,6 +51,14 @@ pub(super) struct PersistedState {
     pub auto_refresh_enabled: bool,
     #[serde(default = "default_auto_refresh_interval_sec")]
     pub auto_refresh_interval_sec: u64,
+    #[serde(default = "default_theme_mode")]
+    pub theme_mode: String,
+    #[serde(default = "default_compact_mode")]
+    pub compact_mode: bool,
+    #[serde(default = "default_wallpaper_preset")]
+    pub wallpaper_preset: String,
+    #[serde(default = "default_wallpaper_tint")]
+    pub wallpaper_tint: [u8; 3],
 }
 
 pub(super) fn load_state(path: &Path) -> Result<PersistedState, String> {

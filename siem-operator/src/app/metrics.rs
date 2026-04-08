@@ -32,9 +32,9 @@ pub(super) fn sparkline_card(ui: &mut egui::Ui, title: &str, values: &[f32], col
         .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.7)))
         .inner_margin(egui::Margin::symmetric(12.0, 10.0))
         .show(ui, |ui| {
-            ui.set_min_width(250.0);
+            let w = ui.available_width().clamp(180.0, 420.0);
             ui.label(egui::RichText::new(title).small());
-            let desired = egui::vec2(240.0, 52.0);
+            let desired = egui::vec2(w - 16.0, 52.0);
             let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
             if values.len() < 2 {
                 return;
