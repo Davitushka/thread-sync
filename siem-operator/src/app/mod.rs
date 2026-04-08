@@ -8,17 +8,17 @@ use chrono::{DateTime, Utc};
 use eframe::egui;
 
 use crate::models::{
-    AlertItem, AlertState, CaseBrief, CasesResponse, InvestigationResponse, PortalEvent,
-    PromQueryResponse,
+    AlertItem, AlertState, CaseBrief, CaseDetailResponse, CaseTimelineEntry, CasesResponse,
+    CreateCaseRequest, CreatedCaseResponse, DetectionStats, InvestigationResponse, LinkAlertRequest,
+    PatchCaseRequest, PortalEvent, PromQueryRangeResponse, PromQueryResponse, StackStatusResponse,
+    TimelineCreateRequest,
 };
 use crate::ui::widgets::{pill_label, section_nav_button, severity_color, stack_action_card};
 mod state;
 mod types;
 mod metrics;
-mod bootstrap;
 mod panels;
 
-use bootstrap::seed_alerts;
 use metrics::{average_hours, kpi_card, sparkline_card};
 use panels::build_case_sparkline_series;
 use state::{load_state, save_state, PersistedState};
@@ -53,6 +53,13 @@ struct DetectionRow {
     severity: String,
     state: String,
     signal: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct StackServiceStatus {
+    service: String,
+    status: String,
+    detail: String,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -91,7 +98,7 @@ pub struct OperatorApp {
     detections_loading: bool,
     detections_rx: Option<Receiver<Result<Vec<DetectionRow>, String>>>,
     investigation_loading: bool,
-    investigation_rx: Option<Receiver<Result<Vec<String>, String>>>,
+    investigation_rx: Option<Receiver<Result<InvestigationResponse, String>>>,
     assets_loading: bool,
     docker_loading: bool,
     docker_rx: Option<Receiver<Result<String, String>>>,
@@ -99,6 +106,25 @@ pub struct OperatorApp {
     detection_filters: DetectionFilters,
     investigation_entity: String,
     investigation_notes: Vec<String>,
+    investigation_details: Option<InvestigationResponse>,
+    investigation_note_input: String,
+    case_timeline: Vec<CaseTimelineEntry>,
+    timeline_loading: bool,
+    timeline_rx: Option<Receiver<Result<Vec<CaseTimelineEntry>, String>>>,
+    alerts_loading: bool,
+    alerts_rx: Option<Receiver<Result<Vec<AlertItem>, String>>>,
+    stack_status_loading: bool,
+    stack_status_rx: Option<Receiver<Result<Vec<StackServiceStatus>, String>>>,
+    stack_status: Vec<StackServiceStatus>,
+    detection_engine_url: String,
+    detection_stats_loading: bool,
+    detection_stats_rx: Option<Receiver<Result<DetectionStats, String>>>,
+    detection_stats: Option<DetectionStats>,
+    metrics_series_rx: Option<Receiver<Result<(Vec<f64>, Vec<f64>, Vec<f64>), String>>>,
+    metrics_loading: bool,
+    eps_series: Vec<f64>,
+    alerts_series: Vec<f64>,
+    mtta_series: Vec<f64>,
     role: UserRole,
     pending_action: Option<PendingAction>,
     audit_log: Vec<AuditEntry>,
@@ -134,7 +160,7 @@ impl Default for OperatorApp {
             loading: false,
             rx: None,
             selected: None,
-            alerts: seed_alerts(),
+            alerts: Vec::new(),
             filters: CaseFilters::default(),
             event_filters: EventFilters::default(),
             asset_filters: AssetFilters::default(),
@@ -163,6 +189,26 @@ impl Default for OperatorApp {
             detection_filters: DetectionFilters::default(),
             investigation_entity: String::new(),
             investigation_notes: Vec::new(),
+            investigation_details: None,
+            investigation_note_input: String::new(),
+            case_timeline: Vec::new(),
+            timeline_loading: false,
+            timeline_rx: None,
+            alerts_loading: false,
+            alerts_rx: None,
+            stack_status_loading: false,
+            stack_status_rx: None,
+            stack_status: Vec::new(),
+            detection_engine_url: std::env::var("SIEM_OPERATOR_DETECTION_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:9111".to_string()),
+            detection_stats_loading: false,
+            detection_stats_rx: None,
+            detection_stats: None,
+            metrics_series_rx: None,
+            metrics_loading: false,
+            eps_series: Vec::new(),
+            alerts_series: Vec::new(),
+            mtta_series: Vec::new(),
             role: UserRole::Analyst,
             pending_action: None,
             audit_log: Vec::new(),
@@ -205,6 +251,13 @@ struct ObsSnapshot {
 }
 
 impl OperatorApp {
+    fn http_client(timeout_sec: u64) -> Result<reqwest::blocking::Client, String> {
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_sec))
+            .build()
+            .map_err(|e| e.to_string())
+    }
+
     fn portal_base(&self) -> String {
         if let Ok(v) = std::env::var("SIEM_OPERATOR_PORTAL") {
             let t = v.trim();
@@ -222,6 +275,14 @@ impl OperatorApp {
             return format!("{scheme}://{host_only}:8091");
         }
         "http://127.0.0.1:8091".to_string()
+    }
+
+    fn case_mgmt_base(&self) -> String {
+        let base = self.api_base.trim_end_matches('/');
+        if base.contains(":8091") {
+            return base.replace(":8091", ":8088");
+        }
+        base.to_string()
     }
 
     fn role_label(&self) -> &'static str {
@@ -344,6 +405,7 @@ impl OperatorApp {
             compact_mode: self.compact_mode,
             wallpaper_preset: self.wallpaper_preset.clone(),
             wallpaper_tint: self.wallpaper_tint,
+            detection_engine_url: self.detection_engine_url.clone(),
         }
     }
 
@@ -370,6 +432,7 @@ impl OperatorApp {
             self.compact_mode = saved.compact_mode;
             self.wallpaper_preset = saved.wallpaper_preset;
             self.wallpaper_tint = saved.wallpaper_tint;
+            self.detection_engine_url = saved.detection_engine_url;
             if let Ok(blob) = serde_json::to_string(&self.to_persisted_state()) {
                 self.last_persist_blob = blob;
             }
@@ -394,14 +457,24 @@ impl OperatorApp {
         self.loading
             || self.obs_loading
             || self.events_loading
+            || self.alerts_loading
             || self.detections_loading
+            || self.detection_stats_loading
             || self.investigation_loading
+            || self.timeline_loading
+            || self.stack_status_loading
+            || self.metrics_loading
             || self.assets_loading
             || self.rx.is_some()
             || self.obs_rx.is_some()
             || self.events_rx.is_some()
+            || self.alerts_rx.is_some()
             || self.detections_rx.is_some()
             || self.investigation_rx.is_some()
+            || self.timeline_rx.is_some()
+            || self.stack_status_rx.is_some()
+            || self.detection_stats_rx.is_some()
+            || self.metrics_series_rx.is_some()
     }
 
     fn tick_auto_refresh(&mut self, ctx: &egui::Context) {
@@ -412,8 +485,16 @@ impl OperatorApp {
         let elapsed = self.last_auto_refresh_at.elapsed();
         if elapsed >= Duration::from_secs(interval) && !self.has_active_fetches() {
             self.fetch_cases();
+            self.fetch_alerts();
             self.fetch_events();
             self.fetch_detections();
+            self.fetch_detection_stats();
+            self.fetch_stack_status();
+            self.fetch_overview_metrics_series();
+            if !self.investigation_entity.trim().is_empty() {
+                let entity = self.investigation_entity.clone();
+                self.fetch_investigation_for_entity(&entity);
+            }
             self.fetch_assets();
             self.fetch_observability_snapshot();
             self.last_auto_refresh_at = Instant::now();
@@ -490,20 +571,19 @@ impl OperatorApp {
     fn fetch_cases(&mut self) {
         self.loading = true;
         self.status = "Загрузка…".to_string();
-        let base = self.api_base.trim_end_matches('/').to_string();
-        let url = format!("{base}/api/v1/cases?limit=300");
+        let portal_url = format!("{}/api/v1/proxy/cases?limit=300", self.portal_base());
+        let direct_url = format!("{}/api/v1/cases?limit=300", self.case_mgmt_base());
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| -> Result<CasesResponse, String> {
-                let client = reqwest::blocking::Client::builder()
-                    .timeout(std::time::Duration::from_secs(20))
-                    .build()
-                    .map_err(|e| e.to_string())?;
-                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
-                if !resp.status().is_success() {
-                    return Err(format!("HTTP {}", resp.status()));
+                let client = Self::http_client(20)?;
+                for url in [&portal_url, &direct_url] {
+                    let resp = client.get(url).send().map_err(|e| e.to_string())?;
+                    if resp.status().is_success() {
+                        return resp.json::<CasesResponse>().map_err(|e| e.to_string());
+                    }
                 }
-                resp.json::<CasesResponse>().map_err(|e| e.to_string())
+                Err("cases fetch failed via portal and direct API".to_string())
             })();
             let _ = tx.send(result);
         });
@@ -568,6 +648,180 @@ impl OperatorApp {
         self.events_rx = Some(rx);
     }
 
+    fn fetch_alerts(&mut self) {
+        self.alerts_loading = true;
+        let base = self.portal_base();
+        let url = format!("{base}/api/v1/proxy/alertmanager/v2/alerts");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Vec<AlertItem>, String> {
+                let client = Self::http_client(20)?;
+                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                let raw = resp.text().map_err(|e| e.to_string())?;
+                let body = serde_json::from_str::<Vec<PortalEvent>>(&raw)
+                    .or_else(|_| serde_json::from_str::<PortalAlertsEnvelope>(&raw).map(|x| x.data))
+                    .map_err(|e| format!("decode failed: {e}"))?;
+                let mapped = body
+                    .into_iter()
+                    .map(|ev| AlertItem {
+                        id: if ev.fingerprint.is_empty() {
+                            format!("am-{}", Utc::now().timestamp_millis())
+                        } else {
+                            ev.fingerprint
+                        },
+                        title: if ev.labels.alertname.is_empty() {
+                            "Alertmanager alert".to_string()
+                        } else {
+                            ev.labels.alertname
+                        },
+                        severity: if ev.labels.severity.is_empty() {
+                            "unknown".to_string()
+                        } else {
+                            ev.labels.severity
+                        },
+                        source: if ev.labels.instance.is_empty() {
+                            ev.labels.job
+                        } else {
+                            ev.labels.instance
+                        },
+                        mitre_tactic: "N/A".to_string(),
+                        fired_at: if ev.starts_at.is_empty() {
+                            ev.ends_at
+                        } else {
+                            ev.starts_at
+                        },
+                        state: if ev.status.state.eq_ignore_ascii_case("active") {
+                            AlertState::Firing
+                        } else {
+                            AlertState::Acknowledged
+                        },
+                    })
+                    .collect();
+                Ok(mapped)
+            })();
+            let _ = tx.send(result);
+        });
+        self.alerts_rx = Some(rx);
+    }
+
+    fn fetch_detection_stats(&mut self) {
+        self.detection_stats_loading = true;
+        let url = format!(
+            "{}/api/v1/stats",
+            self.detection_engine_url.trim_end_matches('/')
+        );
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<DetectionStats, String> {
+                let client = Self::http_client(12)?;
+                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                resp.json::<DetectionStats>().map_err(|e| e.to_string())
+            })();
+            let _ = tx.send(result);
+        });
+        self.detection_stats_rx = Some(rx);
+    }
+
+    fn fetch_stack_status(&mut self) {
+        self.stack_status_loading = true;
+        let url = format!("{}/api/v1/stack/status", self.portal_base());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Vec<StackServiceStatus>, String> {
+                let client = Self::http_client(12)?;
+                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                let parsed = resp
+                    .json::<StackStatusResponse>()
+                    .map_err(|e| format!("decode stack status: {e}"))?;
+                let mut rows = Vec::new();
+                for (service, value) in parsed.checks {
+                    let ok = value["ok"].as_bool().unwrap_or(false);
+                    let detail = value["message"].as_str().unwrap_or_default().to_string();
+                    rows.push(StackServiceStatus {
+                        service,
+                        status: if ok { "up".to_string() } else { "down".to_string() },
+                        detail,
+                    });
+                }
+                Ok(rows)
+            })();
+            let _ = tx.send(result);
+        });
+        self.stack_status_rx = Some(rx);
+    }
+
+    fn fetch_case_timeline(&mut self, case_id: &str) {
+        self.timeline_loading = true;
+        let url = format!(
+            "{}/api/v1/cases/{}",
+            self.case_mgmt_base(),
+            case_id.trim()
+        );
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Vec<CaseTimelineEntry>, String> {
+                let client = Self::http_client(12)?;
+                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                let detail = resp.json::<CaseDetailResponse>().map_err(|e| e.to_string())?;
+                Ok(detail.timeline)
+            })();
+            let _ = tx.send(result);
+        });
+        self.timeline_rx = Some(rx);
+    }
+
+    fn fetch_overview_metrics_series(&mut self) {
+        self.metrics_loading = true;
+        let end = Utc::now().timestamp();
+        let start = end - 24 * 3600;
+        let base = self.portal_base();
+        let q_eps = format!("{base}/api/v1/proxy/prometheus/query_range?query=sum(rate(ALERTS[5m]))&start={start}&end={end}&step=300");
+        let q_alerts = format!("{base}/api/v1/proxy/prometheus/query_range?query=count(ALERTS)&start={start}&end={end}&step=300");
+        let q_mtta = format!("{base}/api/v1/proxy/prometheus/query_range?query=avg_over_time(up[30m])&start={start}&end={end}&step=300");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), String> {
+                let client = Self::http_client(15)?;
+                let fetch = |url: &str| -> Result<Vec<f64>, String> {
+                    let resp = client.get(url).send().map_err(|e| e.to_string())?;
+                    if !resp.status().is_success() {
+                        return Err(format!("HTTP {}", resp.status()));
+                    }
+                    let body = resp
+                        .json::<PromQueryRangeResponse>()
+                        .map_err(|e| e.to_string())?;
+                    let mut values = Vec::new();
+                    if let Some(series) = body.data.result.first() {
+                        for pair in &series.values {
+                            let v = pair
+                                .get(1)
+                                .and_then(|x| x.as_str())
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .unwrap_or(0.0);
+                            values.push(v);
+                        }
+                    }
+                    Ok(values)
+                };
+                Ok((fetch(&q_eps)?, fetch(&q_alerts)?, fetch(&q_mtta)?))
+            })();
+            let _ = tx.send(result);
+        });
+        self.metrics_series_rx = Some(rx);
+    }
+
     fn fetch_detections(&mut self) {
         self.detections_loading = true;
         let base = self.portal_base();
@@ -614,37 +868,25 @@ impl OperatorApp {
             return;
         }
         self.investigation_loading = true;
-        let base = self.api_base.trim_end_matches('/').to_string();
-        let url = format!("{base}/api/v1/cases/{entity}/investigate");
+        let portal_url = format!("{}/api/v1/proxy/cases/{entity}/investigate", self.portal_base());
+        let direct_url = format!("{}/api/v1/cases/{entity}/investigate", self.case_mgmt_base());
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = (|| -> Result<Vec<String>, String> {
-                let client = reqwest::blocking::Client::builder()
-                    .timeout(std::time::Duration::from_secs(15))
-                    .build()
-                    .map_err(|e| e.to_string())?;
-                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
-                if !resp.status().is_success() {
-                    return Err(format!("HTTP {}", resp.status()));
-                }
-                let raw = resp.text().map_err(|e| e.to_string())?;
-                if let Ok(parsed) = serde_json::from_str::<InvestigationResponse>(&raw) {
-                    let mut rows = vec![format!("Summary: {}", parsed.summary)];
-                    rows.extend(parsed.findings);
-                    return Ok(rows);
-                }
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                    if let Some(arr) = v["items"].as_array() {
-                        let rows = arr
-                            .iter()
-                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                            .collect::<Vec<_>>();
-                        if !rows.is_empty() {
-                            return Ok(rows);
-                        }
+            let result = (|| -> Result<InvestigationResponse, String> {
+                let client = Self::http_client(15)?;
+                let mut last_err = String::new();
+                for url in [&portal_url, &direct_url] {
+                    let resp = client.get(url).send().map_err(|e| e.to_string())?;
+                    if !resp.status().is_success() {
+                        last_err = format!("{} -> HTTP {}", url, resp.status());
+                        continue;
+                    }
+                    let raw = resp.text().map_err(|e| e.to_string())?;
+                    if let Ok(parsed) = serde_json::from_str::<InvestigationResponse>(&raw) {
+                        return Ok(parsed);
                     }
                 }
-                Ok(vec![raw])
+                Err(format!("investigation decode failed: {last_err}"))
             })();
             let _ = tx.send(result);
         });
@@ -770,17 +1012,98 @@ impl OperatorApp {
         self.api_base = self.api_base.trim().to_string();
     }
 
-    fn assign_selected_to_me(&mut self) {
-        let mut audit: Option<String> = None;
-        if let Some(i) = self.selected {
-            if let Some(case) = self.cases.get_mut(i) {
-                case.assignee = Some(self.whoami.clone());
-                self.status = format!("{} assigned to {}", case.display_key, self.whoami);
-                audit = Some(format!("Assigned {} to {}", case.display_key, self.whoami));
-            }
+    fn patch_case_remote(&self, case_id: &str, req: &PatchCaseRequest) -> Result<(), String> {
+        let url = format!("{}/api/v1/cases/{}", self.case_mgmt_base(), case_id);
+        let client = Self::http_client(15)?;
+        let resp = client
+            .patch(&url)
+            .header("X-SOC-Actor", &self.whoami)
+            .json(req)
+            .send()
+            .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("PATCH failed: HTTP {}", resp.status()));
         }
-        if let Some(a) = audit {
-            self.append_audit(a);
+        Ok(())
+    }
+
+    fn create_case_remote(&self, req: &CreateCaseRequest) -> Result<CreatedCaseResponse, String> {
+        let url = format!("{}/api/v1/cases", self.case_mgmt_base());
+        let client = Self::http_client(20)?;
+        let resp = client
+            .post(&url)
+            .header("X-SOC-Actor", &self.whoami)
+            .json(req)
+            .send()
+            .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("Create case failed: HTTP {}", resp.status()));
+        }
+        resp.json::<CreatedCaseResponse>().map_err(|e| e.to_string())
+    }
+
+    fn add_timeline_remote(&self, case_id: &str, body: &str) -> Result<(), String> {
+        let url = format!("{}/api/v1/cases/{}/timeline", self.case_mgmt_base(), case_id);
+        let client = Self::http_client(15)?;
+        let req = TimelineCreateRequest {
+            body: body.to_string(),
+        };
+        let resp = client
+            .post(&url)
+            .header("X-SOC-Actor", &self.whoami)
+            .json(&req)
+            .send()
+            .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("Timeline write failed: HTTP {}", resp.status()));
+        }
+        Ok(())
+    }
+
+    fn link_alert_remote(&self, case_id: &str, alert: &AlertItem) -> Result<(), String> {
+        let url = format!("{}/api/v1/cases/{}/alerts", self.case_mgmt_base(), case_id);
+        let client = Self::http_client(15)?;
+        let req = LinkAlertRequest {
+            fingerprint: alert.id.clone(),
+            rule_id: None,
+            rule_title: Some(alert.title.clone()),
+            severity: Some(alert.severity.clone()),
+            description: Some(format!("source={} fired_at={}", alert.source, alert.fired_at)),
+            context: serde_json::json!({
+                "source": alert.source,
+                "mitre_tactic": alert.mitre_tactic,
+            }),
+        };
+        let resp = client
+            .post(&url)
+            .header("X-SOC-Actor", &self.whoami)
+            .json(&req)
+            .send()
+            .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("Alert link failed: HTTP {}", resp.status()));
+        }
+        Ok(())
+    }
+
+    fn assign_selected_to_me(&mut self) {
+        if let Some(i) = self.selected {
+            if let Some(case) = self.cases.get(i) {
+                let req = PatchCaseRequest {
+                    status: None,
+                    severity: None,
+                    assignee: Some(self.whoami.clone()),
+                    resolution: None,
+                };
+                match self.patch_case_remote(&case.id, &req) {
+                    Ok(_) => {
+                        self.status = format!("{} assigned to {}", case.display_key, self.whoami);
+                        self.append_audit(format!("Assigned {} to {}", case.display_key, self.whoami));
+                        self.fetch_cases();
+                    }
+                    Err(e) => self.status = format!("Assign failed: {e}"),
+                }
+            }
         }
     }
 
@@ -796,16 +1119,23 @@ impl OperatorApp {
             });
             return;
         }
-        let mut audit: Option<String> = None;
         if let Some(i) = self.selected {
-            if let Some(case) = self.cases.get_mut(i) {
-                case.status = "Closed".to_string();
-                self.status = format!("{} closed: {}", case.display_key, reason);
-                audit = Some(format!("Closed {} ({})", case.display_key, reason));
+            if let Some(case) = self.cases.get(i) {
+                let req = PatchCaseRequest {
+                    status: Some("closed".to_string()),
+                    severity: None,
+                    assignee: None,
+                    resolution: Some(reason.to_string()),
+                };
+                match self.patch_case_remote(&case.id, &req) {
+                    Ok(_) => {
+                        self.status = format!("{} closed: {}", case.display_key, reason);
+                        self.append_audit(format!("Closed {} ({})", case.display_key, reason));
+                        self.fetch_cases();
+                    }
+                    Err(e) => self.status = format!("Close failed: {e}"),
+                }
             }
-        }
-        if let Some(a) = audit {
-            self.append_audit(a);
         }
     }
 
@@ -821,16 +1151,23 @@ impl OperatorApp {
             });
             return;
         }
-        let mut audit: Option<String> = None;
         if let Some(i) = self.selected {
-            if let Some(case) = self.cases.get_mut(i) {
-                case.status = status.to_string();
-                self.status = format!("{} -> {}", case.display_key, status);
-                audit = Some(format!("Transition {} -> {}", case.display_key, status));
+            if let Some(case) = self.cases.get(i) {
+                let req = PatchCaseRequest {
+                    status: Some(Self::normalize_status_for_api(status)),
+                    severity: None,
+                    assignee: None,
+                    resolution: None,
+                };
+                match self.patch_case_remote(&case.id, &req) {
+                    Ok(_) => {
+                        self.status = format!("{} -> {}", case.display_key, status);
+                        self.append_audit(format!("Transition {} -> {}", case.display_key, status));
+                        self.fetch_cases();
+                    }
+                    Err(e) => self.status = format!("Transition failed: {e}"),
+                }
             }
-        }
-        if let Some(a) = audit {
-            self.append_audit(a);
         }
     }
 
@@ -853,6 +1190,52 @@ impl OperatorApp {
             self.status = format!("Auto-triage applied {} updates", changed);
             self.append_audit(format!("Auto-triage updated {} fields", changed));
         }
+    }
+
+    fn promote_alert_to_case(&mut self, alert: &AlertItem) -> Result<(), String> {
+        let req = CreateCaseRequest {
+            title: alert.title.clone(),
+            description: format!("Promoted from alert {}", alert.id),
+            severity: alert.severity.to_lowercase(),
+            status: "new".to_string(),
+            assignee: None,
+            source: "siem-operator".to_string(),
+        };
+        let created = self.create_case_remote(&req)?;
+        self.link_alert_remote(&created.id, alert)?;
+        self.add_timeline_remote(
+            &created.id,
+            &format!("Promoted alert {} to case {}", alert.id, created.display_key),
+        )?;
+        self.fetch_cases();
+        Ok(())
+    }
+
+    fn promote_investigation_to_case(&mut self) -> Result<(), String> {
+        let title = if self.investigation_entity.trim().is_empty() {
+            "Investigation finding".to_string()
+        } else {
+            format!("Investigation: {}", self.investigation_entity)
+        };
+        let req = CreateCaseRequest {
+            title,
+            description: self
+                .investigation_details
+                .as_ref()
+                .map(|d| d.summary.clone())
+                .unwrap_or_else(|| "Promoted from investigation".to_string()),
+            severity: "high".to_string(),
+            status: "new".to_string(),
+            assignee: None,
+            source: "siem-operator".to_string(),
+        };
+        let created = self.create_case_remote(&req)?;
+        self.add_timeline_remote(
+            &created.id,
+            &format!("Investigation {} promoted to case", self.investigation_entity),
+        )?;
+        self.fetch_cases();
+        Ok(())
     }
 
     fn export_selected_case_markdown(&mut self) {
@@ -909,6 +1292,16 @@ impl OperatorApp {
     fn is_closed_status(status: &str) -> bool {
         let s = status.to_lowercase();
         s.contains("closed") || s.contains("resolved") || s.contains("done")
+    }
+
+    fn normalize_status_for_api(status: &str) -> String {
+        match status.trim().to_lowercase().as_str() {
+            "new" => "new".to_string(),
+            "in progress" | "in_progress" => "in_progress".to_string(),
+            "escalated" => "escalated".to_string(),
+            "closed" => "closed".to_string(),
+            other => other.replace(' ', "_"),
+        }
     }
 
     fn is_stale(case: &CaseBrief) -> bool {
@@ -1655,50 +2048,58 @@ impl OperatorApp {
         let Some(case) = self.cases.get(idx) else {
             return;
         };
+        let case_id = case.id.clone();
         let case_key = case.display_key.clone();
-        let case_title = case.title.clone();
-        let case_status = case.status.clone();
-        let case_created = case.created_at.clone();
-        let case_assignee = case.assignee.clone().unwrap_or_else(|| "Unassigned".to_string());
-        let case_stale = Self::is_stale(case);
-        let mut rows = vec![
-            (
-                case_created.clone(),
-                "Case created".to_string(),
-                format!("{} {}", case_key, case_title),
-            ),
-            (
-                case_created.clone(),
-                "Status snapshot".to_string(),
-                case_status,
-            ),
-            (
-                Utc::now().to_rfc3339(),
-                "Assignee".to_string(),
-                case_assignee,
-            ),
-        ];
-        if case_stale {
-            rows.push((
-                Utc::now().to_rfc3339(),
-                "SLA".to_string(),
-                "Breach detected".to_string(),
-            ));
+        if ui.button("Refresh timeline from API").clicked() {
+            self.fetch_case_timeline(&case_id);
         }
+        if self.timeline_loading {
+            ui.spinner();
+        }
+        ui.add_space(6.0);
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(30, 36, 48))
             .inner_margin(egui::Margin::same(10.0))
             .rounding(egui::Rounding::same(8.0))
             .show(ui, |ui| {
-                for (ts, ev, details) in rows {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(egui::RichText::new(ts).monospace().small());
-                        ui.label(egui::RichText::new(ev).strong());
-                        ui.label(details);
-                    });
-                    ui.separator();
+                if self.case_timeline.is_empty() {
+                    ui.label("No API timeline loaded yet.");
+                } else {
+                    for row in &self.case_timeline {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(egui::RichText::new(&row.created_at).monospace().small());
+                            ui.label(egui::RichText::new(&row.entry_type).strong());
+                            ui.label(row.body.clone().unwrap_or_default());
+                            if !row.actor.is_empty() {
+                                ui.label(format!("by {}", row.actor));
+                            }
+                        });
+                        ui.separator();
+                    }
                 }
             });
+        ui.add_space(8.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Add timeline note:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.investigation_note_input)
+                    .desired_width(320.0)
+                    .hint_text("comment to case timeline"),
+            );
+            if ui.button("Post note").clicked() {
+                let note = self.investigation_note_input.trim().to_string();
+                if !note.is_empty() {
+                    match self.add_timeline_remote(&case_id, &note) {
+                        Ok(_) => {
+                            self.investigation_note_input.clear();
+                            self.fetch_case_timeline(&case_id);
+                            self.status = "Timeline entry added".to_string();
+                        }
+                        Err(e) => self.status = format!("Timeline post failed: {e}"),
+                    }
+                }
+            }
+        });
         ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new("Playbook runner").strong());
@@ -1766,7 +2167,11 @@ impl OperatorApp {
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Refresh All").clicked() {
                         self.fetch_cases();
+                        self.fetch_alerts();
                         self.fetch_events();
+                        self.fetch_detection_stats();
+                        self.fetch_stack_status();
+                        self.fetch_overview_metrics_series();
                         self.fetch_observability_snapshot();
                         self.fetch_assets();
                     }
@@ -1783,6 +2188,29 @@ impl OperatorApp {
                         self.export_selected_case_markdown();
                     }
                 });
+                if let Some(stats) = &self.detection_stats {
+                    ui.add_space(8.0);
+                    ui.horizontal_wrapped(|ui| {
+                        kpi_card(
+                            ui,
+                            "Rules",
+                            &stats.rules_count.to_string(),
+                            egui::Color32::from_rgb(110, 165, 235),
+                        );
+                        kpi_card(
+                            ui,
+                            "Pending alerts",
+                            &stats.pending_alerts.to_string(),
+                            egui::Color32::from_rgb(245, 140, 70),
+                        );
+                        kpi_card(
+                            ui,
+                            "Kafka lag",
+                            &stats.kafka_lag.to_string(),
+                            egui::Color32::from_rgb(235, 195, 80),
+                        );
+                    });
+                }
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Role:");
@@ -1906,7 +2334,13 @@ impl OperatorApp {
             });
         ui.add_space(10.0);
 
-        let (open_series, crit_series) = build_case_sparkline_series(&self.cases);
+        let (mut open_series, mut crit_series) = build_case_sparkline_series(&self.cases);
+        if !self.alerts_series.is_empty() {
+            open_series = self.alerts_series.iter().map(|v| *v as f32).collect();
+        }
+        if !self.eps_series.is_empty() {
+            crit_series = self.eps_series.iter().map(|v| *v as f32).collect();
+        }
         let mut by_source: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         let mut by_severity: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         let mut by_analyst: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
@@ -2144,6 +2578,12 @@ impl OperatorApp {
                 });
                 ui.add_space(10.0);
                 ui.horizontal_wrapped(|ui| {
+                    if ui.button("Refresh live alerts").clicked() {
+                        self.fetch_alerts();
+                    }
+                    if self.alerts_loading {
+                        ui.spinner();
+                    }
                     kpi_card(ui, "Total", &total_alerts.to_string(), egui::Color32::from_rgb(110, 165, 235));
                     kpi_card(
                         ui,
@@ -2168,6 +2608,7 @@ impl OperatorApp {
         ui.add_space(10.0);
         let mut promote_idx: Option<usize> = None;
         let mut audit_ack: Option<String> = None;
+        let mut ack_alert_id: Option<String> = None;
         let mut open_investigation: Option<String> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, alert) in self.alerts.iter_mut().enumerate() {
@@ -2200,6 +2641,7 @@ impl OperatorApp {
                             if ui.button("Acknowledge").clicked() {
                                 alert.state = AlertState::Acknowledged;
                                 self.status = format!("{} acknowledged", alert.id);
+                                ack_alert_id = Some(alert.id.clone());
                                 audit_ack = Some(format!("Acknowledged alert {}", alert.id));
                             }
                             if ui.button("Investigate").clicked() {
@@ -2215,24 +2657,26 @@ impl OperatorApp {
         });
         if let Some(i) = promote_idx {
             if let Some(alert) = self.alerts.get(i).cloned() {
-                let new_case = CaseBrief {
-                    id: format!("promoted-{}", alert.id),
-                    display_key: format!("CASE-{}", self.cases.len() + 1),
-                    title: alert.title.clone(),
-                    severity: alert.severity.clone(),
-                    status: "New".to_string(),
-                    assignee: None,
-                    created_at: Utc::now().to_rfc3339(),
-                };
-                self.cases.insert(0, new_case);
-                self.total += 1;
-                self.status = format!("Alert {} promoted to case", alert.id);
-                self.append_audit(format!("Promoted alert {} to case", alert.id));
-                self.alerts.remove(i);
+                match self.promote_alert_to_case(&alert) {
+                    Ok(_) => {
+                        self.status = format!("Alert {} promoted to case", alert.id);
+                        self.append_audit(format!("Promoted alert {} to case", alert.id));
+                        self.alerts.remove(i);
+                        self.fetch_alerts();
+                    }
+                    Err(e) => self.status = format!("Promote failed: {e}"),
+                }
             }
         }
         if let Some(msg) = audit_ack {
             self.append_audit(msg);
+        }
+        if let Some(alert_id) = ack_alert_id {
+            if let Some(i) = self.selected {
+                if let Some(case) = self.cases.get(i) {
+                    let _ = self.add_timeline_remote(&case.id, &format!("Acknowledged alert {alert_id}"));
+                }
+            }
         }
         if let Some(entity) = open_investigation {
             self.investigation_entity = entity.clone();
@@ -2259,9 +2703,16 @@ impl OperatorApp {
             if ui.button("Refresh Prometheus + Alertmanager").clicked() {
                 self.fetch_observability_snapshot();
             }
+            if ui.button("Refresh Portal stack status").clicked() {
+                self.fetch_stack_status();
+            }
             if self.obs_loading {
                 ui.spinner();
                 ui.label("loading...");
+            }
+            if self.stack_status_loading {
+                ui.spinner();
+                ui.label("stack...");
             }
             if let Some(s) = &self.obs_snapshot {
                 ui.label(
@@ -2295,6 +2746,30 @@ impl OperatorApp {
                     &s.am_alerts_silenced.to_string(),
                     egui::Color32::from_rgb(235, 195, 80),
                 );
+            });
+        }
+        if !self.stack_status.is_empty() {
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Portal health checks").strong());
+            egui::Grid::new("stack_panel_grid").striped(true).show(ui, |ui| {
+                ui.strong("Service");
+                ui.strong("Status");
+                ui.strong("Details");
+                ui.end_row();
+                for row in &self.stack_status {
+                    ui.label(&row.service);
+                    pill_label(
+                        ui,
+                        &row.status,
+                        if row.status.eq_ignore_ascii_case("up") {
+                            egui::Color32::from_rgb(90, 200, 140)
+                        } else {
+                            egui::Color32::from_rgb(235, 75, 85)
+                        },
+                    );
+                    ui.label(&row.detail);
+                    ui.end_row();
+                }
             });
         }
 
@@ -2765,12 +3240,22 @@ impl OperatorApp {
                         .desired_width(f32::INFINITY)
                         .hint_text("API / Portal URL"),
                 );
+                ui.add_space(6.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.detection_engine_url)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Detection-engine URL (e.g. http://127.0.0.1:9111)"),
+                );
                 ui.horizontal_wrapped(|ui| {
                     if ui.button("Apply URL and refresh").clicked() {
                         self.api_base = self.api_base.trim().to_string();
                         self.fetch_cases();
+                        self.fetch_alerts();
                         self.fetch_events();
                         self.fetch_detections();
+                        self.fetch_detection_stats();
+                        self.fetch_stack_status();
+                        self.fetch_overview_metrics_series();
                         self.fetch_assets();
                         self.fetch_observability_snapshot();
                         self.status = "Connection settings applied".to_string();
@@ -2778,6 +3263,8 @@ impl OperatorApp {
                     if ui.button("Reset to default").clicked() {
                         self.api_base = std::env::var("SIEM_OPERATOR_API")
                             .unwrap_or_else(|_| "http://127.0.0.1:8088".to_string());
+                        self.detection_engine_url = std::env::var("SIEM_OPERATOR_DETECTION_URL")
+                            .unwrap_or_else(|_| "http://127.0.0.1:9111".to_string());
                     }
                 });
             });
@@ -2961,8 +3448,13 @@ impl eframe::App for OperatorApp {
         }
         if let Some(rx) = &self.investigation_rx {
             match rx.try_recv() {
-                Ok(Ok(rows)) => {
-                    self.investigation_notes = rows;
+                Ok(Ok(details)) => {
+                    self.investigation_notes = {
+                        let mut rows = vec![format!("Summary: {}", details.summary)];
+                        rows.extend(details.findings.iter().cloned());
+                        rows
+                    };
+                    self.investigation_details = Some(details);
                     self.investigation_loading = false;
                     self.investigation_rx = None;
                     self.status = "Investigation loaded".to_string();
@@ -2976,6 +3468,103 @@ impl eframe::App for OperatorApp {
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.investigation_loading = false;
                     self.investigation_rx = None;
+                }
+            }
+        }
+        if let Some(rx) = &self.alerts_rx {
+            match rx.try_recv() {
+                Ok(Ok(rows)) => {
+                    self.alerts = rows;
+                    self.alerts_loading = false;
+                    self.alerts_rx = None;
+                }
+                Ok(Err(e)) => {
+                    self.alerts_loading = false;
+                    self.alerts_rx = None;
+                    self.status = format!("Alerts error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.alerts_loading = false;
+                    self.alerts_rx = None;
+                }
+            }
+        }
+        if let Some(rx) = &self.timeline_rx {
+            match rx.try_recv() {
+                Ok(Ok(rows)) => {
+                    self.case_timeline = rows;
+                    self.timeline_loading = false;
+                    self.timeline_rx = None;
+                }
+                Ok(Err(e)) => {
+                    self.timeline_loading = false;
+                    self.timeline_rx = None;
+                    self.status = format!("Timeline error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.timeline_loading = false;
+                    self.timeline_rx = None;
+                }
+            }
+        }
+        if let Some(rx) = &self.stack_status_rx {
+            match rx.try_recv() {
+                Ok(Ok(rows)) => {
+                    self.stack_status = rows;
+                    self.stack_status_loading = false;
+                    self.stack_status_rx = None;
+                }
+                Ok(Err(e)) => {
+                    self.stack_status_loading = false;
+                    self.stack_status_rx = None;
+                    self.status = format!("Stack status error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.stack_status_loading = false;
+                    self.stack_status_rx = None;
+                }
+            }
+        }
+        if let Some(rx) = &self.detection_stats_rx {
+            match rx.try_recv() {
+                Ok(Ok(stats)) => {
+                    self.detection_stats = Some(stats);
+                    self.detection_stats_loading = false;
+                    self.detection_stats_rx = None;
+                }
+                Ok(Err(e)) => {
+                    self.detection_stats_loading = false;
+                    self.detection_stats_rx = None;
+                    self.status = format!("Detection stats error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.detection_stats_loading = false;
+                    self.detection_stats_rx = None;
+                }
+            }
+        }
+        if let Some(rx) = &self.metrics_series_rx {
+            match rx.try_recv() {
+                Ok(Ok((eps, alerts, mtta))) => {
+                    self.eps_series = eps;
+                    self.alerts_series = alerts;
+                    self.mtta_series = mtta;
+                    self.metrics_loading = false;
+                    self.metrics_series_rx = None;
+                }
+                Ok(Err(e)) => {
+                    self.metrics_loading = false;
+                    self.metrics_series_rx = None;
+                    self.status = format!("Metrics series error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.metrics_loading = false;
+                    self.metrics_series_rx = None;
                 }
             }
         }
@@ -3031,8 +3620,12 @@ impl eframe::App for OperatorApp {
 
         if self.cases.is_empty() && !self.loading && self.rx.is_none() && self.status.contains("Нажми") {
             self.fetch_cases();
+            self.fetch_alerts();
             self.fetch_events();
             self.fetch_detections();
+            self.fetch_detection_stats();
+            self.fetch_stack_status();
+            self.fetch_overview_metrics_series();
             self.fetch_assets();
             self.fetch_observability_snapshot();
         }

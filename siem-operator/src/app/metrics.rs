@@ -1,4 +1,5 @@
 use eframe::egui;
+use egui_plot::{Line, Plot, PlotPoints};
 
 pub(super) fn average_hours(values: impl Iterator<Item = i64>) -> i64 {
     let v: Vec<i64> = values.collect();
@@ -32,28 +33,23 @@ pub(super) fn sparkline_card(ui: &mut egui::Ui, title: &str, values: &[f32], col
         .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.7)))
         .inner_margin(egui::Margin::symmetric(12.0, 10.0))
         .show(ui, |ui| {
-            let w = ui.available_width().clamp(180.0, 420.0);
             ui.label(egui::RichText::new(title).small());
-            let desired = egui::vec2(w - 16.0, 52.0);
-            let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
             if values.len() < 2 {
                 return;
             }
-            let max = values.iter().copied().fold(0.0_f32, f32::max).max(1.0);
-            let mut points: Vec<egui::Pos2> = Vec::with_capacity(values.len());
-            for (i, v) in values.iter().enumerate() {
-                let x = rect.left() + (i as f32 / (values.len() - 1) as f32) * rect.width();
-                let y = rect.bottom() - (v / max) * rect.height();
-                points.push(egui::pos2(x, y));
-            }
-            ui.painter().line_segment(
-                [
-                    egui::pos2(rect.left(), rect.bottom()),
-                    egui::pos2(rect.right(), rect.bottom()),
-                ],
-                egui::Stroke::new(1.0, egui::Color32::from_gray(70)),
-            );
-            ui.painter()
-                .add(egui::Shape::line(points, egui::Stroke::new(2.0, color)));
+            let points: PlotPoints = values
+                .iter()
+                .enumerate()
+                .map(|(i, v)| [i as f64, *v as f64])
+                .collect();
+            Plot::new(format!("plot_{title}"))
+                .height(70.0)
+                .allow_zoom(false)
+                .allow_drag(false)
+                .allow_scroll(false)
+                .show_axes([false, false])
+                .show(ui, |plot_ui| {
+                    plot_ui.line(Line::new(points).color(color));
+                });
         });
 }

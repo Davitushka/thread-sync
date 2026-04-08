@@ -29,6 +29,10 @@ fn default_wallpaper_tint() -> [u8; 3] {
     [22, 27, 36]
 }
 
+fn default_detection_engine_url() -> String {
+    "http://127.0.0.1:9111".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct PersistedState {
     pub api_base: String,
@@ -59,6 +63,8 @@ pub(super) struct PersistedState {
     pub wallpaper_preset: String,
     #[serde(default = "default_wallpaper_tint")]
     pub wallpaper_tint: [u8; 3],
+    #[serde(default = "default_detection_engine_url")]
+    pub detection_engine_url: String,
 }
 
 pub(super) fn load_state(path: &Path) -> Result<PersistedState, String> {
