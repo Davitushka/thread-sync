@@ -1464,29 +1464,74 @@ impl OperatorApp {
                 .filter_map(Self::case_age_hours),
         );
 
-        ui.heading("Overview Dashboard");
-        ui.label("Оперативная сводка по кейсам, observability и SLA.");
-        ui.add_space(8.0);
-        ui.horizontal_wrapped(|ui| {
-            if ui.button("Refresh All").clicked() {
-                self.fetch_cases();
-                self.fetch_events();
-                self.fetch_observability_snapshot();
-                self.fetch_assets();
-            }
-            if ui.button("Refresh Cases").clicked() {
-                self.fetch_cases();
-            }
-            if ui.button("Refresh Events").clicked() {
-                self.fetch_events();
-            }
-            if ui
-                .add_enabled(self.selected.is_some(), egui::Button::new("Export selected report"))
-                .clicked()
-            {
-                self.export_selected_case_markdown();
-            }
-        });
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        egui::RichText::new("SOC Overview")
+                            .strong()
+                            .size(24.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                    ui.label(
+                        egui::RichText::new("Live posture, triage pressure, SLA and stack control")
+                            .small()
+                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                    );
+                });
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Refresh All").clicked() {
+                        self.fetch_cases();
+                        self.fetch_events();
+                        self.fetch_observability_snapshot();
+                        self.fetch_assets();
+                    }
+                    if ui.button("Refresh Cases").clicked() {
+                        self.fetch_cases();
+                    }
+                    if ui.button("Refresh Events").clicked() {
+                        self.fetch_events();
+                    }
+                    if ui
+                        .add_enabled(self.selected.is_some(), egui::Button::new("Export selected report"))
+                        .clicked()
+                    {
+                        self.export_selected_case_markdown();
+                    }
+                });
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Role:");
+                    egui::ComboBox::from_id_salt("role_selector")
+                        .selected_text(self.role_label())
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(matches!(self.role, UserRole::Analyst), "Analyst").clicked() {
+                                self.role = UserRole::Analyst;
+                            }
+                            if ui.selectable_label(matches!(self.role, UserRole::Senior), "Senior").clicked() {
+                                self.role = UserRole::Senior;
+                            }
+                            if ui.selectable_label(matches!(self.role, UserRole::Manager), "Manager").clicked() {
+                                self.role = UserRole::Manager;
+                            }
+                        });
+                    ui.checkbox(&mut self.auto_triage_enabled, "Auto-triage");
+                    ui.checkbox(&mut self.auto_refresh_enabled, "Auto-refresh");
+                    ui.add(
+                        egui::Slider::new(&mut self.auto_refresh_interval_sec, 10..=120)
+                            .text("interval")
+                            .suffix("s"),
+                    );
+                    if ui.button("Run triage now").clicked() {
+                        self.apply_auto_triage_rules();
+                    }
+                });
+            });
         ui.add_space(10.0);
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(26, 32, 45))
@@ -1539,33 +1584,6 @@ impl OperatorApp {
                     );
                 });
             });
-        ui.add_space(6.0);
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Role:");
-            egui::ComboBox::from_id_salt("role_selector")
-                .selected_text(self.role_label())
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(matches!(self.role, UserRole::Analyst), "Analyst").clicked() {
-                        self.role = UserRole::Analyst;
-                    }
-                    if ui.selectable_label(matches!(self.role, UserRole::Senior), "Senior").clicked() {
-                        self.role = UserRole::Senior;
-                    }
-                    if ui.selectable_label(matches!(self.role, UserRole::Manager), "Manager").clicked() {
-                        self.role = UserRole::Manager;
-                    }
-                });
-            ui.checkbox(&mut self.auto_triage_enabled, "Auto-triage rules");
-            ui.checkbox(&mut self.auto_refresh_enabled, "Auto-refresh");
-            ui.add(
-                egui::Slider::new(&mut self.auto_refresh_interval_sec, 10..=120)
-                    .text("sec")
-                    .suffix("s"),
-            );
-            if ui.button("Run triage now").clicked() {
-                self.apply_auto_triage_rules();
-            }
-        });
         ui.add_space(12.0);
         ui.horizontal_wrapped(|ui| {
             kpi_card(ui, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
@@ -1630,8 +1648,61 @@ impl OperatorApp {
     }
 
     fn show_alerts_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Alerts Inbox");
-        ui.label("Минимальный поток: alert -> Promote to Case.");
+        let total_alerts = self.alerts.len();
+        let firing_alerts = self
+            .alerts
+            .iter()
+            .filter(|a| matches!(a.state, AlertState::Firing))
+            .count();
+        let critical_alerts = self
+            .alerts
+            .iter()
+            .filter(|a| a.severity.eq_ignore_ascii_case("critical"))
+            .count();
+        let ack_alerts = total_alerts.saturating_sub(firing_alerts);
+
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        egui::RichText::new("Alerts Triage")
+                            .strong()
+                            .size(24.0)
+                            .color(egui::Color32::WHITE),
+                    );
+                    ui.label(
+                        egui::RichText::new("Queue for ack, investigation, enrichment and case promotion")
+                            .small()
+                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                    );
+                });
+                ui.add_space(10.0);
+                ui.horizontal_wrapped(|ui| {
+                    kpi_card(ui, "Total", &total_alerts.to_string(), egui::Color32::from_rgb(110, 165, 235));
+                    kpi_card(
+                        ui,
+                        "Firing",
+                        &firing_alerts.to_string(),
+                        egui::Color32::from_rgb(235, 75, 85),
+                    );
+                    kpi_card(
+                        ui,
+                        "Critical",
+                        &critical_alerts.to_string(),
+                        egui::Color32::from_rgb(245, 140, 70),
+                    );
+                    kpi_card(
+                        ui,
+                        "Acknowledged",
+                        &ack_alerts.to_string(),
+                        egui::Color32::from_rgb(90, 200, 140),
+                    );
+                });
+            });
         ui.add_space(10.0);
         let mut promote_idx: Option<usize> = None;
         let mut audit_ack: Option<String> = None;
@@ -1639,12 +1710,13 @@ impl OperatorApp {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, alert) in self.alerts.iter_mut().enumerate() {
                 egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(30, 36, 48))
-                    .inner_margin(egui::Margin::same(10.0))
-                    .rounding(egui::Rounding::same(8.0))
+                    .fill(egui::Color32::from_rgb(24, 30, 42))
+                    .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                    .rounding(egui::Rounding::same(10.0))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(egui::RichText::new(&alert.id).monospace());
+                            ui.label(egui::RichText::new(&alert.id).monospace().small());
                             pill_label(ui, &alert.severity, severity_color(&alert.severity));
                             let state_color = match alert.state {
                                 AlertState::Firing => egui::Color32::from_rgb(235, 75, 85),
@@ -1656,12 +1728,13 @@ impl OperatorApp {
                             };
                             pill_label(ui, state_text, state_color);
                         });
-                        ui.label(egui::RichText::new(&alert.title).strong());
+                        ui.label(egui::RichText::new(&alert.title).strong().size(15.0));
                         ui.label(format!(
                             "Source: {} · MITRE: {} · Fired: {}",
                             alert.source, alert.mitre_tactic, alert.fired_at
                         ));
-                        ui.horizontal(|ui| {
+                        ui.add_space(4.0);
+                        ui.horizontal_wrapped(|ui| {
                             if ui.button("Acknowledge").clicked() {
                                 alert.state = AlertState::Acknowledged;
                                 self.status = format!("{} acknowledged", alert.id);

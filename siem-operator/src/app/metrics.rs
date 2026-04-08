@@ -10,23 +10,27 @@ pub(super) fn average_hours(values: impl Iterator<Item = i64>) -> i64 {
 
 pub(super) fn kpi_card(ui: &mut egui::Ui, label: &str, value: &str, accent: egui::Color32) {
     egui::Frame::none()
-        .fill(egui::Color32::from_rgb(30, 36, 48))
-        .rounding(egui::Rounding::same(10.0))
-        .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.7)))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .fill(egui::Color32::from_rgb(24, 30, 42))
+        .rounding(egui::Rounding::same(12.0))
+        .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.85)))
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
-            ui.set_min_width(140.0);
-            ui.label(egui::RichText::new(label).small());
+            ui.set_min_width(150.0);
+            ui.label(
+                egui::RichText::new(label)
+                    .small()
+                    .color(egui::Color32::from_rgb(165, 178, 198)),
+            );
             ui.label(egui::RichText::new(value).strong().size(24.0).color(accent));
         });
 }
 
 pub(super) fn sparkline_card(ui: &mut egui::Ui, title: &str, values: &[f32], color: egui::Color32) {
     egui::Frame::none()
-        .fill(egui::Color32::from_rgb(30, 36, 48))
-        .rounding(egui::Rounding::same(10.0))
+        .fill(egui::Color32::from_rgb(24, 30, 42))
+        .rounding(egui::Rounding::same(12.0))
         .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.7)))
-        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
         .show(ui, |ui| {
             ui.set_min_width(250.0);
             ui.label(egui::RichText::new(title).small());
