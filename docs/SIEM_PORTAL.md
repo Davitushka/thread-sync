@@ -73,3 +73,13 @@
 |-----------|------------|
 | `siem-portal` | Всегда в основном compose: «операторская консоль» + прокси API. |
 | `siem-admin` | Профиль `admin`, Docker socket, сиды — админка стека. |
+
+## Интеграция с `siem-operator`
+
+Desktop-клиент `siem-operator` (вкладки `Overview/Alerts/Events/Assets`) использует portal как единый API-шлюз:
+
+- `GET /api/v1/proxy/cases?...` для case KPI/asset risk (через кейсы).
+- `GET /api/v1/proxy/alertmanager/v2/alerts` для ленты `Events`.
+- `GET /api/v1/proxy/prometheus/query?...` для `Overview` observability KPI.
+
+Рекомендация: для оператора выставлять `SIEM_OPERATOR_API` на адрес `siem-portal`, чтобы убрать прямые обращения к localhost-сервисам.

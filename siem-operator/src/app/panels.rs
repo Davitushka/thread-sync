@@ -50,11 +50,19 @@ impl OperatorApp {
                         self.palette_open = false;
                     }
                 };
-                action("dashboard", "Go: Dashboard", &mut |s| s.section = Section::Home);
-                action("cases", "Go: Cases", &mut |s| s.section = Section::Cases);
+                action("overview", "Go: Overview", &mut |s| s.section = Section::Overview);
                 action("alerts", "Go: Alerts", &mut |s| s.section = Section::Alerts);
-                action("stack", "Go: Stack", &mut |s| s.section = Section::Stack);
+                action("events", "Go: Events", &mut |s| s.section = Section::Events);
+                action("assets", "Go: Assets", &mut |s| s.section = Section::Assets);
                 action("refresh", "Action: Refresh cases", &mut |s| s.fetch_cases());
+                action("refresh events", "Action: Refresh events", &mut |s| s.fetch_events());
+                action("refresh assets", "Action: Refresh assets", &mut |s| s.fetch_assets());
+                action("docker up", "Action: Docker start stack", &mut |s| s.run_docker_compose_action("up"));
+                action("docker down", "Action: Docker stop stack", &mut |s| s.run_docker_compose_action("down"));
+                action("docker restart", "Action: Docker restart stack", &mut |s| {
+                    s.run_docker_compose_action("restart")
+                });
+                action("docker ps", "Action: Docker stack status", &mut |s| s.run_docker_compose_action("ps"));
                 action("assign", "Action: Assign selected to me", &mut |s| s.assign_selected_to_me());
                 action("close", "Action: Close selected", &mut |s| s.close_selected("Closed via command palette"));
                 action("obs", "Action: Refresh Prometheus/Alertmanager", &mut |s| {

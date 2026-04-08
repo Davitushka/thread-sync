@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::types::CaseFilters;
+use super::types::{AssetFilters, CaseFilters, EventFilters};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct PersistedState {
@@ -12,7 +12,13 @@ pub(super) struct PersistedState {
     pub role: String,
     pub active_view: String,
     pub auto_triage_enabled: bool,
+    #[serde(default)]
+    pub last_section: String,
     pub filters: CaseFilters,
+    #[serde(default)]
+    pub event_filters: EventFilters,
+    #[serde(default)]
+    pub asset_filters: AssetFilters,
 }
 
 pub(super) fn load_state(path: &Path) -> Result<PersistedState, String> {

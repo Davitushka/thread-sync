@@ -4,6 +4,7 @@
   "role": "analyst",
   "active_view": "all",
   "auto_triage_enabled": true,
+  "last_section": "overview",
   "filters": {
     "search": "",
     "severity": "",
@@ -11,6 +12,18 @@
     "assignee": "",
     "source": "",
     "mitre": "",
+    "stale_only": false
+  },
+  "event_filters": {
+    "search": "",
+    "severity": "",
+    "state": "",
+    "silenced_only": false
+  },
+  "asset_filters": {
+    "search": "",
+    "risk": "",
+    "source": "",
     "stale_only": false
   }
 }

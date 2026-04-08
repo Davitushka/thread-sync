@@ -1,11 +1,12 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc::{self, Receiver};
 
 use chrono::{DateTime, Utc};
 use eframe::egui;
 
-use crate::models::{AlertItem, AlertState, CaseBrief, CasesResponse};
+use crate::models::{AlertItem, AlertState, CaseBrief, CasesResponse, PortalEvent};
 use crate::ui::widgets::{pill_label, section_nav_button, severity_color, stack_action_card};
 mod state;
 mod types;
@@ -17,7 +18,33 @@ use bootstrap::seed_alerts;
 use metrics::{average_hours, kpi_card, sparkline_card};
 use panels::build_case_sparkline_series;
 use state::{load_state, save_state, PersistedState};
-use types::{AuditEntry, CaseFilters, PendingAction, SavedView, Section, UserRole};
+use types::{AssetFilters, AuditEntry, CaseFilters, EventFilters, PendingAction, SavedView, Section, UserRole};
+
+#[derive(Debug, Clone)]
+struct EventRow {
+    id: String,
+    title: String,
+    severity: String,
+    state: String,
+    source: String,
+    started_at: String,
+    silenced: bool,
+}
+
+#[derive(Debug, Clone)]
+struct AssetRow {
+    name: String,
+    source: String,
+    risk: String,
+    open_cases: usize,
+    stale_cases: usize,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct PortalAlertsEnvelope {
+    #[serde(default)]
+    data: Vec<PortalEvent>,
+}
 
 pub struct OperatorApp {
     api_base: String,
@@ -30,6 +57,10 @@ pub struct OperatorApp {
     selected: Option<usize>,
     alerts: Vec<AlertItem>,
     filters: CaseFilters,
+    event_filters: EventFilters,
+    asset_filters: AssetFilters,
+    events: Vec<EventRow>,
+    assets: Vec<AssetRow>,
     active_view: SavedView,
     close_reason: String,
     whoami: String,
@@ -38,6 +69,12 @@ pub struct OperatorApp {
     obs_loading: bool,
     obs_rx: Option<Receiver<Result<ObsSnapshot, String>>>,
     obs_snapshot: Option<ObsSnapshot>,
+    events_loading: bool,
+    events_rx: Option<Receiver<Result<Vec<EventRow>, String>>>,
+    assets_loading: bool,
+    docker_loading: bool,
+    docker_rx: Option<Receiver<Result<String, String>>>,
+    docker_last_output: String,
     role: UserRole,
     pending_action: Option<PendingAction>,
     audit_log: Vec<AuditEntry>,
@@ -61,6 +98,10 @@ impl Default for OperatorApp {
             selected: None,
             alerts: seed_alerts(),
             filters: CaseFilters::default(),
+            event_filters: EventFilters::default(),
+            asset_filters: AssetFilters::default(),
+            events: Vec::new(),
+            assets: Vec::new(),
             active_view: SavedView::All,
             close_reason: String::new(),
             whoami: "analyst".to_string(),
@@ -69,6 +110,12 @@ impl Default for OperatorApp {
             obs_loading: false,
             obs_rx: None,
             obs_snapshot: None,
+            events_loading: false,
+            events_rx: None,
+            assets_loading: false,
+            docker_loading: false,
+            docker_rx: None,
+            docker_last_output: "No docker action executed yet.".to_string(),
             role: UserRole::Analyst,
             pending_action: None,
             audit_log: Vec::new(),
@@ -97,6 +144,25 @@ struct ObsSnapshot {
 }
 
 impl OperatorApp {
+    fn portal_base(&self) -> String {
+        if let Ok(v) = std::env::var("SIEM_OPERATOR_PORTAL") {
+            let t = v.trim();
+            if !t.is_empty() {
+                return t.trim_end_matches('/').to_string();
+            }
+        }
+        let base = self.api_base.trim_end_matches('/');
+        if base.contains(":8091") {
+            return base.to_string();
+        }
+        if let Some((scheme, rest)) = base.split_once("://") {
+            let host = rest.split('/').next().unwrap_or(rest);
+            let host_only = host.split(':').next().unwrap_or(host);
+            return format!("{scheme}://{host_only}:8091");
+        }
+        "http://127.0.0.1:8091".to_string()
+    }
+
     fn role_label(&self) -> &'static str {
         match self.role {
             UserRole::Analyst => "Analyst",
@@ -166,6 +232,24 @@ impl OperatorApp {
         }
     }
 
+    fn section_as_str(section: Section) -> &'static str {
+        match section {
+            Section::Overview => "overview",
+            Section::Alerts => "alerts",
+            Section::Events => "events",
+            Section::Assets => "assets",
+        }
+    }
+
+    fn section_from_str(v: &str) -> Section {
+        match v {
+            "alerts" => Section::Alerts,
+            "events" => Section::Events,
+            "assets" => Section::Assets,
+            _ => Section::Overview,
+        }
+    }
+
     fn to_persisted_state(&self) -> PersistedState {
         PersistedState {
             api_base: self.api_base.clone(),
@@ -173,7 +257,10 @@ impl OperatorApp {
             role: Self::role_as_str(self.role).to_string(),
             active_view: Self::saved_view_as_str(self.active_view).to_string(),
             auto_triage_enabled: self.auto_triage_enabled,
+            last_section: Self::section_as_str(self.section).to_string(),
             filters: self.filters.clone(),
+            event_filters: self.event_filters.clone(),
+            asset_filters: self.asset_filters.clone(),
         }
     }
 
@@ -188,7 +275,10 @@ impl OperatorApp {
             self.role = Self::role_from_str(&saved.role);
             self.active_view = Self::saved_view_from_str(&saved.active_view);
             self.auto_triage_enabled = saved.auto_triage_enabled;
+            self.section = Self::section_from_str(&saved.last_section);
             self.filters = saved.filters;
+            self.event_filters = saved.event_filters;
+            self.asset_filters = saved.asset_filters;
             if let Ok(blob) = serde_json::to_string(&self.to_persisted_state()) {
                 self.last_persist_blob = blob;
             }
@@ -232,8 +322,8 @@ impl OperatorApp {
             self.close_selected("Closed via hotkey");
         }
         if do_focus_search {
-            self.section = Section::Cases;
-            ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("case_search")));
+            self.section = Section::Events;
+            ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("event_search")));
         }
         if do_command_palette {
             self.palette_open = true;
@@ -262,6 +352,179 @@ impl OperatorApp {
             let _ = tx.send(result);
         });
         self.rx = Some(rx);
+    }
+
+    fn fetch_events(&mut self) {
+        self.events_loading = true;
+        let base = self.portal_base();
+        let url = format!("{base}/api/v1/proxy/alertmanager/v2/alerts");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<Vec<EventRow>, String> {
+                let client = reqwest::blocking::Client::builder()
+                    .timeout(std::time::Duration::from_secs(20))
+                    .build()
+                    .map_err(|e| e.to_string())?;
+                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                let raw = resp.text().map_err(|e| e.to_string())?;
+                let body = serde_json::from_str::<Vec<PortalEvent>>(&raw)
+                    .or_else(|_| serde_json::from_str::<PortalAlertsEnvelope>(&raw).map(|x| x.data))
+                    .map_err(|e| format!("decode failed: {e}"))?;
+                let rows = body
+                    .into_iter()
+                    .map(|ev| EventRow {
+                        id: if ev.fingerprint.is_empty() {
+                            "event".to_string()
+                        } else {
+                            ev.fingerprint
+                        },
+                        title: if ev.labels.alertname.is_empty() {
+                            "alert".to_string()
+                        } else {
+                            ev.labels.alertname
+                        },
+                        severity: if ev.labels.severity.is_empty() {
+                            "unknown".to_string()
+                        } else {
+                            ev.labels.severity
+                        },
+                        state: if ev.status.state.is_empty() {
+                            "unknown".to_string()
+                        } else {
+                            ev.status.state
+                        },
+                        source: if ev.labels.instance.is_empty() {
+                            ev.labels.job
+                        } else {
+                            ev.labels.instance
+                        },
+                        started_at: if ev.starts_at.is_empty() { ev.ends_at } else { ev.starts_at },
+                        silenced: !ev.status.silenced_by.is_empty(),
+                    })
+                    .collect();
+                Ok(rows)
+            })();
+            let _ = tx.send(result);
+        });
+        self.events_rx = Some(rx);
+    }
+
+    fn rebuild_assets_from_cases(&mut self) {
+        use std::collections::BTreeMap;
+        let mut map: BTreeMap<String, AssetRow> = BTreeMap::new();
+        for case in &self.cases {
+            let name = case
+                .assignee
+                .clone()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| Self::inferred_source(case).to_lowercase());
+            let risk = if case.severity.eq_ignore_ascii_case("critical") {
+                "critical"
+            } else if case.severity.eq_ignore_ascii_case("high") {
+                "high"
+            } else {
+                "normal"
+            };
+            let entry = map.entry(name.clone()).or_insert(AssetRow {
+                name,
+                source: Self::inferred_source(case).to_string(),
+                risk: risk.to_string(),
+                open_cases: 0,
+                stale_cases: 0,
+            });
+            if !Self::is_closed_status(&case.status) {
+                entry.open_cases += 1;
+            }
+            if Self::is_stale(case) {
+                entry.stale_cases += 1;
+            }
+            if risk == "critical" {
+                entry.risk = "critical".to_string();
+            } else if risk == "high" && entry.risk != "critical" {
+                entry.risk = "high".to_string();
+            }
+        }
+        self.assets = map.into_values().collect();
+    }
+
+    fn fetch_assets(&mut self) {
+        self.assets_loading = true;
+        self.rebuild_assets_from_cases();
+        self.assets_loading = false;
+    }
+
+    fn discover_compose_dir() -> Option<PathBuf> {
+        let mut candidates = vec![PathBuf::from("../deploy/docker"), PathBuf::from("deploy/docker")];
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(bin_dir) = exe.parent() {
+                let root_guess = bin_dir
+                    .join("..")
+                    .join("..")
+                    .join("..")
+                    .join("..")
+                    .join("deploy")
+                    .join("docker");
+                candidates.push(root_guess);
+            }
+        }
+        candidates
+            .into_iter()
+            .map(|p| p.canonicalize().unwrap_or(p))
+            .find(|p| p.join("docker-compose.yml").exists())
+    }
+
+    fn run_docker_compose_action(&mut self, action: &'static str) {
+        if self.docker_loading {
+            self.status = "Docker command is already running".to_string();
+            return;
+        }
+        let Some(workdir) = Self::discover_compose_dir() else {
+            self.status = "Cannot find deploy/docker with docker-compose.yml".to_string();
+            return;
+        };
+        self.docker_loading = true;
+        self.status = format!("Running docker compose {action}...");
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<String, String> {
+                let command = match action {
+                    "up" => "docker compose up -d",
+                    "down" => "docker compose down",
+                    "restart" => "docker compose down && docker compose up -d",
+                    "ps" => "docker compose ps",
+                    _ => return Err(format!("Unsupported docker action: {action}")),
+                };
+                let mut cmd = if cfg!(target_os = "windows") {
+                    let mut c = Command::new("cmd");
+                    c.arg("/C").arg(command);
+                    c
+                } else {
+                    let mut c = Command::new("sh");
+                    c.arg("-lc").arg(command);
+                    c
+                };
+                let output = cmd.current_dir(Path::new(&workdir)).output().map_err(|e| e.to_string())?;
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                let merged = if stderr.trim().is_empty() {
+                    stdout
+                } else if stdout.trim().is_empty() {
+                    stderr
+                } else {
+                    format!("{stdout}\n{stderr}")
+                };
+                if output.status.success() {
+                    Ok(merged)
+                } else {
+                    Err(merged)
+                }
+            })();
+            let _ = tx.send(result);
+        });
+        self.docker_rx = Some(rx);
     }
 
     fn trim_api_base(&mut self) {
@@ -542,30 +805,17 @@ impl OperatorApp {
                             .color(egui::Color32::from_rgb(120, 128, 145)),
                     );
                     ui.add_space(8.0);
-                    if section_nav_button(ui, "Кейсы", "список и действия", self.section == Section::Cases) {
-                        self.section = Section::Cases;
-                    }
-                    if section_nav_button(ui, "Dashboard", "KPI и SLA", self.section == Section::Home) {
-                        self.section = Section::Home;
+                    if section_nav_button(ui, "Overview", "KPI и SLA", self.section == Section::Overview) {
+                        self.section = Section::Overview;
                     }
                     if section_nav_button(ui, "Alerts", "Inbox и Promote", self.section == Section::Alerts) {
                         self.section = Section::Alerts;
                     }
-                    if section_nav_button(
-                        ui,
-                        "Обзор стека",
-                        "Grafana, Portal, метрики",
-                        self.section == Section::Stack,
-                    ) {
-                        self.section = Section::Stack;
+                    if section_nav_button(ui, "Events", "Поток и триаж", self.section == Section::Events) {
+                        self.section = Section::Events;
                     }
-                    if section_nav_button(
-                        ui,
-                        "Подключение",
-                        "URL API и окружение",
-                        self.section == Section::Connection,
-                    ) {
-                        self.section = Section::Connection;
+                    if section_nav_button(ui, "Assets", "Хосты и риск", self.section == Section::Assets) {
+                        self.section = Section::Assets;
                     }
                 });
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
@@ -1021,9 +1271,82 @@ impl OperatorApp {
                 .filter_map(Self::case_age_hours),
         );
 
-        ui.heading("Home Dashboard");
-        ui.label("Оперативная сводка по кейсам и SLA.");
+        ui.heading("Overview Dashboard");
+        ui.label("Оперативная сводка по кейсам, observability и SLA.");
         ui.add_space(8.0);
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Refresh All").clicked() {
+                self.fetch_cases();
+                self.fetch_events();
+                self.fetch_observability_snapshot();
+                self.fetch_assets();
+            }
+            if ui.button("Refresh Cases").clicked() {
+                self.fetch_cases();
+            }
+            if ui.button("Refresh Events").clicked() {
+                self.fetch_events();
+            }
+            if ui
+                .add_enabled(self.selected.is_some(), egui::Button::new("Export selected report"))
+                .clicked()
+            {
+                self.export_selected_case_markdown();
+            }
+        });
+        ui.add_space(10.0);
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(26, 32, 45))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 120, 210)))
+            .inner_margin(egui::Margin::same(12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new("Docker Stack Control").strong().size(18.0));
+                    if self.docker_loading {
+                        ui.spinner();
+                        ui.label("running...");
+                    }
+                });
+                ui.label("Запуск и остановка всего SIEM-стека прямо из Operator.");
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(!self.docker_loading, egui::Button::new("Start Stack"))
+                        .clicked()
+                    {
+                        self.run_docker_compose_action("up");
+                    }
+                    if ui
+                        .add_enabled(!self.docker_loading, egui::Button::new("Stop Stack"))
+                        .clicked()
+                    {
+                        self.run_docker_compose_action("down");
+                    }
+                    if ui
+                        .add_enabled(!self.docker_loading, egui::Button::new("Restart Stack"))
+                        .clicked()
+                    {
+                        self.run_docker_compose_action("restart");
+                    }
+                    if ui
+                        .add_enabled(!self.docker_loading, egui::Button::new("Stack Status"))
+                        .clicked()
+                    {
+                        self.run_docker_compose_action("ps");
+                    }
+                });
+                ui.add_space(6.0);
+                egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(&self.docker_last_output)
+                            .monospace()
+                            .small()
+                            .color(egui::Color32::from_rgb(180, 192, 210)),
+                    );
+                });
+            });
+        ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             ui.label("Role:");
             egui::ComboBox::from_id_salt("role_selector")
@@ -1331,8 +1654,178 @@ impl OperatorApp {
         );
     }
 
+    fn filtered_events(&self) -> Vec<&EventRow> {
+        self.events
+            .iter()
+            .filter(|e| {
+                if !self.event_filters.search.trim().is_empty() {
+                    let n = self.event_filters.search.to_lowercase();
+                    let hay = format!("{} {} {}", e.title, e.source, e.id).to_lowercase();
+                    if !hay.contains(&n) {
+                        return false;
+                    }
+                }
+                if !self.event_filters.severity.is_empty()
+                    && !e.severity.eq_ignore_ascii_case(&self.event_filters.severity)
+                {
+                    return false;
+                }
+                if !self.event_filters.state.is_empty()
+                    && !e.state.eq_ignore_ascii_case(&self.event_filters.state)
+                {
+                    return false;
+                }
+                if self.event_filters.silenced_only && !e.silenced {
+                    return false;
+                }
+                true
+            })
+            .collect()
+    }
+
+    fn filtered_assets(&self) -> Vec<&AssetRow> {
+        self.assets
+            .iter()
+            .filter(|a| {
+                if !self.asset_filters.search.trim().is_empty()
+                    && !a.name.to_lowercase().contains(&self.asset_filters.search.to_lowercase())
+                {
+                    return false;
+                }
+                if !self.asset_filters.risk.is_empty()
+                    && !a.risk.eq_ignore_ascii_case(&self.asset_filters.risk)
+                {
+                    return false;
+                }
+                if !self.asset_filters.source.is_empty()
+                    && !a.source.eq_ignore_ascii_case(&self.asset_filters.source)
+                {
+                    return false;
+                }
+                if self.asset_filters.stale_only && a.stale_cases == 0 {
+                    return false;
+                }
+                true
+            })
+            .collect()
+    }
+
+    fn show_events_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.heading("Events");
+            if ui.button("Refresh").clicked() {
+                self.fetch_events();
+            }
+            if self.events_loading {
+                ui.spinner();
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Search:");
+            ui.add(egui::TextEdit::singleline(&mut self.event_filters.search).id_source("event_search"));
+            egui::ComboBox::from_label("Severity")
+                .selected_text(if self.event_filters.severity.is_empty() { "All" } else { &self.event_filters.severity })
+                .show_ui(ui, |ui| {
+                    for v in ["All", "critical", "high", "medium", "low"] {
+                        if ui.selectable_label(self.event_filters.severity == v || (self.event_filters.severity.is_empty() && v == "All"), v).clicked() {
+                            self.event_filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                        }
+                    }
+                });
+            egui::ComboBox::from_label("State")
+                .selected_text(if self.event_filters.state.is_empty() { "All" } else { &self.event_filters.state })
+                .show_ui(ui, |ui| {
+                    for v in ["All", "active", "suppressed", "unprocessed"] {
+                        if ui.selectable_label(self.event_filters.state == v || (self.event_filters.state.is_empty() && v == "All"), v).clicked() {
+                            self.event_filters.state = if v == "All" { String::new() } else { v.to_string() };
+                        }
+                    }
+                });
+            ui.checkbox(&mut self.event_filters.silenced_only, "Silenced only");
+        });
+        ui.add_space(8.0);
+        let rows = self.filtered_events();
+        ui.label(format!("Events shown: {}", rows.len()));
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for e in rows {
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(30, 36, 48))
+                    .inner_margin(egui::Margin::same(10.0))
+                    .rounding(egui::Rounding::same(8.0))
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            pill_label(ui, &e.severity, severity_color(&e.severity));
+                            ui.label(egui::RichText::new(&e.state).small());
+                            if e.silenced {
+                                pill_label(ui, "silenced", egui::Color32::from_rgb(235, 195, 80));
+                            }
+                            ui.label(egui::RichText::new(&e.id).monospace().small());
+                        });
+                        ui.label(egui::RichText::new(&e.title).strong());
+                        ui.label(format!("source: {} · started: {}", e.source, e.started_at));
+                    });
+                ui.add_space(6.0);
+            }
+        });
+    }
+
+    fn show_assets_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.heading("Assets");
+            if ui.button("Refresh").clicked() {
+                self.fetch_assets();
+            }
+            if self.assets_loading {
+                ui.spinner();
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Search:");
+            ui.add(egui::TextEdit::singleline(&mut self.asset_filters.search));
+            egui::ComboBox::from_label("Risk")
+                .selected_text(if self.asset_filters.risk.is_empty() { "All" } else { &self.asset_filters.risk })
+                .show_ui(ui, |ui| {
+                    for v in ["All", "critical", "high", "normal"] {
+                        if ui.selectable_label(self.asset_filters.risk == v || (self.asset_filters.risk.is_empty() && v == "All"), v).clicked() {
+                            self.asset_filters.risk = if v == "All" { String::new() } else { v.to_string() };
+                        }
+                    }
+                });
+            egui::ComboBox::from_label("Source")
+                .selected_text(if self.asset_filters.source.is_empty() { "All" } else { &self.asset_filters.source })
+                .show_ui(ui, |ui| {
+                    for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
+                        if ui.selectable_label(self.asset_filters.source == v || (self.asset_filters.source.is_empty() && v == "All"), v).clicked() {
+                            self.asset_filters.source = if v == "All" { String::new() } else { v.to_string() };
+                        }
+                    }
+                });
+            ui.checkbox(&mut self.asset_filters.stale_only, "SLA stale only");
+        });
+        ui.add_space(8.0);
+        let rows = self.filtered_assets();
+        ui.label(format!("Assets shown: {}", rows.len()));
+        egui::Grid::new("assets_grid").striped(true).show(ui, |ui| {
+            ui.strong("Asset");
+            ui.strong("Source");
+            ui.strong("Risk");
+            ui.strong("Open cases");
+            ui.strong("SLA stale");
+            ui.end_row();
+            for a in rows {
+                ui.label(&a.name);
+                ui.label(&a.source);
+                pill_label(ui, &a.risk, severity_color(&a.risk));
+                ui.label(a.open_cases.to_string());
+                ui.label(a.stale_cases.to_string());
+                ui.end_row();
+            }
+        });
+    }
+
     fn fetch_observability_snapshot(&mut self) {
         self.obs_loading = true;
+        let base = self.portal_base();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| -> Result<ObsSnapshot, String> {
@@ -1341,33 +1834,36 @@ impl OperatorApp {
                     .build()
                     .map_err(|e| e.to_string())?;
 
+                let prom_build_url = format!("{base}/api/v1/proxy/prometheus/query?query=prometheus_build_info");
                 let prom_ver_resp = client
-                    .get("http://127.0.0.1:9090/api/v1/status/buildinfo")
+                    .get(&prom_build_url)
                     .send()
                     .map_err(|e| format!("prom buildinfo: {e}"))?;
                 let prom_ver: serde_json::Value = prom_ver_resp.json().map_err(|e| e.to_string())?;
-                let prom_version = prom_ver["data"]["version"]
+                let prom_version = prom_ver["data"]["result"][0]["metric"]["version"]
                     .as_str()
                     .unwrap_or("unknown")
                     .to_string();
 
+                let prom_targets_url = format!("{base}/api/v1/proxy/prometheus/query?query=up");
                 let prom_targets_resp = client
-                    .get("http://127.0.0.1:9090/api/v1/targets?state=active")
+                    .get(&prom_targets_url)
                     .send()
                     .map_err(|e| format!("prom targets: {e}"))?;
                 let prom_targets: serde_json::Value = prom_targets_resp.json().map_err(|e| e.to_string())?;
-                let active = prom_targets["data"]["activeTargets"]
+                let active = prom_targets["data"]["result"]
                     .as_array()
                     .cloned()
                     .unwrap_or_default();
                 let prom_total_targets = active.len();
                 let prom_up_targets = active
                     .iter()
-                    .filter(|t| t["health"].as_str().unwrap_or_default().eq_ignore_ascii_case("up"))
+                    .filter(|t| t["value"][1].as_str().unwrap_or_default() == "1")
                     .count();
 
+                let am_url = format!("{base}/api/v1/proxy/alertmanager/v2/alerts");
                 let am_resp = client
-                    .get("http://127.0.0.1:9093/api/v2/alerts")
+                    .get(&am_url)
                     .send()
                     .map_err(|e| format!("alertmanager alerts: {e}"))?;
                 let am_alerts: serde_json::Value = am_resp.json().map_err(|e| e.to_string())?;
@@ -1435,6 +1931,7 @@ impl eframe::App for OperatorApp {
                     if self.auto_triage_enabled {
                         self.apply_auto_triage_rules();
                     }
+                    self.rebuild_assets_from_cases();
                     self.status = format!(
                         "OK · кейсов в списке: {} · всего в базе: {}",
                         self.cases.len(),
@@ -1456,6 +1953,47 @@ impl eframe::App for OperatorApp {
                 }
             }
         }
+        if let Some(rx) = &self.events_rx {
+            match rx.try_recv() {
+                Ok(Ok(rows)) => {
+                    self.events = rows;
+                    self.events_loading = false;
+                    self.events_rx = None;
+                    self.status = format!("Events synced: {}", self.events.len());
+                }
+                Ok(Err(e)) => {
+                    self.events_loading = false;
+                    self.events_rx = None;
+                    self.status = format!("Events error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.events_loading = false;
+                    self.events_rx = None;
+                }
+            }
+        }
+        if let Some(rx) = &self.docker_rx {
+            match rx.try_recv() {
+                Ok(Ok(out)) => {
+                    self.docker_loading = false;
+                    self.docker_rx = None;
+                    self.docker_last_output = out;
+                    self.status = "Docker compose command completed".to_string();
+                }
+                Ok(Err(e)) => {
+                    self.docker_loading = false;
+                    self.docker_rx = None;
+                    self.docker_last_output = e.clone();
+                    self.status = format!("Docker compose failed: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.docker_loading = false;
+                    self.docker_rx = None;
+                }
+            }
+        }
 
         self.show_sidebar(ctx);
         self.show_status_bar(ctx);
@@ -1467,17 +2005,18 @@ impl eframe::App for OperatorApp {
                     .inner_margin(egui::Margin::same(22.0)),
             )
             .show(ctx, |ui| match self.section {
-                Section::Home => self.show_home_panel(ui),
-                Section::Cases => self.show_cases_panel(ui),
+                Section::Overview => self.show_home_panel(ui),
                 Section::Alerts => self.show_alerts_panel(ui),
-                Section::Stack => self.show_stack_panel(ui),
-                Section::Connection => self.show_connection_panel(ui),
+                Section::Events => self.show_events_panel(ui),
+                Section::Assets => self.show_assets_panel(ui),
             });
         self.show_critical_confirmation(ctx);
         self.show_command_palette(ctx);
 
         if self.cases.is_empty() && !self.loading && self.rx.is_none() && self.status.contains("Нажми") {
             self.fetch_cases();
+            self.fetch_events();
+            self.fetch_assets();
             self.fetch_observability_snapshot();
         }
         self.maybe_persist_state();

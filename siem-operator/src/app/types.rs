@@ -3,11 +3,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum Section {
     #[default]
-    Home,
-    Cases,
+    Overview,
     Alerts,
-    Stack,
-    Connection,
+    Events,
+    Assets,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,5 +45,21 @@ pub(super) struct CaseFilters {
     pub assignee: String,
     pub source: String,
     pub mitre: String,
+    pub stale_only: bool,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub(super) struct EventFilters {
+    pub search: String,
+    pub severity: String,
+    pub state: String,
+    pub silenced_only: bool,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+pub(super) struct AssetFilters {
+    pub search: String,
+    pub risk: String,
+    pub source: String,
     pub stale_only: bool,
 }
