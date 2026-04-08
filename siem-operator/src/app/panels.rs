@@ -75,6 +75,9 @@ impl OperatorApp {
                 action("obs", "Action: Refresh Prometheus/Alertmanager", &mut |s| {
                     s.fetch_observability_snapshot()
                 });
+                action("portal", "Action: Refresh portal links (Grafana)", &mut |s| {
+                    s.fetch_portal_ui_config()
+                });
             });
         self.palette_open = open;
     }
@@ -344,6 +347,20 @@ impl OperatorApp {
                     }
                 });
             });
+        ui.horizontal_wrapped(|ui| {
+            if let Some(links) = self.portal_public_links.clone() {
+                let overview = links.siem_overview_dashboard.clone();
+                let grafana = links.grafana.clone();
+                if !overview.is_empty() && ui.button("Portal: SIEM Overview").clicked() {
+                    self.open_public_link(&overview, "SIEM Overview");
+                }
+                if !grafana.is_empty() && ui.button("Portal: Grafana").clicked() {
+                    self.open_public_link(&grafana, "Grafana");
+                }
+            } else if ui.button("Загрузить ссылки портала").clicked() {
+                self.fetch_portal_ui_config();
+            }
+        });
         if let Some(details) = &self.investigation_details {
             ui.add_space(8.0);
             if !details.grafana.is_empty() && ui.button("Open in Grafana").clicked() {

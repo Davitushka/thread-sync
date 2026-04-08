@@ -142,10 +142,25 @@ pub struct DetectionStats {
     pub health: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct StackStatusResponse {
+/// Публичные URL с `GET /api/v1/ui/config` на SIEM Portal (те же, что на веб-главной).
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PortalPublicLinks {
     #[serde(default)]
-    pub checks: serde_json::Map<String, serde_json::Value>,
+    pub grafana: String,
+    #[serde(default)]
+    pub prometheus: String,
+    #[serde(default)]
+    pub alertmanager: String,
+    #[serde(default)]
+    pub case_management: String,
+    #[serde(default)]
+    pub siem_overview_dashboard: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PortalUiConfig {
+    #[serde(default)]
+    pub links: PortalPublicLinks,
 }
 
 #[derive(Debug, Clone, Serialize)]

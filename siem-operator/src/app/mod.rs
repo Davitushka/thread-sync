@@ -10,8 +10,8 @@ use eframe::egui;
 use crate::models::{
     AlertItem, AlertState, CaseBrief, CaseDetailResponse, CaseTimelineEntry, CasesResponse,
     CreateCaseRequest, CreatedCaseResponse, DetectionStats, InvestigationResponse, LinkAlertRequest,
-    PatchCaseRequest, PortalEvent, PromQueryRangeResponse, PromQueryResponse, StackStatusResponse,
-    TimelineCreateRequest,
+    PatchCaseRequest, PortalEvent, PortalPublicLinks, PortalUiConfig, PromQueryRangeResponse,
+    PromQueryResponse, TimelineCreateRequest,
 };
 use crate::ui::widgets::{pill_label, section_nav_button, severity_color, stack_action_card};
 mod state;
@@ -125,6 +125,9 @@ pub struct OperatorApp {
     eps_series: Vec<f64>,
     alerts_series: Vec<f64>,
     mtta_series: Vec<f64>,
+    portal_public_links: Option<PortalPublicLinks>,
+    portal_ui_loading: bool,
+    portal_ui_rx: Option<Receiver<Result<PortalPublicLinks, String>>>,
     role: UserRole,
     pending_action: Option<PendingAction>,
     audit_log: Vec<AuditEntry>,
@@ -209,6 +212,9 @@ impl Default for OperatorApp {
             eps_series: Vec::new(),
             alerts_series: Vec::new(),
             mtta_series: Vec::new(),
+            portal_public_links: None,
+            portal_ui_loading: false,
+            portal_ui_rx: None,
             role: UserRole::Analyst,
             pending_action: None,
             audit_log: Vec::new(),
@@ -475,6 +481,8 @@ impl OperatorApp {
             || self.stack_status_rx.is_some()
             || self.detection_stats_rx.is_some()
             || self.metrics_series_rx.is_some()
+            || self.portal_ui_loading
+            || self.portal_ui_rx.is_some()
     }
 
     fn tick_auto_refresh(&mut self, ctx: &egui::Context) {
@@ -497,6 +505,7 @@ impl OperatorApp {
             }
             self.fetch_assets();
             self.fetch_observability_snapshot();
+            self.fetch_portal_ui_config();
             self.last_auto_refresh_at = Instant::now();
             self.status = format!("Auto-refresh sync started ({}s)", interval);
         } else {
@@ -739,24 +748,130 @@ impl OperatorApp {
                 if !resp.status().is_success() {
                     return Err(format!("HTTP {}", resp.status()));
                 }
-                let parsed = resp
-                    .json::<StackStatusResponse>()
-                    .map_err(|e| format!("decode stack status: {e}"))?;
+                let root: serde_json::Value = resp.json().map_err(|e| e.to_string())?;
+                let map_ref = root
+                    .get("components")
+                    .and_then(|c| c.as_object())
+                    .or_else(|| root.get("checks").and_then(|c| c.as_object()));
                 let mut rows = Vec::new();
-                for (service, value) in parsed.checks {
-                    let ok = value["ok"].as_bool().unwrap_or(false);
-                    let detail = value["message"].as_str().unwrap_or_default().to_string();
-                    rows.push(StackServiceStatus {
-                        service,
-                        status: if ok { "up".to_string() } else { "down".to_string() },
-                        detail,
-                    });
+                if let Some(map) = map_ref {
+                    for (service, value) in map {
+                        let ok = value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let detail = value
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| value.to_string());
+                        rows.push(StackServiceStatus {
+                            service: service.clone(),
+                            status: if ok { "up".to_string() } else { "down".to_string() },
+                            detail,
+                        });
+                    }
                 }
                 Ok(rows)
             })();
             let _ = tx.send(result);
         });
         self.stack_status_rx = Some(rx);
+    }
+
+    fn fetch_portal_ui_config(&mut self) {
+        self.portal_ui_loading = true;
+        let url = format!("{}/api/v1/ui/config", self.portal_base());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<PortalPublicLinks, String> {
+                let client = Self::http_client(12)?;
+                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("HTTP {}", resp.status()));
+                }
+                let cfg = resp.json::<PortalUiConfig>().map_err(|e| e.to_string())?;
+                Ok(cfg.links)
+            })();
+            let _ = tx.send(result);
+        });
+        self.portal_ui_rx = Some(rx);
+    }
+
+    fn open_public_link(&mut self, url: &str, label: &str) {
+        let u = url.trim();
+        if u.is_empty() {
+            self.status =
+                format!("{label}: URL пуст — нажми «Обновить ссылки с портала» (GET /api/v1/ui/config)");
+            return;
+        }
+        match webbrowser::open(u) {
+            Ok(()) => {
+                self.status = format!("Открыто в браузере: {label}");
+            }
+            Err(e) => {
+                self.status = format!("Не удалось открыть {label}: {e}");
+            }
+        }
+    }
+
+    fn show_portal_grafana_links(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("Grafana и ссылки портала").strong());
+        ui.label(
+            egui::RichText::new(
+                "Те же публичные URL, что на веб-портале (SIEM_PORTAL_PUBLIC_*). В egui нет встроенного iframe — открываем в системном браузере.",
+            )
+            .small()
+            .color(egui::Color32::from_rgb(150, 165, 188)),
+        );
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Обновить ссылки с портала").clicked() {
+                self.fetch_portal_ui_config();
+            }
+            if self.portal_ui_loading {
+                ui.spinner();
+            }
+        });
+        let Some(links) = self.portal_public_links.clone() else {
+            ui.label("Ссылки ещё не загружены — нажми «Обновить».");
+            return;
+        };
+        let overview = links.siem_overview_dashboard.clone();
+        let grafana = links.grafana.clone();
+        let prometheus = links.prometheus.clone();
+        let alertmanager = links.alertmanager.clone();
+        let case_mgmt = links.case_management.clone();
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(!overview.is_empty(), egui::Button::new("Дашборд SIEM Overview"))
+                .clicked()
+            {
+                self.open_public_link(&overview, "SIEM Overview");
+            }
+            if ui
+                .add_enabled(!grafana.is_empty(), egui::Button::new("Grafana (корень)"))
+                .clicked()
+            {
+                self.open_public_link(&grafana, "Grafana");
+            }
+            if ui
+                .add_enabled(!prometheus.is_empty(), egui::Button::new("Prometheus"))
+                .clicked()
+            {
+                self.open_public_link(&prometheus, "Prometheus");
+            }
+            if ui
+                .add_enabled(!alertmanager.is_empty(), egui::Button::new("Alertmanager"))
+                .clicked()
+            {
+                self.open_public_link(&alertmanager, "Alertmanager");
+            }
+            if ui
+                .add_enabled(!case_mgmt.is_empty(), egui::Button::new("Case management (веб)"))
+                .clicked()
+            {
+                self.open_public_link(&case_mgmt, "Case management");
+            }
+        });
     }
 
     fn fetch_case_timeline(&mut self, case_id: &str) {
@@ -2173,6 +2288,7 @@ impl OperatorApp {
                         self.fetch_stack_status();
                         self.fetch_overview_metrics_series();
                         self.fetch_observability_snapshot();
+                        self.fetch_portal_ui_config();
                         self.fetch_assets();
                     }
                     if ui.button("Refresh Cases").clicked() {
@@ -2238,6 +2354,15 @@ impl OperatorApp {
                         self.apply_auto_triage_rules();
                     }
                 });
+            });
+        ui.add_space(10.0);
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(12.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 110, 160)))
+            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .show(ui, |ui| {
+                self.show_portal_grafana_links(ui);
             });
         ui.add_space(10.0);
         egui::Frame::none()
@@ -3234,6 +3359,16 @@ impl OperatorApp {
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
             .inner_margin(egui::Margin::symmetric(12.0, 10.0))
             .show(ui, |ui| {
+                self.show_portal_grafana_links(ui);
+            });
+
+        ui.add_space(10.0);
+        egui::Frame::none()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .rounding(egui::Rounding::same(10.0))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
+            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .show(ui, |ui| {
                 ui.label(egui::RichText::new("Connection").strong());
                 ui.add(
                     egui::TextEdit::singleline(&mut self.api_base)
@@ -3258,6 +3393,7 @@ impl OperatorApp {
                         self.fetch_overview_metrics_series();
                         self.fetch_assets();
                         self.fetch_observability_snapshot();
+                        self.fetch_portal_ui_config();
                         self.status = "Connection settings applied".to_string();
                     }
                     if ui.button("Reset to default").clicked() {
@@ -3528,6 +3664,26 @@ impl eframe::App for OperatorApp {
                 }
             }
         }
+        if let Some(rx) = &self.portal_ui_rx {
+            match rx.try_recv() {
+                Ok(Ok(links)) => {
+                    self.portal_public_links = Some(links);
+                    self.portal_ui_loading = false;
+                    self.portal_ui_rx = None;
+                    self.status = "Ссылки портала (Grafana, …) обновлены".to_string();
+                }
+                Ok(Err(e)) => {
+                    self.portal_ui_loading = false;
+                    self.portal_ui_rx = None;
+                    self.status = format!("Portal ui/config error: {e}");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.portal_ui_loading = false;
+                    self.portal_ui_rx = None;
+                }
+            }
+        }
         if let Some(rx) = &self.detection_stats_rx {
             match rx.try_recv() {
                 Ok(Ok(stats)) => {
@@ -3628,6 +3784,7 @@ impl eframe::App for OperatorApp {
             self.fetch_overview_metrics_series();
             self.fetch_assets();
             self.fetch_observability_snapshot();
+            self.fetch_portal_ui_config();
         }
         self.maybe_persist_state();
     }
