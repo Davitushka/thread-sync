@@ -28,6 +28,9 @@ export type Case = {
   created_at: string;
   updated_at: string;
   closed_at?: string;
+  acknowledged_at?: string;
+  due_at?: string;
+  runbook_url?: string;
 };
 
 export type CaseDetail = Case & {
@@ -54,6 +57,8 @@ export type LinkedAlert = {
   description?: string;
   first_seen_at: string;
   last_seen_at: string;
+  /** Снимок labels Alertmanager (source_ip, …) для pivot в ClickHouse */
+  context?: Record<string, unknown>;
 };
 
 export type LinkedEvent = {
@@ -71,6 +76,29 @@ export async function listCases(params: Record<string, string>): Promise<{ cases
 
 export async function getCase(id: string): Promise<CaseDetail> {
   const r = await api(`/cases/${id}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+/** Сводка расследования: ссылки Grafana + предложенные запросы ClickHouse (сервер не меняет БД). */
+export type Investigation = {
+  case_id: string;
+  display_key: string;
+  due_at?: string;
+  acknowledged_at?: string;
+  runbook_url?: string;
+  grafana: {
+    siem_overview?: string;
+    explore_clickhouse_preset?: string;
+    explore_loki?: string;
+    data_quality_dashboard?: string;
+  };
+  suggested_clickhouse_queries: Array<{ title: string; sql: string }>;
+  process: { status_workflow: string[]; sla_hint: string };
+};
+
+export async function getInvestigation(id: string): Promise<Investigation> {
+  const r = await api(`/cases/${id}/investigate`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

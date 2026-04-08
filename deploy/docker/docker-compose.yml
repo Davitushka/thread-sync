@@ -260,6 +260,53 @@ services:
           cpus: "0.5"
           memory: 256M
 
+  # ════════════════════════════════════════════════════════════════
+  # SIEM Portal — единая веб-консоль: ссылки + прокси к Prometheus,
+  # Alertmanager и case-management (Rust, без новых таблиц БД).
+  # UI: http://localhost:8091 — см. docs/SIEM_PORTAL.md
+  # ════════════════════════════════════════════════════════════════
+  siem-portal:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.portal
+    container_name: siem-portal
+    restart: unless-stopped
+    networks:
+      - siem-internal
+    ports:
+      - "8091:8091"
+    environment:
+      <<: *common-env
+      RUST_LOG: siem_portal=info
+      SIEM_PORTAL_ADDR: "0.0.0.0:8091"
+      SIEM_PORTAL_CASEMGMT_URL: "http://case-management:8088"
+      SIEM_PORTAL_PROMETHEUS_URL: "http://prometheus:9090"
+      SIEM_PORTAL_ALERTMANAGER_URL: "http://alertmanager:9093"
+      SIEM_PORTAL_GRAFANA_URL: "http://grafana:3000"
+      SIEM_PORTAL_PUBLIC_GRAFANA: "http://localhost:3000"
+      SIEM_PORTAL_PUBLIC_PROMETHEUS: "http://localhost:9090"
+      SIEM_PORTAL_PUBLIC_ALERTMANAGER: "http://localhost:9093"
+      SIEM_PORTAL_PUBLIC_CASEMGMT: "http://localhost:8088"
+      SIEM_PORTAL_PUBLIC_GRAFANA_OVERVIEW: "http://localhost:3000/d/siem-overview/siem-lite-obzor"
+    depends_on:
+      case-management:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+      alertmanager:
+        condition: service_healthy
+      grafana:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8091/health"]
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
   # pgAdmin 4 в браузере; сервер soc_cases подставлен из ./pgadmin/servers.json (Host=postgres).
   # Запуск: docker compose -f deploy/docker/docker-compose.yml --profile tools up -d pgadmin
   pgadmin:

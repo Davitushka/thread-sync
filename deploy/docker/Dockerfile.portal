@@ -1,0 +1,27 @@
+# siem-portal — единый SOC веб-шлюз (Rust): прокси к Prometheus, Alertmanager, case-management
+FROM rust:1.88-slim-bookworm AS builder
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY siem-portal/Cargo.toml siem-portal/Cargo.lock* ./
+RUN mkdir -p src static && echo "fn main(){}" > src/main.rs
+RUN cargo build --release 2>&1 || true
+RUN rm -rf src static
+COPY siem-portal/src ./src
+COPY siem-portal/static ./static
+RUN touch src/main.rs
+RUN cargo build --release 2>&1
+RUN test -x target/release/siem-portal
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates wget \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /build/target/release/siem-portal /usr/local/bin/siem-portal
+EXPOSE 8091
+HEALTHCHECK --interval=20s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8091/health || exit 1
+USER nobody:nogroup
+ENTRYPOINT ["/usr/local/bin/siem-portal"]

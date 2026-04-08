@@ -65,6 +65,9 @@ export default function CasesList() {
 
   return (
     <div>
+      <p className="meta" style={{ marginBottom: "0.5rem" }}>
+        <Link to="/">← Главная</Link>
+      </p>
       <h1 style={{ marginTop: 0 }}>Кейсы инцидентов</h1>
       <p className="meta">
         Всего в выборке: {total}. Алерты Alertmanager с severity ≥ порога создают кейсы автоматически (см.{" "}
@@ -129,6 +132,7 @@ export default function CasesList() {
               <th>Статус</th>
               <th>Исполнитель</th>
               <th>Создан</th>
+              <th>Расследование</th>
             </tr>
           </thead>
           <tbody>
@@ -144,6 +148,11 @@ export default function CasesList() {
                 <td>{c.status}</td>
                 <td>{c.assignee ?? "—"}</td>
                 <td className="meta">{new Date(c.created_at).toLocaleString()}</td>
+                <td>
+                  <Link to={`/cases/${c.id}/investigate`} className="meta">
+                    Стол
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>

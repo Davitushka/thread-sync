@@ -91,11 +91,19 @@ export default function CaseDetail() {
   return (
     <div>
       <p className="meta">
-        <Link to="/">← К списку</Link>
+        <Link to="/">Главная</Link>
+        {" · "}
+        <Link to="/cases">Кейсы</Link>
       </p>
       <h1 style={{ marginTop: 0 }}>
         {data.display_key} — {data.title}
       </h1>
+      <p className="meta" style={{ marginTop: "-0.5rem" }}>
+        <Link to={`/cases/${id}/investigate`} style={{ fontWeight: 600 }}>
+          Рабочее место расследования
+        </Link>{" "}
+        — лента, контекст алертов, pivot в ClickHouse
+      </p>
 
       <div className="detail-grid">
         <div>

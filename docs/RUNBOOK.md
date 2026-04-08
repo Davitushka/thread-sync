@@ -551,7 +551,7 @@ bash /tmp/load-test.sh
 | Опора | Где в SIEM-Lite |
 |-------|-----------------|
 | **Доверие к данным** | Grafana: **SIEM-Lite — доверие к данным** (`/d/siem-data-quality/...`) — полнота `source_ip`, лаг ingest, ошибки парсера, consumer lag |
-| **Глубина расследования** | Case management: **`GET /api/v1/cases/:id/investigate`** — ссылки на Explore (ClickHouse/Loki), обзорный дашборд, предложенные SQL из labels связанных алертов (`source_ip`, `rule_id`) |
+| **Глубина расследования** | Case management: **`GET /api/v1/cases/:id/investigate`** — ссылки на Explore (ClickHouse/Loki), обзорный дашборд, предложенные SQL из labels связанных алертов (`source_ip`, `rule_id`). В UI то же в **рабочем месте расследования**: `http://localhost:8088/cases/<CASE_UUID>/investigate` |
 | **Зрелость процесса** | API/UI кейсов: статусы (`new` → … → `closed`), **`due_at`** (SLA по severity), **`acknowledged_at`**, **`runbook_url`**, таймлайн (`ack`, `runbook`, `data_note`) |
 
 ### Поток оператора (кратко)

@@ -4,6 +4,8 @@ log-generator/target/
 detection-engine-rs/target/
 case-management-rs/target/
 siem-admin/target/
+siem-portal/target/
+siem-operator/target/
 stress/target/
 
 # Secrets — НИКОГДА не коммитим в репозиторий

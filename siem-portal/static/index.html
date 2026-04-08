@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SIEM-Lite — SOC портал</title>
+  <style>
+    :root {
+      font-family: system-ui, Segoe UI, Roboto, sans-serif;
+      background: #0f1419;
+      color: #e6edf3;
+      line-height: 1.45;
+    }
+    body { margin: 0; padding: 1.25rem 1.5rem 3rem; max-width: 1100px; margin-inline: auto; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.25rem; }
+    p.lead { color: #8b949e; margin: 0 0 1.25rem; font-size: 0.95rem; }
+    section { margin-bottom: 1.75rem; }
+    h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.04em; color: #58a6ff; margin: 0 0 0.65rem; }
+    .grid { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+    a.card {
+      display: block; padding: 0.75rem 0.9rem; background: #161b22; border: 1px solid #30363d;
+      border-radius: 6px; color: #58a6ff; text-decoration: none; font-weight: 500;
+    }
+    a.card:hover { border-color: #58a6ff; background: #1c2128; }
+    pre {
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0.75rem;
+      overflow: auto; font-size: 0.8rem; color: #7ee787;
+      max-height: 280px;
+    }
+    .badge { display: inline-block; padding: 0.15rem 0.45rem; border-radius: 4px; font-size: 0.75rem; }
+    .ok { background: #238636; color: #fff; }
+    .bad { background: #da3633; color: #fff; }
+    .muted { color: #8b949e; font-size: 0.85rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #30363d; }
+    iframe { width: 100%; height: 420px; border: 1px solid #30363d; border-radius: 6px; background: #000; }
+    .note { font-size: 0.8rem; color: #8b949e; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>SIEM-Lite · единый портал</h1>
+  <p class="lead">Только оболочка: метрики и кейсы подгружаются через API существующих сервисов. Grafana и ClickHouse — как раньше, в своих UI.</p>
+
+  <section>
+    <h2>Статус стека</h2>
+    <div id="stack-status" class="muted">Загрузка…</div>
+  </section>
+
+  <section>
+    <h2>Быстрые ссылки</h2>
+    <div class="grid" id="links"></div>
+  </section>
+
+  <section>
+    <h2>Активные алерты (Alertmanager API)</h2>
+    <div id="alerts-summary" class="muted"></div>
+    <pre id="alerts-raw">—</pre>
+  </section>
+
+  <section>
+    <h2>Последние кейсы (case-management API)</h2>
+    <div id="cases-table"></div>
+  </section>
+
+  <section>
+    <h2>Метрики хоста (Prometheus → node_cpu_seconds_total idle)</h2>
+    <p class="muted">Пример мгновенного запроса через прокси портала к Prometheus.</p>
+    <pre id="prom-sample">—</pre>
+  </section>
+
+  <section>
+    <h2>Grafana — обзор SIEM (встроенная страница)</h2>
+    <p class="note">Если iframe пустой: в Grafana по умолчанию отключена анонимная сессия — откройте ссылку в новой вкладке и войдите. Для встраивания задайте <code>GF_SECURITY_ALLOW_EMBEDDING=true</code> (только в доверенной сети).</p>
+    <iframe id="grafana-frame" title="Grafana SIEM overview" sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
+  </section>
+
+  <script>
+    const base = "";
+
+    async function loadJson(path) {
+      const r = await fetch(base + path);
+      if (!r.ok) throw new Error(path + " " + r.status);
+      return r.json();
+    }
+
+    function el(id) { return document.getElementById(id); }
+
+    async function refresh() {
+      try {
+        const cfg = await loadJson("/api/v1/ui/config");
+        const L = cfg.links || {};
+        el("links").innerHTML = [
+          ["Grafana", L.grafana],
+          ["Дашборд SIEM Overview", L.siem_overview_dashboard],
+          ["Prometheus", L.prometheus],
+          ["Alertmanager", L.alertmanager],
+          ["Case management", L.case_management],
+        ].map(([t, u]) => u ? `<a class="card" href="${u}" target="_blank" rel="noopener">${t}</a>` : "").join("");
+        if (L.siem_overview_dashboard) el("grafana-frame").src = L.siem_overview_dashboard;
+      } catch (e) {
+        el("links").innerHTML = `<span class="muted">${e}</span>`;
+      }
+
+      try {
+        const st = await loadJson("/api/v1/stack/status");
+        const c = st.components || {};
+        const row = (name, o) => {
+          const ok = o && o.ok === true;
+          return `<tr><td>${name}</td><td><span class="badge ${ok ? "ok" : "bad"}">${ok ? "OK" : "FAIL"}</span></td><td class="muted">${JSON.stringify(o)}</td></tr>`;
+        };
+        el("stack-status").innerHTML = `<table><thead><tr><th>Сервис</th><th></th><th>Детали</th></tr></thead><tbody>
+          ${row("case_management", c.case_management)}
+          ${row("prometheus", c.prometheus)}
+          ${row("alertmanager", c.alertmanager)}
+          ${row("grafana", c.grafana)}
+        </tbody></table><p class="muted">${st.elapsed_ms} ms</p>`;
+      } catch (e) {
+        el("stack-status").textContent = String(e);
+      }
+
+      try {
+        const alerts = await loadJson("/api/v1/proxy/alertmanager/v2/alerts");
+        const n = Array.isArray(alerts) ? alerts.length : 0;
+        el("alerts-summary").textContent = "Записей: " + n;
+        el("alerts-raw").textContent = JSON.stringify(alerts, null, 2).slice(0, 8000);
+      } catch (e) {
+        el("alerts-summary").textContent = String(e);
+        el("alerts-raw").textContent = "—";
+      }
+
+      try {
+        const data = await loadJson("/api/v1/proxy/cases?limit=8");
+        const cases = data.cases || [];
+        el("cases-table").innerHTML = cases.length === 0 ? "<p class='muted'>Нет кейсов</p>" :
+          `<table><thead><tr><th>Ключ</th><th>Статус</th><th>Severity</th><th>Заголовок</th></tr></thead><tbody>` +
+          cases.map(c => `<tr><td>${c.display_key || ""}</td><td>${c.status}</td><td>${c.severity}</td><td>${(c.title || "").replace(/</g,"&lt;")}</td></tr>`).join("") +
+          "</tbody></table>";
+      } catch (e) {
+        el("cases-table").innerHTML = `<p class="muted">${e}</p>`;
+      }
+
+      try {
+        const q = encodeURIComponent(`avg(rate(node_cpu_seconds_total{mode="idle"}[1m]))`);
+        const pr = await loadJson(`/api/v1/proxy/prometheus/query?query=${q}`);
+        el("prom-sample").textContent = JSON.stringify(pr, null, 2).slice(0, 4000);
+      } catch (e) {
+        el("prom-sample").textContent = String(e);
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 60000);
+  </script>
+</body>
+</html>
