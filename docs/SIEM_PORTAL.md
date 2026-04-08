@@ -6,8 +6,17 @@
 
 Сервис включён в `deploy/docker/docker-compose.yml` (порт хоста **8091**).
 
-- UI: `http://localhost:8091/`
+- UI: `http://localhost:8091/` или **`http://127.0.0.1:8091/`** (на Windows иногда `localhost` уходит в IPv6 и страница «не грузится» — тогда только `127.0.0.1`).
 - Health: `GET http://localhost:8091/health`
+
+### Страница не открывается
+
+1. **Убедись, что портал запущен.** В логах должно быть `siem-portal listening` и строка с **`http://127.0.0.1:8091/`**. Проверка: `curl http://127.0.0.1:8091/health` → `{"status":"ok",...}`.
+2. **Docker:** из корня репозитория подними стек (или хотя бы сервис `siem-portal`). После смены файлов в `siem-portal/static/` **пересобери образ** (`docker compose build siem-portal`), иначе в контейнере может быть старый бинарник без `/assets/app.css` и `/assets/app.js`.
+3. **Порт занят** — задай другой: `SIEM_PORTAL_ADDR=127.0.0.1:8092` и открой `http://127.0.0.1:8092/`.
+4. **Только `http://`, не `https://`** — TLS на портале по умолчанию не поднят.
+5. **Локальный `cargo run` без Docker:** адреса вроде `http://case-management:8088` с хоста не резолвятся. Задай upstream на свои порты, например:  
+   `SIEM_PORTAL_CASEMGMT_URL=http://127.0.0.1:8088` и остальные `SIEM_PORTAL_*_URL` аналогично (или подними полный compose).
 
 ## Переменные окружения
 

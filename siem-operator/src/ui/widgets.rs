@@ -1,23 +1,36 @@
 use eframe::egui;
 
+use crate::theme::ThemePalette;
+
 pub fn severity_color(sev: &str) -> egui::Color32 {
     match sev.to_lowercase().as_str() {
-        "critical" | "crit" => egui::Color32::from_rgb(235, 75, 85),
-        "high" => egui::Color32::from_rgb(245, 140, 70),
-        "medium" | "med" => egui::Color32::from_rgb(235, 195, 80),
-        "low" => egui::Color32::from_rgb(90, 200, 140),
-        "info" | "informational" => egui::Color32::from_rgb(110, 165, 235),
-        _ => egui::Color32::from_rgb(150, 158, 175),
+        "critical" | "crit" => egui::Color32::from_rgb(248, 86, 96),
+        "high" => egui::Color32::from_rgb(245, 150, 72),
+        "medium" | "med" => egui::Color32::from_rgb(232, 196, 88),
+        "low" => egui::Color32::from_rgb(72, 198, 150),
+        "info" | "informational" => egui::Color32::from_rgb(64, 210, 188),
+        _ => egui::Color32::from_rgb(132, 140, 154),
+    }
+}
+
+fn pill_text_on_accent(accent: egui::Color32) -> egui::Color32 {
+    let luma =
+        accent.r() as u32 * 299 + accent.g() as u32 * 587 + accent.b() as u32 * 114;
+    if luma > 150_000 {
+        egui::Color32::from_rgb(22, 24, 28)
+    } else {
+        egui::Color32::WHITE
     }
 }
 
 pub fn pill_label(ui: &mut egui::Ui, text: impl Into<String>, color: egui::Color32) {
     let text = text.into();
+    let fg = pill_text_on_accent(color);
     let galley = ui.fonts(|f| {
         f.layout_no_wrap(
             text.clone(),
             egui::FontId::proportional(12.0),
-            egui::Color32::WHITE,
+            fg,
         )
     });
     let pad = egui::vec2(8.0, 3.0);
@@ -27,38 +40,53 @@ pub fn pill_label(ui: &mut egui::Ui, text: impl Into<String>, color: egui::Color
     let stroke = color.gamma_multiply(0.85);
     ui.painter().rect(
         rect,
-        egui::Rounding::same(4.0),
+        egui::Rounding::same(6.0),
         fill,
         egui::Stroke::new(1.0, stroke),
     );
-    ui.painter()
-        .galley(rect.left_top() + pad, galley, egui::Color32::WHITE);
+    ui.painter().galley(rect.left_top() + pad, galley, fg);
 }
 
-pub fn section_nav_button(ui: &mut egui::Ui, label: &str, subtitle: &str, selected: bool) -> bool {
+pub fn section_nav_button(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    label: &str,
+    subtitle: &str,
+    selected: bool,
+) -> bool {
     let desired = ui.available_width();
     let mut clicked = false;
     let (rect, response) = ui.allocate_exact_size(egui::vec2(desired, 56.0), egui::Sense::click());
     let visuals = ui.style().interact_selectable(&response, selected);
     let fill = if selected {
-        egui::Color32::from_rgb(36, 92, 135).gamma_multiply(0.55)
+        p.nav_selected_fill
     } else if response.hovered() {
-        egui::Color32::from_rgb(42, 52, 70)
+        p.nav_item_hover
     } else {
-        egui::Color32::from_rgb(28, 34, 46)
+        p.nav_item_base
     };
+    let r = p.radius_nav;
     ui.painter().rect(
         rect,
-        egui::Rounding::same(8.0),
+        egui::Rounding::same(r),
         fill,
         if selected {
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(90, 180, 240))
+            egui::Stroke::new(1.0, p.nav_selected_stroke.gamma_multiply(0.45))
         } else {
             egui::Stroke::NONE
         },
     );
+    if selected {
+        let inset = 10.0;
+        let bar = egui::Rect::from_min_max(
+            rect.left_top() + egui::vec2(5.0, inset),
+            rect.left_bottom() + egui::vec2(8.0, -inset),
+        );
+        ui.painter()
+            .rect_filled(bar, egui::Rounding::same(2.0), p.nav_selected_stroke);
+    }
     let title_color = if selected {
-        egui::Color32::WHITE
+        p.text_on_sidebar
     } else {
         visuals.text_color()
     };
@@ -74,7 +102,7 @@ pub fn section_nav_button(ui: &mut egui::Ui, label: &str, subtitle: &str, select
         egui::Align2::LEFT_TOP,
         subtitle,
         egui::FontId::proportional(11.5),
-        egui::Color32::from_rgb(140, 150, 168),
+        p.text_muted,
     );
     if response.clicked() {
         clicked = true;
@@ -83,12 +111,12 @@ pub fn section_nav_button(ui: &mut egui::Ui, label: &str, subtitle: &str, select
     clicked
 }
 
-pub fn stack_action_card(ui: &mut egui::Ui, title: &str, url: &str, description: &str) {
+pub fn stack_action_card(ui: &mut egui::Ui, p: &ThemePalette, title: &str, url: &str, description: &str) {
     let frame = egui::Frame::none()
-        .fill(egui::Color32::from_rgb(30, 36, 48))
-        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(45, 55, 72)))
-        .rounding(egui::Rounding::same(10.0))
-        .inner_margin(egui::Margin::symmetric(16.0, 14.0));
+        .fill(p.card_fill)
+        .stroke(egui::Stroke::new(1.0, p.card_stroke))
+        .rounding(egui::Rounding::same(p.radius_card))
+        .inner_margin(egui::Margin::symmetric(18.0, 15.0));
     frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
@@ -97,27 +125,27 @@ pub fn stack_action_card(ui: &mut egui::Ui, title: &str, url: &str, description:
                     egui::RichText::new(title)
                         .strong()
                         .size(16.0)
-                        .color(egui::Color32::WHITE),
+                        .color(p.text_on_sidebar),
                 );
                 ui.add_space(4.0);
                 ui.label(
                     egui::RichText::new(description)
                         .size(13.0)
-                        .color(egui::Color32::from_rgb(155, 165, 185)),
+                        .color(p.text_muted),
                 );
                 ui.add_space(8.0);
                 ui.label(
                     egui::RichText::new(url)
                         .monospace()
                         .size(12.0)
-                        .color(egui::Color32::from_rgb(120, 190, 255)),
+                        .color(p.link),
                 );
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add_sized(
                         [100.0, 36.0],
-                        egui::Button::new(egui::RichText::new("Открыть").color(egui::Color32::WHITE)),
+                        egui::Button::new(egui::RichText::new("Открыть").color(p.text_on_sidebar)),
                     )
                     .clicked()
                 {

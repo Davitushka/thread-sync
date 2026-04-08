@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use eframe::egui;
 
+use crate::theme;
 use crate::models::{
     AlertItem, AlertState, CaseBrief, CaseDetailResponse, CaseTimelineEntry, CasesResponse,
     CreateCaseRequest, CreatedCaseResponse, DetectionStats, InvestigationResponse, LinkAlertRequest,
@@ -153,7 +154,7 @@ pub struct OperatorApp {
 impl Default for OperatorApp {
     fn default() -> Self {
         let api_base =
-            std::env::var("SIEM_OPERATOR_API").unwrap_or_else(|_| "http://127.0.0.1:8088".to_string());
+            std::env::var("SIEM_OPERATOR_API").unwrap_or_else(|_| "http://127.0.0.1:8091".to_string());
         let mut app = Self {
             api_base,
             section: Section::default(),
@@ -289,6 +290,36 @@ impl OperatorApp {
             return base.replace(":8091", ":8088");
         }
         base.to_string()
+    }
+
+    /// Прямой Alertmanager, если портал недоступен (Alerts / Events).
+    fn alertmanager_direct_base(&self) -> String {
+        std::env::var("SIEM_OPERATOR_ALERTMANAGER_URL")
+            .unwrap_or_else(|_| {
+                let b = self.api_base.trim_end_matches('/');
+                if let Some((scheme, rest)) = b.split_once("://") {
+                    let host = rest.split('/').next().unwrap_or(rest);
+                    let host_only = host.split(':').next().unwrap_or(host);
+                    format!("{scheme}://{host_only}:9093")
+                } else {
+                    "http://127.0.0.1:9093".to_string()
+                }
+            })
+            .trim()
+            .trim_end_matches('/')
+            .to_string()
+    }
+
+    fn alertmanager_alerts_urls(&self) -> Vec<String> {
+        let proxy = format!(
+            "{}/api/v1/proxy/alertmanager/v2/alerts",
+            self.portal_base()
+        );
+        let direct = format!(
+            "{}/api/v2/alerts",
+            self.alertmanager_direct_base()
+        );
+        vec![proxy, direct]
     }
 
     fn role_label(&self) -> &'static str {
@@ -601,8 +632,7 @@ impl OperatorApp {
 
     fn fetch_events(&mut self) {
         self.events_loading = true;
-        let base = self.portal_base();
-        let url = format!("{base}/api/v1/proxy/alertmanager/v2/alerts");
+        let urls = self.alertmanager_alerts_urls();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| -> Result<Vec<EventRow>, String> {
@@ -610,47 +640,63 @@ impl OperatorApp {
                     .timeout(std::time::Duration::from_secs(20))
                     .build()
                     .map_err(|e| e.to_string())?;
-                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
-                if !resp.status().is_success() {
-                    return Err(format!("HTTP {}", resp.status()));
+                let mut last_err = String::new();
+                for url in &urls {
+                    match client.get(url).send() {
+                        Ok(resp) if resp.status().is_success() => {
+                            let raw = resp.text().map_err(|e| e.to_string())?;
+                            let body = serde_json::from_str::<Vec<PortalEvent>>(&raw)
+                                .or_else(|_| {
+                                    serde_json::from_str::<PortalAlertsEnvelope>(&raw).map(|x| x.data)
+                                })
+                                .map_err(|e| format!("decode failed: {e}"))?;
+                            let rows = body
+                                .into_iter()
+                                .map(|ev| EventRow {
+                                    id: if ev.fingerprint.is_empty() {
+                                        "event".to_string()
+                                    } else {
+                                        ev.fingerprint
+                                    },
+                                    title: if ev.labels.alertname.is_empty() {
+                                        "alert".to_string()
+                                    } else {
+                                        ev.labels.alertname
+                                    },
+                                    severity: if ev.labels.severity.is_empty() {
+                                        "unknown".to_string()
+                                    } else {
+                                        ev.labels.severity
+                                    },
+                                    state: if ev.status.state.is_empty() {
+                                        "unknown".to_string()
+                                    } else {
+                                        ev.status.state
+                                    },
+                                    source: if ev.labels.instance.is_empty() {
+                                        ev.labels.job
+                                    } else {
+                                        ev.labels.instance
+                                    },
+                                    started_at: if ev.starts_at.is_empty() {
+                                        ev.ends_at
+                                    } else {
+                                        ev.starts_at
+                                    },
+                                    silenced: !ev.status.silenced_by.is_empty(),
+                                })
+                                .collect();
+                            return Ok(rows);
+                        }
+                        Ok(resp) => {
+                            last_err = format!("HTTP {}", resp.status());
+                        }
+                        Err(e) => {
+                            last_err = e.to_string();
+                        }
+                    }
                 }
-                let raw = resp.text().map_err(|e| e.to_string())?;
-                let body = serde_json::from_str::<Vec<PortalEvent>>(&raw)
-                    .or_else(|_| serde_json::from_str::<PortalAlertsEnvelope>(&raw).map(|x| x.data))
-                    .map_err(|e| format!("decode failed: {e}"))?;
-                let rows = body
-                    .into_iter()
-                    .map(|ev| EventRow {
-                        id: if ev.fingerprint.is_empty() {
-                            "event".to_string()
-                        } else {
-                            ev.fingerprint
-                        },
-                        title: if ev.labels.alertname.is_empty() {
-                            "alert".to_string()
-                        } else {
-                            ev.labels.alertname
-                        },
-                        severity: if ev.labels.severity.is_empty() {
-                            "unknown".to_string()
-                        } else {
-                            ev.labels.severity
-                        },
-                        state: if ev.status.state.is_empty() {
-                            "unknown".to_string()
-                        } else {
-                            ev.status.state
-                        },
-                        source: if ev.labels.instance.is_empty() {
-                            ev.labels.job
-                        } else {
-                            ev.labels.instance
-                        },
-                        started_at: if ev.starts_at.is_empty() { ev.ends_at } else { ev.starts_at },
-                        silenced: !ev.status.silenced_by.is_empty(),
-                    })
-                    .collect();
-                Ok(rows)
+                Err(format!("alerts/events: портал и Alertmanager недоступны ({last_err})"))
             })();
             let _ = tx.send(result);
         });
@@ -659,57 +705,68 @@ impl OperatorApp {
 
     fn fetch_alerts(&mut self) {
         self.alerts_loading = true;
-        let base = self.portal_base();
-        let url = format!("{base}/api/v1/proxy/alertmanager/v2/alerts");
+        let urls = self.alertmanager_alerts_urls();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| -> Result<Vec<AlertItem>, String> {
                 let client = Self::http_client(20)?;
-                let resp = client.get(&url).send().map_err(|e| e.to_string())?;
-                if !resp.status().is_success() {
-                    return Err(format!("HTTP {}", resp.status()));
+                let mut last_err = String::new();
+                for url in &urls {
+                    match client.get(url).send() {
+                        Ok(resp) if resp.status().is_success() => {
+                            let raw = resp.text().map_err(|e| e.to_string())?;
+                            let body = serde_json::from_str::<Vec<PortalEvent>>(&raw)
+                                .or_else(|_| {
+                                    serde_json::from_str::<PortalAlertsEnvelope>(&raw).map(|x| x.data)
+                                })
+                                .map_err(|e| format!("decode failed: {e}"))?;
+                            let mapped = body
+                                .into_iter()
+                                .map(|ev| AlertItem {
+                                    id: if ev.fingerprint.is_empty() {
+                                        format!("am-{}", Utc::now().timestamp_millis())
+                                    } else {
+                                        ev.fingerprint
+                                    },
+                                    title: if ev.labels.alertname.is_empty() {
+                                        "Alertmanager alert".to_string()
+                                    } else {
+                                        ev.labels.alertname
+                                    },
+                                    severity: if ev.labels.severity.is_empty() {
+                                        "unknown".to_string()
+                                    } else {
+                                        ev.labels.severity
+                                    },
+                                    source: if ev.labels.instance.is_empty() {
+                                        ev.labels.job
+                                    } else {
+                                        ev.labels.instance
+                                    },
+                                    mitre_tactic: "N/A".to_string(),
+                                    fired_at: if ev.starts_at.is_empty() {
+                                        ev.ends_at
+                                    } else {
+                                        ev.starts_at
+                                    },
+                                    state: if ev.status.state.eq_ignore_ascii_case("active") {
+                                        AlertState::Firing
+                                    } else {
+                                        AlertState::Acknowledged
+                                    },
+                                })
+                                .collect();
+                            return Ok(mapped);
+                        }
+                        Ok(resp) => {
+                            last_err = format!("HTTP {}", resp.status());
+                        }
+                        Err(e) => {
+                            last_err = e.to_string();
+                        }
+                    }
                 }
-                let raw = resp.text().map_err(|e| e.to_string())?;
-                let body = serde_json::from_str::<Vec<PortalEvent>>(&raw)
-                    .or_else(|_| serde_json::from_str::<PortalAlertsEnvelope>(&raw).map(|x| x.data))
-                    .map_err(|e| format!("decode failed: {e}"))?;
-                let mapped = body
-                    .into_iter()
-                    .map(|ev| AlertItem {
-                        id: if ev.fingerprint.is_empty() {
-                            format!("am-{}", Utc::now().timestamp_millis())
-                        } else {
-                            ev.fingerprint
-                        },
-                        title: if ev.labels.alertname.is_empty() {
-                            "Alertmanager alert".to_string()
-                        } else {
-                            ev.labels.alertname
-                        },
-                        severity: if ev.labels.severity.is_empty() {
-                            "unknown".to_string()
-                        } else {
-                            ev.labels.severity
-                        },
-                        source: if ev.labels.instance.is_empty() {
-                            ev.labels.job
-                        } else {
-                            ev.labels.instance
-                        },
-                        mitre_tactic: "N/A".to_string(),
-                        fired_at: if ev.starts_at.is_empty() {
-                            ev.ends_at
-                        } else {
-                            ev.starts_at
-                        },
-                        state: if ev.status.state.eq_ignore_ascii_case("active") {
-                            AlertState::Firing
-                        } else {
-                            AlertState::Acknowledged
-                        },
-                    })
-                    .collect();
-                Ok(mapped)
+                Err(format!("alerts: портал и Alertmanager недоступны ({last_err})"))
             })();
             let _ = tx.send(result);
         });
@@ -1520,17 +1577,13 @@ impl OperatorApp {
     }
 
     fn show_sidebar(&mut self, ctx: &egui::Context) {
+        let p = self.theme_palette();
         egui::SidePanel::left("nav")
             .resizable(true)
             .default_width(230.0)
             .min_width(200.0)
             .max_width(300.0)
-            .frame(
-                egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(14, 18, 24))
-                    .inner_margin(egui::Margin::same(16.0))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(32, 40, 54))),
-            )
+            .frame(theme::sidebar_panel_frame(&p))
             .show(ctx, |ui| {
                 let footer_reserved = 102.0;
                 let nav_height = (ui.available_height() - footer_reserved).max(120.0);
@@ -1546,12 +1599,12 @@ impl OperatorApp {
                                         egui::RichText::new("SIEM-Lite")
                                             .strong()
                                             .size(20.0)
-                                            .color(egui::Color32::WHITE),
+                                            .color(p.text_on_sidebar),
                                     );
                                     ui.label(
                                         egui::RichText::new("Operator")
                                             .size(13.0)
-                                            .color(egui::Color32::from_rgb(120, 190, 255)),
+                                            .color(p.accent),
                                     );
                                 });
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1568,37 +1621,39 @@ impl OperatorApp {
                             ui.label(
                                 egui::RichText::new("Разделы")
                                     .small()
-                                    .color(egui::Color32::from_rgb(120, 128, 145)),
+                                    .color(p.text_subtle),
                             );
                             ui.add_space(8.0);
-                            if section_nav_button(ui, "Overview", "KPI и SLA", self.section == Section::Overview) {
+                            if section_nav_button(ui, &p, "Overview", "KPI и SLA", self.section == Section::Overview) {
                                 self.section = Section::Overview;
                             }
-                            if section_nav_button(ui, "Detections", "Rules и сигналы", self.section == Section::Detections) {
+                            if section_nav_button(ui, &p, "Detections", "Rules и сигналы", self.section == Section::Detections) {
                                 self.section = Section::Detections;
                             }
-                            if section_nav_button(ui, "Alerts", "Inbox и Promote", self.section == Section::Alerts) {
+                            if section_nav_button(ui, &p, "Alerts", "Inbox и Promote", self.section == Section::Alerts) {
                                 self.section = Section::Alerts;
                             }
-                            if section_nav_button(ui, "Events", "Поток и триаж", self.section == Section::Events) {
+                            if section_nav_button(ui, &p, "Events", "Поток и триаж", self.section == Section::Events) {
                                 self.section = Section::Events;
                             }
                             if section_nav_button(
                                 ui,
+                                &p,
                                 "Investigations",
                                 "Timeline и workbench",
                                 self.section == Section::Investigations,
                             ) {
                                 self.section = Section::Investigations;
                             }
-                            if section_nav_button(ui, "Assets", "Хосты и риск", self.section == Section::Assets) {
+                            if section_nav_button(ui, &p, "Assets", "Хосты и риск", self.section == Section::Assets) {
                                 self.section = Section::Assets;
                             }
-                            if section_nav_button(ui, "Cases", "Lifecycle response", self.section == Section::Cases) {
+                            if section_nav_button(ui, &p, "Cases", "Lifecycle response", self.section == Section::Cases) {
                                 self.section = Section::Cases;
                             }
                             if section_nav_button(
                                 ui,
+                                &p,
                                 "Stack Control",
                                 "Docker и health",
                                 self.section == Section::StackControl,
@@ -1613,12 +1668,12 @@ impl OperatorApp {
                 ui.label(
                     egui::RichText::new("Hotkeys: R / A / C / /")
                         .small()
-                        .color(egui::Color32::from_rgb(90, 98, 115)),
+                        .color(p.text_footer),
                 );
                 ui.label(
                     egui::RichText::new("v0.2")
                         .small()
-                        .color(egui::Color32::from_rgb(90, 98, 115)),
+                        .color(p.text_footer),
                 );
                 if ui
                     .add_sized([ui.available_width(), 36.0], egui::Button::new("Выход из приложения"))
@@ -1630,20 +1685,17 @@ impl OperatorApp {
     }
 
     fn show_status_bar(&self, ctx: &egui::Context) {
+        let p = self.theme_palette();
         egui::TopBottomPanel::bottom("status")
             .exact_height(28.0)
-            .frame(
-                egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(12, 16, 22))
-                    .inner_margin(egui::Margin::symmetric(14.0, 6.0)),
-            )
+            .frame(theme::status_panel_frame(&p))
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.label(
                         egui::RichText::new(&self.status)
                             .small()
                             .monospace()
-                            .color(egui::Color32::from_rgb(175, 185, 200)),
+                            .color(p.text_muted),
                     );
                 });
             });
@@ -1667,15 +1719,15 @@ impl OperatorApp {
         self.compact_mode || ui.available_width() < 1100.0
     }
 
+    fn theme_palette(&self) -> theme::ThemePalette {
+        theme::palette(!self.use_light_theme)
+    }
+
     fn show_top_toolbar(&mut self, ctx: &egui::Context) {
+        let p = self.theme_palette();
         egui::TopBottomPanel::top("web_toolbar")
             .exact_height(76.0)
-            .frame(
-                egui::Frame::none()
-                    .fill(egui::Color32::from_rgb(16, 20, 28))
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(36, 45, 62)))
-                    .inner_margin(egui::Margin::symmetric(12.0, 8.0)),
-            )
+            .frame(theme::top_bar_panel_frame(&p))
             .show(ctx, |ui| {
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
@@ -1683,18 +1735,18 @@ impl OperatorApp {
                             egui::RichText::new("SIEM-Lite")
                                 .strong()
                                 .size(18.0)
-                                .color(egui::Color32::WHITE),
+                                .color(p.text_on_sidebar),
                         );
                         ui.label(
                             egui::RichText::new(format!(" / {}", self.current_section_label()))
                                 .small()
-                                .color(egui::Color32::from_rgb(145, 165, 192)),
+                                .color(p.text_toolbar_secondary),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
                                 egui::RichText::new(format!("{} ({})", self.whoami, self.role_label()))
                                     .small()
-                                    .color(egui::Color32::from_rgb(190, 205, 230)),
+                                    .color(p.text_toolbar_tertiary),
                             );
                         });
                     });
@@ -1760,32 +1812,47 @@ impl OperatorApp {
                 self.wallpaper_tint[2],
             );
         }
+        let dark = !self.use_light_theme;
         match self.wallpaper_preset.as_str() {
-            "graphite" => egui::Color32::from_rgb(28, 30, 34),
-            "ocean" => egui::Color32::from_rgb(17, 33, 52),
-            "sunset" => egui::Color32::from_rgb(44, 28, 36),
-            _ => egui::Color32::from_rgb(22, 27, 36),
+            "graphite" => {
+                if dark {
+                    egui::Color32::from_rgb(16, 17, 20)
+                } else {
+                    egui::Color32::from_rgb(236, 236, 238)
+                }
+            }
+            "ocean" => {
+                if dark {
+                    egui::Color32::from_rgb(10, 14, 22)
+                } else {
+                    egui::Color32::from_rgb(230, 240, 248)
+                }
+            }
+            "sunset" => {
+                if dark {
+                    egui::Color32::from_rgb(20, 12, 16)
+                } else {
+                    egui::Color32::from_rgb(250, 236, 238)
+                }
+            }
+            _ => self.theme_palette().bg_canvas,
         }
     }
 
     fn show_cases_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::none()
-            .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(12.0))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
-            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-            .show(ui, |ui| {
+        let p = self.theme_palette();
+        theme::elevated_card_frame(&p).show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         egui::RichText::new("Cases")
                             .strong()
                             .size(24.0)
-                            .color(egui::Color32::WHITE),
+                            .color(p.text_on_sidebar),
                     );
                     ui.label(
                         egui::RichText::new("Incident lifecycle, ownership and SLA actions")
                             .small()
-                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                            .color(p.text_muted),
                     );
                     if ui.button("Refresh").clicked() {
                         self.fetch_cases();
@@ -2258,24 +2325,20 @@ impl OperatorApp {
                 .filter(|c| !Self::is_closed_status(&c.status) && c.assignee.is_none())
                 .filter_map(Self::case_age_hours),
         );
+        let p = self.theme_palette();
 
-        egui::Frame::none()
-            .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(12.0))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
-            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-            .show(ui, |ui| {
+        theme::elevated_card_frame(&p).show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         egui::RichText::new("SOC Overview")
                             .strong()
                             .size(24.0)
-                            .color(egui::Color32::WHITE),
+                            .color(p.text_on_sidebar),
                     );
                     ui.label(
                         egui::RichText::new("Live posture, triage pressure, SLA and stack control")
                             .small()
-                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                            .color(p.text_muted),
                     );
                 });
                 ui.add_space(8.0);
@@ -2309,18 +2372,21 @@ impl OperatorApp {
                     ui.horizontal_wrapped(|ui| {
                         kpi_card(
                             ui,
+                            &p,
                             "Rules",
                             &stats.rules_count.to_string(),
                             egui::Color32::from_rgb(110, 165, 235),
                         );
                         kpi_card(
                             ui,
+                            &p,
                             "Pending alerts",
                             &stats.pending_alerts.to_string(),
                             egui::Color32::from_rgb(245, 140, 70),
                         );
                         kpi_card(
                             ui,
+                            &p,
                             "Kafka lag",
                             &stats.kafka_lag.to_string(),
                             egui::Color32::from_rgb(235, 195, 80),
@@ -2485,11 +2551,11 @@ impl OperatorApp {
             if self.widget_kpi {
                 ui.label(egui::RichText::new("KPI").strong());
                 ui.horizontal_wrapped(|ui| {
-                    kpi_card(ui, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
-                    kpi_card(ui, "Critical", &critical_count.to_string(), egui::Color32::from_rgb(235, 75, 85));
-                    kpi_card(ui, "SLA breaches", &stale_count.to_string(), egui::Color32::from_rgb(245, 140, 70));
-                    kpi_card(ui, "MTTA proxy", &format!("{}h", mtta_proxy), egui::Color32::from_rgb(235, 195, 80));
-                    kpi_card(ui, "MTTR proxy", &format!("{}h", mttr_proxy), egui::Color32::from_rgb(90, 200, 140));
+                    kpi_card(ui, &p, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
+                    kpi_card(ui, &p, "Critical", &critical_count.to_string(), egui::Color32::from_rgb(235, 75, 85));
+                    kpi_card(ui, &p, "SLA breaches", &stale_count.to_string(), egui::Color32::from_rgb(245, 140, 70));
+                    kpi_card(ui, &p, "MTTA proxy", &format!("{}h", mtta_proxy), egui::Color32::from_rgb(235, 195, 80));
+                    kpi_card(ui, &p, "MTTR proxy", &format!("{}h", mttr_proxy), egui::Color32::from_rgb(90, 200, 140));
                 });
                 ui.add_space(10.0);
             }
@@ -2497,12 +2563,14 @@ impl OperatorApp {
                 ui.label(egui::RichText::new("Trends").strong());
                 sparkline_card(
                     ui,
+                    &p,
                     "Open trend (24h buckets)",
                     &open_series,
                     egui::Color32::from_rgb(110, 165, 235),
                 );
                 sparkline_card(
                     ui,
+                    &p,
                     "Critical trend (24h buckets)",
                     &crit_series,
                     egui::Color32::from_rgb(235, 75, 85),
@@ -2555,11 +2623,11 @@ impl OperatorApp {
                 if self.widget_kpi {
                     cols[0].label(egui::RichText::new("KPI").strong());
                     cols[0].horizontal_wrapped(|ui| {
-                        kpi_card(ui, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
-                        kpi_card(ui, "Critical", &critical_count.to_string(), egui::Color32::from_rgb(235, 75, 85));
-                        kpi_card(ui, "SLA breaches", &stale_count.to_string(), egui::Color32::from_rgb(245, 140, 70));
-                        kpi_card(ui, "MTTA proxy", &format!("{}h", mtta_proxy), egui::Color32::from_rgb(235, 195, 80));
-                        kpi_card(ui, "MTTR proxy", &format!("{}h", mttr_proxy), egui::Color32::from_rgb(90, 200, 140));
+                        kpi_card(ui, &p, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
+                        kpi_card(ui, &p, "Critical", &critical_count.to_string(), egui::Color32::from_rgb(235, 75, 85));
+                        kpi_card(ui, &p, "SLA breaches", &stale_count.to_string(), egui::Color32::from_rgb(245, 140, 70));
+                        kpi_card(ui, &p, "MTTA proxy", &format!("{}h", mtta_proxy), egui::Color32::from_rgb(235, 195, 80));
+                        kpi_card(ui, &p, "MTTR proxy", &format!("{}h", mttr_proxy), egui::Color32::from_rgb(90, 200, 140));
                     });
                     cols[0].add_space(10.0);
                 }
@@ -2589,12 +2657,14 @@ impl OperatorApp {
                     cols[1].vertical(|ui| {
                         sparkline_card(
                             ui,
+                            &p,
                             "Open trend (24h buckets)",
                             &open_series,
                             egui::Color32::from_rgb(110, 165, 235),
                         );
                         sparkline_card(
                             ui,
+                            &p,
                             "Critical trend (24h buckets)",
                             &crit_series,
                             egui::Color32::from_rgb(235, 75, 85),
@@ -2681,24 +2751,20 @@ impl OperatorApp {
             .filter(|a| a.severity.eq_ignore_ascii_case("critical"))
             .count();
         let ack_alerts = total_alerts.saturating_sub(firing_alerts);
+        let p = self.theme_palette();
 
-        egui::Frame::none()
-            .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(12.0))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
-            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-            .show(ui, |ui| {
+        theme::elevated_card_frame(&p).show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         egui::RichText::new("Alerts Triage")
                             .strong()
                             .size(24.0)
-                            .color(egui::Color32::WHITE),
+                            .color(p.text_on_sidebar),
                     );
                     ui.label(
                         egui::RichText::new("Queue for ack, investigation, enrichment and case promotion")
                             .small()
-                            .color(egui::Color32::from_rgb(150, 165, 188)),
+                            .color(p.text_muted),
                     );
                 });
                 ui.add_space(10.0);
@@ -2709,21 +2775,24 @@ impl OperatorApp {
                     if self.alerts_loading {
                         ui.spinner();
                     }
-                    kpi_card(ui, "Total", &total_alerts.to_string(), egui::Color32::from_rgb(110, 165, 235));
+                    kpi_card(ui, &p, "Total", &total_alerts.to_string(), egui::Color32::from_rgb(110, 165, 235));
                     kpi_card(
                         ui,
+                        &p,
                         "Firing",
                         &firing_alerts.to_string(),
                         egui::Color32::from_rgb(235, 75, 85),
                     );
                     kpi_card(
                         ui,
+                        &p,
                         "Critical",
                         &critical_alerts.to_string(),
                         egui::Color32::from_rgb(245, 140, 70),
                     );
                     kpi_card(
                         ui,
+                        &p,
                         "Acknowledged",
                         &ack_alerts.to_string(),
                         egui::Color32::from_rgb(90, 200, 140),
@@ -2811,17 +2880,18 @@ impl OperatorApp {
     }
 
     fn show_stack_panel(&mut self, ui: &mut egui::Ui) {
+        let p = self.theme_palette();
         ui.label(
             egui::RichText::new("Обзор стека")
                 .strong()
                 .size(22.0)
-                .color(egui::Color32::WHITE),
+                .color(p.text_on_sidebar),
         );
         ui.add_space(4.0);
         ui.label(
             egui::RichText::new("Открой сервисы в браузере — дашборды и метрики остаются там, пока мы не встроим графики в Operator.")
                 .size(13.0)
-                .color(egui::Color32::from_rgb(150, 160, 178)),
+                .color(p.text_muted),
         );
         ui.add_space(18.0);
         ui.horizontal_wrapped(|ui| {
@@ -2852,21 +2922,24 @@ impl OperatorApp {
         if let Some(s) = &self.obs_snapshot {
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
-                kpi_card(ui, "Prometheus version", &s.prom_version, egui::Color32::from_rgb(110, 165, 235));
+                kpi_card(ui, &p, "Prometheus version", &s.prom_version, egui::Color32::from_rgb(110, 165, 235));
                 kpi_card(
                     ui,
+                    &p,
                     "Targets up",
                     &format!("{}/{}", s.prom_up_targets, s.prom_total_targets),
                     egui::Color32::from_rgb(90, 200, 140),
                 );
                 kpi_card(
                     ui,
+                    &p,
                     "AM active alerts",
                     &s.am_alerts_active.to_string(),
                     egui::Color32::from_rgb(235, 75, 85),
                 );
                 kpi_card(
                     ui,
+                    &p,
                     "AM silenced",
                     &s.am_alerts_silenced.to_string(),
                     egui::Color32::from_rgb(235, 195, 80),
@@ -2902,30 +2975,35 @@ impl OperatorApp {
             ui.spacing_mut().item_spacing.y = 12.0;
             stack_action_card(
                 ui,
+                &p,
                 "Grafana",
                 "http://localhost:3000",
                 "Дашборды, визуализация, Explore.",
             );
             stack_action_card(
                 ui,
+                &p,
                 "SIEM Portal",
                 "http://localhost:8091",
                 "Единая веб-точка входа и прокси к стеку.",
             );
             stack_action_card(
                 ui,
+                &p,
                 "Prometheus",
                 "http://localhost:9090",
                 "Запросы к метрикам, targets, alerts.",
             );
             stack_action_card(
                 ui,
+                &p,
                 "Alertmanager",
                 "http://localhost:9093",
                 "Маршрутизация и тишина алертов.",
             );
             stack_action_card(
                 ui,
+                &p,
                 "Case management (веб)",
                 &format!("{}/", self.api_base.trim_end_matches('/')),
                 "Тот же хост, что и API — список кейсов и UI.",
@@ -2942,9 +3020,12 @@ impl OperatorApp {
         );
         ui.add_space(8.0);
         ui.label(
-            egui::RichText::new("Базовый URL case-management (тот же, что у веб-приложения). Можно задать переменной SIEM_OPERATOR_API.")
-                .size(13.0)
-                .color(egui::Color32::from_rgb(150, 160, 178)),
+            egui::RichText::new(
+                "Рекомендуется URL SIEM Portal (:8091) — один шлюз к кейсам, Prometheus и Alertmanager. \
+                 Прямой case-management (:8088) — только API кейсов; тогда Alerts/Events идут в Alertmanager на том же хосте :9093 (или SIEM_OPERATOR_ALERTMANAGER_URL).",
+            )
+            .size(13.0)
+            .color(egui::Color32::from_rgb(150, 160, 178)),
         );
         ui.add_space(16.0);
 
@@ -2955,7 +3036,7 @@ impl OperatorApp {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.label(
-                    egui::RichText::new("URL API")
+                    egui::RichText::new("Базовый URL (SIEM_OPERATOR_API)")
                         .small()
                         .color(egui::Color32::from_rgb(140, 150, 168)),
                 );
@@ -2978,12 +3059,45 @@ impl OperatorApp {
                     {
                         self.trim_api_base();
                         self.fetch_cases();
-                        self.status = "URL обновлён, загрузка кейсов…".to_string();
+                        self.fetch_alerts();
+                        self.fetch_events();
+                        self.fetch_detections();
+                        self.fetch_detection_stats();
+                        self.fetch_stack_status();
+                        self.fetch_overview_metrics_series();
+                        self.fetch_assets();
+                        self.fetch_observability_snapshot();
+                        self.fetch_portal_ui_config();
+                        self.status = "URL обновлён, полный refresh…".to_string();
                     }
-                    if ui.button("Сброс на env / localhost").clicked() {
-                        self.api_base =
-                            std::env::var("SIEM_OPERATOR_API").unwrap_or_else(|_| "http://127.0.0.1:8088".to_string());
+                    if ui.button("Портал :8091").clicked() {
+                        self.api_base = "http://127.0.0.1:8091".to_string();
                         self.fetch_cases();
+                        self.fetch_alerts();
+                        self.fetch_events();
+                        self.fetch_stack_status();
+                        self.fetch_portal_ui_config();
+                        self.fetch_overview_metrics_series();
+                        self.status = "API = портал 8091".to_string();
+                    }
+                    if ui.button("Case-mgmt :8088").clicked() {
+                        self.api_base = "http://127.0.0.1:8088".to_string();
+                        self.fetch_cases();
+                        self.fetch_alerts();
+                        self.fetch_events();
+                        self.fetch_stack_status();
+                        self.fetch_portal_ui_config();
+                        self.fetch_overview_metrics_series();
+                        self.status = "API = case-management 8088".to_string();
+                    }
+                    if ui.button("Сброс (env или 8091)").clicked() {
+                        self.api_base = std::env::var("SIEM_OPERATOR_API")
+                            .unwrap_or_else(|_| "http://127.0.0.1:8091".to_string());
+                        self.fetch_cases();
+                        self.fetch_alerts();
+                        self.fetch_events();
+                        self.fetch_stack_status();
+                        self.fetch_portal_ui_config();
                     }
                 });
             });
@@ -2996,9 +3110,12 @@ impl OperatorApp {
         );
         ui.add_space(6.0);
         ui.label(
-            egui::RichText::new("Если список кейсов пуст и внизу «Ошибка подключения» — подними docker compose и проверь GET /health на том же хосте.")
-                .size(13.0)
-                .color(egui::Color32::from_rgb(150, 160, 178)),
+            egui::RichText::new(
+                "Кейсы: сначала запрос к порталу /proxy/cases, иначе прямой /api/v1/cases. \
+                 Алерты/события: портал /proxy/alertmanager, иначе прямой Alertmanager /api/v2/alerts.",
+            )
+            .size(13.0)
+            .color(egui::Color32::from_rgb(150, 160, 178)),
         );
     }
 
@@ -3363,47 +3480,56 @@ impl OperatorApp {
             });
 
         ui.add_space(10.0);
+        self.show_connection_panel(ui);
+
+        ui.add_space(10.0);
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .rounding(egui::Rounding::same(10.0))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
             .inner_margin(egui::Margin::symmetric(12.0, 10.0))
             .show(ui, |ui| {
-                ui.label(egui::RichText::new("Connection").strong());
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.api_base)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("API / Portal URL"),
-                );
+                ui.label(egui::RichText::new("Detection engine").strong());
                 ui.add_space(6.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut self.detection_engine_url)
                         .desired_width(f32::INFINITY)
-                        .hint_text("Detection-engine URL (e.g. http://127.0.0.1:9111)"),
+                        .hint_text("http://127.0.0.1:9111"),
                 );
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button("Apply URL and refresh").clicked() {
-                        self.api_base = self.api_base.trim().to_string();
-                        self.fetch_cases();
-                        self.fetch_alerts();
-                        self.fetch_events();
+                    if ui.button("Применить detection URL").clicked() {
+                        self.detection_engine_url = self.detection_engine_url.trim().to_string();
                         self.fetch_detections();
                         self.fetch_detection_stats();
-                        self.fetch_stack_status();
-                        self.fetch_overview_metrics_series();
-                        self.fetch_assets();
-                        self.fetch_observability_snapshot();
-                        self.fetch_portal_ui_config();
-                        self.status = "Connection settings applied".to_string();
+                        self.status = "Detection URL применён".to_string();
                     }
-                    if ui.button("Reset to default").clicked() {
-                        self.api_base = std::env::var("SIEM_OPERATOR_API")
-                            .unwrap_or_else(|_| "http://127.0.0.1:8088".to_string());
+                    if ui.button("Сброс detection (env / 9111)").clicked() {
                         self.detection_engine_url = std::env::var("SIEM_OPERATOR_DETECTION_URL")
                             .unwrap_or_else(|_| "http://127.0.0.1:9111".to_string());
                     }
                 });
             });
+
+        ui.add_space(10.0);
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .button("Полное обновление данных (все запросы)")
+                .clicked()
+            {
+                self.trim_api_base();
+                self.fetch_cases();
+                self.fetch_alerts();
+                self.fetch_events();
+                self.fetch_detections();
+                self.fetch_detection_stats();
+                self.fetch_stack_status();
+                self.fetch_overview_metrics_series();
+                self.fetch_assets();
+                self.fetch_observability_snapshot();
+                self.fetch_portal_ui_config();
+                self.status = "Полный refresh".to_string();
+            }
+        });
     }
 
     fn fetch_observability_snapshot(&mut self) {
@@ -3483,11 +3609,7 @@ impl OperatorApp {
 
 impl eframe::App for OperatorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.use_light_theme {
-            ctx.set_visuals(egui::Visuals::light());
-        } else {
-            ctx.set_visuals(egui::Visuals::dark());
-        }
+        theme::apply_theme(ctx, !self.use_light_theme);
         self.apply_hotkeys(ctx);
         self.tick_auto_refresh(ctx);
         if let Some(rx) = &self.obs_rx {

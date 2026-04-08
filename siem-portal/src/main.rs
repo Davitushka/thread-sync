@@ -38,6 +38,8 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(handlers::health))
         .route("/", get(handlers::ui_root))
+        .route("/assets/app.css", get(handlers::asset_css))
+        .route("/assets/app.js", get(handlers::asset_js))
         .route("/favicon.ico", get(handlers::favicon_noop))
         .route("/api/v1/ui/config", get(handlers::ui_config))
         .route("/api/v1/stack/status", get(handlers::stack_status))
@@ -66,8 +68,19 @@ async fn main() -> anyhow::Result<()> {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
-    tracing::info!(addr = %cfg.bind, "siem-portal listening");
+    let listener = tokio::net::TcpListener::bind(&cfg.bind).await.map_err(|e| {
+        anyhow::anyhow!(
+            "bind {} failed: {} — порт занят или адрес неверный. Закройте другой процесс на этом порту или задайте SIEM_PORTAL_ADDR, например 127.0.0.1:8092",
+            cfg.bind,
+            e
+        )
+    })?;
+    let port = cfg.bind.rsplit(':').next().unwrap_or("8091");
+    tracing::info!(
+        bind = %cfg.bind,
+        "siem-portal listening — UI: http://127.0.0.1:{}/  (если в браузере не открывается localhost — используйте именно 127.0.0.1; не https)",
+        port
+    );
 
     axum::serve(listener, app).await?;
     Ok(())

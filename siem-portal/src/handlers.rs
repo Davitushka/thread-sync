@@ -213,6 +213,24 @@ pub async fn ui_root() -> Response {
         .unwrap()
 }
 
+pub async fn asset_css() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
+        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .body(Body::from(include_str!("../static/app.css")))
+        .unwrap()
+}
+
+pub async fn asset_js() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .body(Body::from(include_str!("../static/app.js")))
+        .unwrap()
+}
+
 /// Avoid 404 for favicon in logs.
 pub async fn favicon_noop() -> StatusCode {
     StatusCode::NO_CONTENT

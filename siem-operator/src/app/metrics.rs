@@ -1,6 +1,8 @@
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 
+use crate::theme::ThemePalette;
+
 pub(super) fn average_hours(values: impl Iterator<Item = i64>) -> i64 {
     let v: Vec<i64> = values.collect();
     if v.is_empty() {
@@ -9,31 +11,47 @@ pub(super) fn average_hours(values: impl Iterator<Item = i64>) -> i64 {
     v.iter().sum::<i64>() / i64::try_from(v.len()).unwrap_or(1)
 }
 
-pub(super) fn kpi_card(ui: &mut egui::Ui, label: &str, value: &str, accent: egui::Color32) {
+pub(super) fn kpi_card(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    label: &str,
+    value: &str,
+    accent: egui::Color32,
+) {
     egui::Frame::none()
-        .fill(egui::Color32::from_rgb(24, 30, 42))
-        .rounding(egui::Rounding::same(12.0))
-        .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.85)))
+        .fill(p.card_fill)
+        .rounding(egui::Rounding::same(p.radius_card))
+        .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.75)))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
             ui.set_min_width(150.0);
             ui.label(
                 egui::RichText::new(label)
                     .small()
-                    .color(egui::Color32::from_rgb(165, 178, 198)),
+                    .color(p.card_label),
             );
             ui.label(egui::RichText::new(value).strong().size(24.0).color(accent));
         });
 }
 
-pub(super) fn sparkline_card(ui: &mut egui::Ui, title: &str, values: &[f32], color: egui::Color32) {
+pub(super) fn sparkline_card(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    title: &str,
+    values: &[f32],
+    color: egui::Color32,
+) {
     egui::Frame::none()
-        .fill(egui::Color32::from_rgb(24, 30, 42))
-        .rounding(egui::Rounding::same(12.0))
-        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.7)))
+        .fill(p.card_fill)
+        .rounding(egui::Rounding::same(p.radius_card))
+        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.65)))
         .inner_margin(egui::Margin::symmetric(12.0, 10.0))
         .show(ui, |ui| {
-            ui.label(egui::RichText::new(title).small());
+            ui.label(
+                egui::RichText::new(title)
+                    .small()
+                    .color(p.card_label),
+            );
             if values.len() < 2 {
                 return;
             }

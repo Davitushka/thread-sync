@@ -4,7 +4,7 @@
   "role": "analyst",
   "active_view": "all",
   "auto_triage_enabled": true,
-  "last_section": "overview",
+  "last_section": "stack_control",
   "filters": {
     "search": "",
     "severity": "",
