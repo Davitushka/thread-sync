@@ -1,7 +1,8 @@
 [package]
 name = "siem-parser"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 authors = ["SIEM-Lite Team"]
 description = "High-performance log parser and normalizer for SIEM-Lite"
 license = "Apache-2.0"
@@ -16,37 +17,37 @@ path = "src/lib.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.40", features = ["full"] }
+tokio = { version = "1.51", features = ["full"] }
 
 # Сериализация
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 
 # HTTP сервер для health/metrics
-axum = { version = "0.7", features = ["tokio"] }
+axum = { version = "0.8", features = ["tokio"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "compression-gzip"] }
 
 # Kafka producer (rdkafka обёртка)
-rdkafka = { version = "0.36", features = ["cmake-build", "ssl", "gssapi"] }
+rdkafka = { version = "0.39", features = ["cmake-build", "ssl", "gssapi"] }
 
 # PII маскирование — DFA regex без backtracking
 regex-automata = { version = "0.4", features = ["dfa", "perf"] }
 regex-syntax = "0.8"
 
 # GeoIP — mmap режим: нулевые копии, файл отображается в память ОС
-maxminddb = { version = "0.24", features = ["mmap"] }
+maxminddb = { version = "0.27", features = ["mmap"] }
 memmap2 = "0.9"
 
 # UUID
-uuid = { version = "1.11", features = ["v4", "fast-rng", "serde"] }
+uuid = { version = "1.23", features = ["v4", "fast-rng", "serde"] }
 
 # Временны́е метки
 chrono = { version = "0.4", features = ["serde"] }
 time = { version = "0.3", features = ["serde", "parsing"] }
 
 # Метрики
-prometheus = { version = "0.13", features = ["process"] }
+prometheus = { version = "0.14", features = ["process"] }
 
 # Логирование
 tracing = "0.1"
@@ -54,36 +55,36 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
 
 # Ошибки
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Конфигурация
-config = { version = "0.14", features = ["toml"] }
+config = { version = "0.15", features = ["toml"] }
 
 # Производительность
 ahash = "0.8"
-bytes = "1.8"
-smallvec = "1.13"
+bytes = "1.11"
+smallvec = "1.15"
 
 # LRU кэш для enrichment
-lru = "0.12"
+lru = "0.16"
 
 # Lazy static init
-once_cell = "1.20"
+once_cell = "1.21"
 
 # CPU count для дефолтного числа воркеров
-num_cpus = "1.16"
+num_cpus = "1.17"
 
 # HTTP клиент для webhook→ClickHouse (alerts ingest)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 # Protocol Buffers
-prost = "0.13"
+prost = "0.14"
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 tokio-test = "0.4"
-proptest = "1.5"
+proptest = "1.11"
 
 [[bench]]
 name = "parse_benchmark"

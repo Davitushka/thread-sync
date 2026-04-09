@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{SecondsFormat, Utc};
-use rand::Rng;
+use rand::RngExt;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -162,30 +162,30 @@ fn ts_now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
-fn pick<'a, R: Rng>(rng: &mut R, items: &'a [&'a str]) -> &'a str {
-    items[rng.gen_range(0..items.len())]
+fn pick<'a, R: RngExt>(rng: &mut R, items: &'a [&'a str]) -> &'a str {
+    items[rng.random_range(0..items.len())]
 }
 
-fn random_user<R: Rng>(rng: &mut R) -> String {
-    format!("user_{:03}", rng.gen_range(1..=250))
+fn random_user<R: RngExt>(rng: &mut R) -> String {
+    format!("user_{:03}", rng.random_range(1..=250))
 }
 
-fn normal_ip<R: Rng>(rng: &mut R) -> &'static str {
+fn normal_ip<R: RngExt>(rng: &mut R) -> &'static str {
     pick(rng, NORMAL_IPS)
 }
 
-fn attacker_ip<R: Rng>(rng: &mut R) -> &'static str {
+fn attacker_ip<R: RngExt>(rng: &mut R) -> &'static str {
     pick(rng, ATTACKER_IPS)
 }
 
-fn heavy_elapsed_ms<R: Rng>(rng: &mut R) -> f64 {
-    let roll: f64 = rng.gen_range(0.0..1.0);
+fn heavy_elapsed_ms<R: RngExt>(rng: &mut R) -> f64 {
+    let roll: f64 = rng.random_range(0.0..1.0);
     if roll < 0.05 {
-        rng.gen_range(5000.0..15000.0)
+        rng.random_range(5000.0..15000.0)
     } else if roll < 0.15 {
-        rng.gen_range(1000.0..5000.0)
+        rng.random_range(1000.0..5000.0)
     } else {
-        rng.gen_range(10.0..950.0)
+        rng.random_range(10.0..950.0)
     }
 }
 
@@ -259,7 +259,7 @@ fn build_postgres_event(
             "command": command,
             "table": table,
             "ClientIp": ip,
-            "rows_affected": rand::thread_rng().gen_range(0..5000_i32)
+            "rows_affected": rand::rng().random_range(0..5000_i32)
         }
     })
 }
@@ -324,21 +324,21 @@ fn build_nginx_event(
     })
 }
 
-fn gen_normal<R: Rng>(rng: &mut R) -> Vec<Value> {
-    let source = rng.gen_range(0..4);
+fn gen_normal<R: RngExt>(rng: &mut R) -> Vec<Value> {
+    let source = rng.random_range(0..4);
     match source {
         0 => {
-            let method = if rng.gen_bool(0.65) { "GET" } else { "POST" };
+            let method = if rng.random_bool(0.65) { "GET" } else { "POST" };
             let path = pick(rng, NORMAL_API_PATHS);
             let status_code = if method == "POST" {
-                [200, 201, 204][rng.gen_range(0..3)]
+                [200, 201, 204][rng.random_range(0..3)]
             } else {
-                [200, 200, 204][rng.gen_range(0..3)]
+                [200, 200, 204][rng.random_range(0..3)]
             };
             let elapsed = heavy_elapsed_ms(rng);
             let host = pick(rng, PRODUCT_HOSTS);
             let ip = normal_ip(rng);
-            let user = if rng.gen_bool(0.8) {
+            let user = if rng.random_bool(0.8) {
                 json!(random_user(rng))
             } else {
                 Value::Null
@@ -362,8 +362,8 @@ fn gen_normal<R: Rng>(rng: &mut R) -> Vec<Value> {
             )]
         }
         1 => {
-            let cmd = ["SELECT", "INSERT", "UPDATE"][rng.gen_range(0..3)];
-            let table = ["users", "products", "orders"][rng.gen_range(0..3)];
+            let cmd = ["SELECT", "INSERT", "UPDATE"][rng.random_range(0..3)];
+            let table = ["users", "products", "orders"][rng.random_range(0..3)];
             let duration_ms = heavy_elapsed_ms(rng);
             vec![build_postgres_event(
                 ts_now(),
@@ -381,12 +381,12 @@ fn gen_normal<R: Rng>(rng: &mut R) -> Vec<Value> {
             )]
         }
         2 => {
-            let op = ["GET", "SET", "DEL"][rng.gen_range(0..3)];
-            let key = format!("cache:{}:{}", pick(rng, &["users", "orders", "products"]), rng.gen_range(1000..9999));
-            let latency_us = if rng.gen_bool(0.1) {
-                rng.gen_range(100_000..300_000_i64)
+            let op = ["GET", "SET", "DEL"][rng.random_range(0..3)];
+            let key = format!("cache:{}:{}", pick(rng, &["users", "orders", "products"]), rng.random_range(1000..9999));
+            let latency_us = if rng.random_bool(0.1) {
+                rng.random_range(100_000..300_000_i64)
             } else {
-                rng.gen_range(120..30_000_i64)
+                rng.random_range(120..30_000_i64)
             };
             vec![build_redis_event(
                 ts_now(),
@@ -400,9 +400,9 @@ fn gen_normal<R: Rng>(rng: &mut R) -> Vec<Value> {
             )]
         }
         _ => {
-            let method = ["GET", "GET", "POST"][rng.gen_range(0..3)];
+            let method = ["GET", "GET", "POST"][rng.random_range(0..3)];
             let path = pick(rng, NORMAL_API_PATHS);
-            let status = [200, 200, 201, 204][rng.gen_range(0..4)];
+            let status = [200, 200, 201, 204][rng.random_range(0..4)];
             vec![build_nginx_event(
                 ts_now(),
                 "Information",
@@ -411,19 +411,19 @@ fn gen_normal<R: Rng>(rng: &mut R) -> Vec<Value> {
                 method,
                 path,
                 status,
-                rng.gen_range(0.005..2.2),
-                rng.gen_range(200..25_000),
+                rng.random_range(0.005..2.2),
+                rng.random_range(200..25_000),
                 "Mozilla/5.0",
             )]
         }
     }
 }
 
-fn gen_brute_force<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> {
+fn gen_brute_force<R: RngExt>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> {
     let ip = attacker_ip(rng);
     let path = pick(rng, AUTH_PATHS);
-    let status_code = [401, 403][rng.gen_range(0..2)];
-    let elapsed = rng.gen_range(15.0..120.0);
+    let status_code = [401, 403][rng.random_range(0..2)];
+    let elapsed = rng.random_range(15.0..120.0);
     state.brute_force_attempts.push_back(Instant::now());
     while let Some(front) = state.brute_force_attempts.front() {
         if front.elapsed() > Duration::from_secs(120) {
@@ -459,14 +459,14 @@ fn gen_brute_force<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> 
             "POST",
             path,
             status_code,
-            rng.gen_range(0.01..0.35),
-            rng.gen_range(200..900),
+            rng.random_range(0.01..0.35),
+            rng.random_range(200..900),
             "Hydra/9.5",
         ),
     ]
 }
 
-fn gen_sql_injection<R: Rng>(rng: &mut R) -> Vec<Value> {
+fn gen_sql_injection<R: RngExt>(rng: &mut R) -> Vec<Value> {
     let ip = attacker_ip(rng);
     let payloads = [
         "/api/users?id=1' OR '1'='1",
@@ -475,14 +475,14 @@ fn gen_sql_injection<R: Rng>(rng: &mut R) -> Vec<Value> {
         "/api/products?filter=' OR 1=1--",
     ];
     let path = pick(rng, &payloads);
-    let status_code = [400, 500][rng.gen_range(0..2)];
-    let elapsed = rng.gen_range(120.0..1800.0);
+    let status_code = [400, 500][rng.random_range(0..2)];
+    let elapsed = rng.random_range(120.0..1800.0);
     let message = [
         "UNION SELECT username,password FROM users",
         "' OR 1=1--",
         "DROP TABLE orders",
         "information_schema.tables",
-    ][rng.gen_range(0..4)];
+    ][rng.random_range(0..4)];
 
     vec![
         build_dotnet_event(
@@ -507,7 +507,7 @@ fn gen_sql_injection<R: Rng>(rng: &mut R) -> Vec<Value> {
             "Error",
             format!("ERROR: syntax error near '{message}' in statement: SELECT * FROM users WHERE id = '{message}'"),
             pick(rng, DB_HOSTS),
-            rng.gen_range(100.0..9000.0),
+            rng.random_range(100.0..9000.0),
             "SELECT",
             "users",
             Some(ip),
@@ -515,13 +515,13 @@ fn gen_sql_injection<R: Rng>(rng: &mut R) -> Vec<Value> {
     ]
 }
 
-fn gen_privilege_escalation<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> {
+fn gen_privilege_escalation<R: RngExt>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> {
     let ip = normal_ip(rng);
     let path = pick(rng, ADMIN_PATHS);
     let user = random_user(rng);
-    let method = ["GET", "POST", "PATCH"][rng.gen_range(0..3)];
+    let method = ["GET", "POST", "PATCH"][rng.random_range(0..3)];
     let status_code = 403;
-    let elapsed = rng.gen_range(20.0..250.0);
+    let elapsed = rng.random_range(20.0..250.0);
 
     state.privilege_attempts.push_back(Instant::now());
     while let Some(front) = state.privilege_attempts.front() {
@@ -558,17 +558,17 @@ fn gen_privilege_escalation<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Ve
             method,
             path,
             status_code,
-            rng.gen_range(0.02..0.45),
-            rng.gen_range(150..850),
+            rng.random_range(0.02..0.45),
+            rng.random_range(150..850),
             "Mozilla/5.0",
         ),
     ]
 }
 
-fn gen_rate_limit<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> {
+fn gen_rate_limit<R: RngExt>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> {
     let ip = "203.0.113.88";
     let path = pick(rng, RATE_LIMIT_PATHS);
-    let elapsed = rng.gen_range(3.0..30.0);
+    let elapsed = rng.random_range(3.0..30.0);
     state.rate_limit_attempts.push_back(Instant::now());
     while let Some(front) = state.rate_limit_attempts.front() {
         if front.elapsed() > Duration::from_secs(60) {
@@ -604,17 +604,17 @@ fn gen_rate_limit<R: Rng>(rng: &mut R, state: &mut RuntimeState) -> Vec<Value> {
             "GET",
             path,
             429,
-            rng.gen_range(0.001..0.05),
-            rng.gen_range(80..400),
+            rng.random_range(0.001..0.05),
+            rng.random_range(80..400),
             "attack-bot/1.0",
         ),
     ]
 }
 
-fn gen_heavy_queries<R: Rng>(rng: &mut R) -> Vec<Value> {
-    let ip = if rng.gen_bool(0.7) { normal_ip(rng) } else { attacker_ip(rng) };
-    let duration_ms = rng.gen_range(10_000.0..20_000.0);
-    let redis_latency = rng.gen_range(100_000..600_000_i64);
+fn gen_heavy_queries<R: RngExt>(rng: &mut R) -> Vec<Value> {
+    let ip = if rng.random_bool(0.7) { normal_ip(rng) } else { attacker_ip(rng) };
+    let duration_ms = rng.random_range(10_000.0..20_000.0);
+    let redis_latency = rng.random_range(100_000..600_000_i64);
     let path = pick(rng, NORMAL_API_PATHS);
 
     vec![
@@ -665,7 +665,7 @@ fn gen_heavy_queries<R: Rng>(rng: &mut R) -> Vec<Value> {
     ]
 }
 
-fn gen_mode_events<R: Rng>(rng: &mut R, mode: Mode, state: &mut RuntimeState) -> Vec<Value> {
+fn gen_mode_events<R: RngExt>(rng: &mut R, mode: Mode, state: &mut RuntimeState) -> Vec<Value> {
     match mode {
         Mode::Normal => gen_normal(rng),
         Mode::BruteForce => gen_brute_force(rng, state),
@@ -674,7 +674,7 @@ fn gen_mode_events<R: Rng>(rng: &mut R, mode: Mode, state: &mut RuntimeState) ->
         Mode::RateLimit => gen_rate_limit(rng, state),
         Mode::HeavyQueries => gen_heavy_queries(rng),
         Mode::All => {
-            let roll: u32 = rng.gen_range(0..70);
+            let roll: u32 = rng.random_range(0..70);
             if roll < 50 {
                 gen_normal(rng)
             } else if roll < 55 {
@@ -726,7 +726,7 @@ async fn post_ndjson(
 }
 
 async fn run_once(client: &reqwest::Client, cfg: &Settings) -> Result<(usize, usize)> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut state = RuntimeState::new();
     let mut sent = 0usize;
     let mut failed = 0usize;

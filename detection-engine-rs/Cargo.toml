@@ -1,7 +1,8 @@
 [package]
 name = "detection-engine-rs"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 
 [[bin]]
 name = "detector"
@@ -15,11 +16,11 @@ path = "src/bin/correlator.rs"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rdkafka = { version = "0.36", features = ["cmake-build"] }
-redis = { version = "0.25", features = ["tokio-comp"] }
-reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
-prometheus = "0.13"
-axum = "0.7"
+rdkafka = { version = "0.39", features = ["cmake-build"] }
+redis = { version = "1.2", features = ["tokio-comp"] }
+reqwest = { version = "0.13", features = ["rustls", "json"], default-features = false }
+prometheus = "0.14"
+axum = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4"] }

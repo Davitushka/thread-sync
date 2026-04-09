@@ -6,7 +6,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use bollard::container::{
+use bollard::query_parameters::{
     ListContainersOptions, RestartContainerOptions, StartContainerOptions, StopContainerOptions,
 };
 use bollard::Docker;
@@ -217,7 +217,7 @@ async fn list_services(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ServiceInfo>>, StatusCode> {
     // Не используем filters.name=siem-: на части Docker Engine API фильтр даёт пустой список.
-    let opts = ListContainersOptions::<String> {
+    let opts = ListContainersOptions {
         all: true,
         ..Default::default()
     };
@@ -271,7 +271,7 @@ async fn list_services(
             Some(ServiceInfo {
                 name,
                 container_id: c.id.unwrap_or_default().chars().take(12).collect(),
-                state: c.state.unwrap_or_default(),
+                state: c.state.map(|s| s.to_string()).unwrap_or_default(),
                 status: c.status.unwrap_or_default(),
                 health,
                 image: c.image.unwrap_or_default(),
@@ -294,7 +294,13 @@ async fn stop_service(
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, format!("service not found: {}", name)))?;
     state
         .docker
-        .stop_container(&container_name, Some(StopContainerOptions { t: 15 }))
+        .stop_container(
+            &container_name,
+            Some(StopContainerOptions {
+                signal: None,
+                t: Some(15),
+            }),
+        )
         .await
         .map_err(|e| json_error(StatusCode::BAD_GATEWAY, format!("stop failed for {}: {}", container_name, e)))?;
 
@@ -310,7 +316,7 @@ async fn start_service(
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, format!("service not found: {}", name)))?;
     state
         .docker
-        .start_container(&container_name, None::<StartContainerOptions<String>>)
+        .start_container(&container_name, None::<StartContainerOptions>)
         .await
         .map_err(|e| json_error(StatusCode::BAD_GATEWAY, format!("start failed for {}: {}", container_name, e)))?;
 
@@ -326,7 +332,13 @@ async fn restart_service(
         .ok_or_else(|| json_error(StatusCode::NOT_FOUND, format!("service not found: {}", name)))?;
     state
         .docker
-        .restart_container(&container_name, Some(RestartContainerOptions { t: 15 }))
+        .restart_container(
+            &container_name,
+            Some(RestartContainerOptions {
+                signal: None,
+                t: Some(15),
+            }),
+        )
         .await
         .map_err(|e| json_error(StatusCode::BAD_GATEWAY, format!("restart failed for {}: {}", container_name, e)))?;
 
@@ -343,7 +355,7 @@ fn normalize_container_name(name: &str) -> String {
 
 async fn resolve_container_name(docker: &Docker, name: &str) -> Option<String> {
     let target = normalize_container_name(name);
-    let opts = ListContainersOptions::<String> {
+    let opts = ListContainersOptions {
         all: true,
         ..Default::default()
     };
@@ -513,7 +525,13 @@ async fn fill_all_data(
     {
         match state
             .docker
-            .restart_container(&stress_name, Some(RestartContainerOptions { t: 15 }))
+            .restart_container(
+                &stress_name,
+                Some(RestartContainerOptions {
+                    signal: None,
+                    t: Some(15),
+                }),
+            )
             .await
         {
             Ok(_) => {
@@ -523,7 +541,7 @@ async fn fill_all_data(
             Err(_) => {
                 state
                     .docker
-                    .start_container(&stress_name, None::<StartContainerOptions<String>>)
+                    .start_container(&stress_name, None::<StartContainerOptions>)
                     .await
                     .map_err(|e| {
                         json_error(
@@ -1075,14 +1093,20 @@ async fn restart_stress_container(
 ) -> Result<String, (StatusCode, Json<ErrorBody>)> {
     match state
         .docker
-        .restart_container(stress_name, Some(RestartContainerOptions { t: 15 }))
+        .restart_container(
+            stress_name,
+            Some(RestartContainerOptions {
+                signal: None,
+                t: Some(15),
+            }),
+        )
         .await
     {
         Ok(_) => Ok("restarted".to_string()),
         Err(_) => {
             state
                 .docker
-                .start_container(stress_name, None::<StartContainerOptions<String>>)
+                .start_container(stress_name, None::<StartContainerOptions>)
                 .await
                 .map_err(|e| {
                     json_error(

@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use crate::theme::ThemePalette;
+use crate::theme::{u8_radius, ThemePalette};
 
 pub fn severity_color(sev: &str) -> egui::Color32 {
     match sev.to_lowercase().as_str() {
@@ -26,13 +26,11 @@ fn pill_text_on_accent(accent: egui::Color32) -> egui::Color32 {
 pub fn pill_label(ui: &mut egui::Ui, text: impl Into<String>, color: egui::Color32) {
     let text = text.into();
     let fg = pill_text_on_accent(color);
-    let galley = ui.fonts(|f| {
-        f.layout_no_wrap(
-            text.clone(),
-            egui::FontId::proportional(12.0),
-            fg,
-        )
-    });
+    let galley = ui.painter().layout_no_wrap(
+        text.clone(),
+        egui::FontId::proportional(12.0),
+        fg,
+    );
     let pad = egui::vec2(8.0, 3.0);
     let size = galley.size() + pad * 2.0;
     let (rect, _resp) = ui.allocate_at_least(size, egui::Sense::hover());
@@ -40,9 +38,10 @@ pub fn pill_label(ui: &mut egui::Ui, text: impl Into<String>, color: egui::Color
     let stroke = color.gamma_multiply(0.85);
     ui.painter().rect(
         rect,
-        egui::Rounding::same(6.0),
+        egui::CornerRadius::same(6),
         fill,
         egui::Stroke::new(1.0, stroke),
+        egui::StrokeKind::Middle,
     );
     ui.painter().galley(rect.left_top() + pad, galley, fg);
 }
@@ -68,13 +67,14 @@ pub fn section_nav_button(
     let r = p.radius_nav;
     ui.painter().rect(
         rect,
-        egui::Rounding::same(r),
+        egui::CornerRadius::same(u8_radius(r)),
         fill,
         if selected {
             egui::Stroke::new(1.0, p.nav_selected_stroke.gamma_multiply(0.45))
         } else {
             egui::Stroke::NONE
         },
+        egui::StrokeKind::Middle,
     );
     if selected {
         let inset = 10.0;
@@ -83,7 +83,7 @@ pub fn section_nav_button(
             rect.left_bottom() + egui::vec2(8.0, -inset),
         );
         ui.painter()
-            .rect_filled(bar, egui::Rounding::same(2.0), p.nav_selected_stroke);
+            .rect_filled(bar, egui::CornerRadius::same(2), p.nav_selected_stroke);
     }
     let title_color = if selected {
         p.text_on_sidebar
@@ -115,8 +115,8 @@ pub fn stack_action_card(ui: &mut egui::Ui, p: &ThemePalette, title: &str, url: 
     let frame = egui::Frame::none()
         .fill(p.card_fill)
         .stroke(egui::Stroke::new(1.0, p.card_stroke))
-        .rounding(egui::Rounding::same(p.radius_card))
-        .inner_margin(egui::Margin::symmetric(18.0, 15.0));
+        .corner_radius(egui::CornerRadius::same(u8_radius(p.radius_card)))
+        .inner_margin(egui::Margin::symmetric(18, 15));
     frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {

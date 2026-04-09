@@ -1,7 +1,7 @@
 use eframe::egui;
 use egui_plot::{Line, Plot, PlotPoints};
 
-use crate::theme::ThemePalette;
+use crate::theme::{u8_radius, ThemePalette};
 
 pub(super) fn average_hours(values: impl Iterator<Item = i64>) -> i64 {
     let v: Vec<i64> = values.collect();
@@ -20,9 +20,9 @@ pub(super) fn kpi_card(
 ) {
     egui::Frame::none()
         .fill(p.card_fill)
-        .rounding(egui::Rounding::same(p.radius_card))
+        .corner_radius(egui::CornerRadius::same(u8_radius(p.radius_card)))
         .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.75)))
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .inner_margin(egui::Margin::symmetric(14, 12))
         .show(ui, |ui| {
             ui.set_min_width(150.0);
             ui.label(
@@ -43,9 +43,9 @@ pub(super) fn sparkline_card(
 ) {
     egui::Frame::none()
         .fill(p.card_fill)
-        .rounding(egui::Rounding::same(p.radius_card))
+        .corner_radius(egui::CornerRadius::same(u8_radius(p.radius_card)))
         .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.65)))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .inner_margin(egui::Margin::symmetric(12, 10))
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new(title)
@@ -67,7 +67,7 @@ pub(super) fn sparkline_card(
                 .allow_scroll(false)
                 .show_axes([false, false])
                 .show(ui, |plot_ui| {
-                    plot_ui.line(Line::new(points).color(color));
+                    plot_ui.line(Line::new("", points).color(color));
                 });
         });
 }

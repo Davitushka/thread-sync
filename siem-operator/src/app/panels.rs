@@ -165,9 +165,9 @@ impl OperatorApp {
     pub(super) fn show_detections_panel(&mut self, ui: &mut egui::Ui) {
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(12.0))
+            .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
-            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .inner_margin(egui::Margin::symmetric(14, 12))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new("Detections").strong().size(24.0));
@@ -269,9 +269,9 @@ impl OperatorApp {
         let mut open_investigation: Option<String> = None;
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(10.0))
+            .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
-            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .inner_margin(egui::Margin::symmetric(12, 10))
             .show(ui, |ui| egui::Grid::new("detections_grid").striped(true).show(ui, |ui| {
             ui.strong("Rule");
             ui.strong("Severity");
@@ -307,9 +307,9 @@ impl OperatorApp {
     pub(super) fn show_investigations_panel(&mut self, ui: &mut egui::Ui) {
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(12.0))
+            .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
-            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .inner_margin(egui::Margin::symmetric(14, 12))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new("Investigations").strong().size(24.0));
@@ -376,9 +376,9 @@ impl OperatorApp {
         ui.separator();
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(10.0))
+            .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
-            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .inner_margin(egui::Margin::symmetric(12, 10))
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if self.investigation_notes.is_empty() {
@@ -415,9 +415,9 @@ impl OperatorApp {
     pub(super) fn show_stack_control_panel(&mut self, ui: &mut egui::Ui) {
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(12.0))
+            .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
-            .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+            .inner_margin(egui::Margin::symmetric(14, 12))
             .show(ui, |ui| {
                 ui.label(egui::RichText::new("Stack Control").strong().size(24.0));
                 ui.label("Docker orchestration and live status for SIEM stack.");
@@ -484,9 +484,9 @@ impl OperatorApp {
         ui.add_space(8.0);
         egui::Frame::none()
             .fill(egui::Color32::from_rgb(24, 30, 42))
-            .rounding(egui::Rounding::same(10.0))
+            .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
-            .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+            .inner_margin(egui::Margin::symmetric(12, 10))
             .show(ui, |ui| egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                 ui.label(egui::RichText::new(&self.docker_last_output).monospace());
             }));

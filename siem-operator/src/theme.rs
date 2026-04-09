@@ -1,5 +1,10 @@
 //! Semantic colors and egui `Visuals` — «noir + teal» dark, warm paper light.
-use eframe::egui::{self, Color32, Context, Frame, Margin, Rounding, Stroke, Visuals};
+use eframe::egui::{self, Color32, Context, CornerRadius, Frame, Margin, Stroke, Visuals};
+
+#[inline]
+pub fn u8_radius(x: f32) -> u8 {
+    x.clamp(0.0, 255.0).round() as u8
+}
 
 /// Shared tokens for shell, cards, and egui widget layers.
 #[derive(Clone, Copy)]
@@ -121,7 +126,7 @@ pub fn palette(is_dark: bool) -> ThemePalette {
 pub fn sidebar_panel_frame(p: &ThemePalette) -> Frame {
     Frame::none()
         .fill(p.bg_sidebar)
-        .inner_margin(Margin::same(20.0))
+        .inner_margin(Margin::same(20))
         .stroke(Stroke::new(1.0, p.stroke_sidebar))
 }
 
@@ -129,21 +134,21 @@ pub fn top_bar_panel_frame(p: &ThemePalette) -> Frame {
     Frame::none()
         .fill(p.bg_top_bar)
         .stroke(Stroke::new(1.0, p.stroke_top_bar))
-        .inner_margin(Margin::symmetric(16.0, 10.0))
+        .inner_margin(Margin::symmetric(16, 10))
 }
 
 pub fn status_panel_frame(p: &ThemePalette) -> Frame {
     Frame::none()
         .fill(p.bg_status)
-        .inner_margin(Margin::symmetric(16.0, 7.0))
+        .inner_margin(Margin::symmetric(16, 7))
 }
 
 pub fn elevated_card_frame(p: &ThemePalette) -> Frame {
     Frame::none()
         .fill(p.card_fill)
-        .rounding(Rounding::same(p.radius_card))
+        .corner_radius(CornerRadius::same(u8_radius(p.radius_card)))
         .stroke(Stroke::new(1.0, p.card_stroke))
-        .inner_margin(Margin::symmetric(16.0, 14.0))
+        .inner_margin(Margin::symmetric(16, 14))
 }
 
 pub fn apply_theme(ctx: &Context, is_dark: bool) {
@@ -168,12 +173,12 @@ pub fn apply_theme(ctx: &Context, is_dark: bool) {
     visuals.hyperlink_color = p.link;
     visuals.warn_fg_color = Color32::from_rgb(245, 180, 72);
     visuals.error_fg_color = Color32::from_rgb(255, 108, 112);
-    visuals.window_rounding = Rounding::same(p.radius_card);
-    visuals.menu_rounding = Rounding::same(8.0);
+    visuals.window_corner_radius = CornerRadius::same(u8_radius(p.radius_card));
+    visuals.menu_corner_radius = CornerRadius::same(8);
     visuals.window_shadow = egui::Shadow {
-        offset: egui::vec2(0.0, 10.0),
-        blur: 22.0,
-        spread: 0.0,
+        offset: [0, 10],
+        blur: 22,
+        spread: 0,
         color: if is_dark {
             Color32::from_black_alpha(88)
         } else {
@@ -183,10 +188,10 @@ pub fn apply_theme(ctx: &Context, is_dark: bool) {
 
     ctx.set_visuals(visuals);
 
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
     style.spacing.item_spacing = egui::vec2(10.0, 9.0);
     style.spacing.button_padding = egui::vec2(14.0, 8.0);
-    style.spacing.window_margin = Margin::same(16.0);
+    style.spacing.window_margin = Margin::same(16);
     style
         .text_styles
         .insert(egui::TextStyle::Heading, egui::FontId::proportional(20.0));
@@ -199,7 +204,7 @@ pub fn apply_theme(ctx: &Context, is_dark: bool) {
     style
         .text_styles
         .insert(egui::TextStyle::Small, egui::FontId::proportional(12.5));
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 pub fn setup_theme(ctx: &Context) {

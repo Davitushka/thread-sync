@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 use chrono::{SecondsFormat, Utc};
-use rand::distributions::{Distribution, WeightedIndex};
-use rand::Rng;
+use rand::distr::{weighted::WeightedIndex, Distribution};
+use rand::RngExt;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -82,14 +82,14 @@ fn ts() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
-fn pick_ip<R: Rng>(rng: &mut R, threat: bool) -> &'static str {
+fn pick_ip<R: RngExt>(rng: &mut R, threat: bool) -> &'static str {
     let pool = if threat { ATTACKER_IPS } else { NORMAL_IPS };
-    pool[rng.gen_range(0..pool.len())]
+    pool[rng.random_range(0..pool.len())]
 }
 
-fn gen_dotnet<R: Rng>(rng: &mut R, threat: bool) -> Value {
+fn gen_dotnet<R: RngExt>(rng: &mut R, threat: bool) -> Value {
     let methods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
-    let method = methods[rng.gen_range(0..methods.len())];
+    let method = methods[rng.random_range(0..methods.len())];
     let endpoints = [
         "/api/auth/login",
         "/api/users",
@@ -98,18 +98,18 @@ fn gen_dotnet<R: Rng>(rng: &mut R, threat: bool) -> Value {
         "/api/search",
         "/hubs/notifications",
     ];
-    let endpoint = endpoints[rng.gen_range(0..endpoints.len())];
+    let endpoint = endpoints[rng.random_range(0..endpoints.len())];
     let (status_code, level) = if threat {
         let codes = [401, 403, 429, 500, 503];
-        (codes[rng.gen_range(0..codes.len())], "Warning")
+        (codes[rng.random_range(0..codes.len())], "Warning")
     } else {
         let codes = [200, 200, 201, 204, 301, 304, 400, 404, 422];
-        (codes[rng.gen_range(0..codes.len())], "Information")
+        (codes[rng.random_range(0..codes.len())], "Information")
     };
-    let elapsed: f64 = rng.gen_range(5.0..800.0);
-    let host = format!("api-{:02}", rng.gen_range(1..=4));
+    let elapsed: f64 = rng.random_range(5.0..800.0);
+    let host = format!("api-{:02}", rng.random_range(1..=4));
     let msg = format!("HTTP {method} {endpoint} responded {status_code} in {elapsed:.2}ms");
-    let user_id: Value = if rng.gen_bool(0.7) {
+    let user_id: Value = if rng.random_bool(0.7) {
         json!(Uuid::new_v4().to_string())
     } else {
         Value::Null
@@ -133,18 +133,18 @@ fn gen_dotnet<R: Rng>(rng: &mut R, threat: bool) -> Value {
     })
 }
 
-fn gen_postgresql<R: Rng>(rng: &mut R, threat: bool) -> Value {
+fn gen_postgresql<R: RngExt>(rng: &mut R, threat: bool) -> Value {
     let cmds = ["SELECT", "INSERT INTO", "UPDATE", "DELETE FROM"];
-    let cmd = cmds[rng.gen_range(0..cmds.len())];
+    let cmd = cmds[rng.random_range(0..cmds.len())];
     let tables = ["users", "orders", "products", "sessions", "audit_logs"];
-    let table = tables[rng.gen_range(0..tables.len())];
-    let duration_ms: f64 = rng.gen_range(1.0..5000.0);
+    let table = tables[rng.random_range(0..tables.len())];
+    let duration_ms: f64 = rng.random_range(1.0..5000.0);
     let (msg, level) = if threat {
         let inj = [
             "' OR '1'='1",
             "UNION SELECT null, username, password FROM users",
         ];
-        let i = inj[rng.gen_range(0..inj.len())];
+        let i = inj[rng.random_range(0..inj.len())];
         (
             format!("ERROR: syntax error near '{i}' in query: {cmd} FROM {table}"),
             "Error",
@@ -164,26 +164,26 @@ fn gen_postgresql<R: Rng>(rng: &mut R, threat: bool) -> Value {
         "Level": level,
         "Message": msg,
         "SourceType": "postgresql",
-        "Host": format!("db-{:02}", rng.gen_range(1..=2)),
+        "Host": format!("db-{:02}", rng.random_range(1..=2)),
         "Properties": {
             "duration_ms": duration_ms,
-            "rows_affected": rng.gen_range(0..10000_i32),
+            "rows_affected": rng.random_range(0..10000_i32),
             "command": cmd,
             "table": table,
         }
     })
 }
 
-fn gen_redis<R: Rng>(rng: &mut R, threat: bool) -> Value {
+fn gen_redis<R: RngExt>(rng: &mut R, threat: bool) -> Value {
     let ops = ["GET", "SET", "DEL", "EXPIRE", "HGET", "LPUSH"];
-    let op = ops[rng.gen_range(0..ops.len())];
+    let op = ops[rng.random_range(0..ops.len())];
     let prefixes = ["session:", "cache:", "rate:", "user:", "lock:"];
     let key = format!(
         "{}{}",
-        prefixes[rng.gen_range(0..prefixes.len())],
+        prefixes[rng.random_range(0..prefixes.len())],
         &Uuid::new_v4().to_string()[..8]
     );
-    let latency_us = rng.gen_range(50..50000_i32);
+    let latency_us = rng.random_range(50..50000_i32);
     let (msg, level) = if threat {
         (
             format!("SLOWLOG: {op} {key} took {latency_us}us — possible enumeration"),
@@ -199,7 +199,7 @@ fn gen_redis<R: Rng>(rng: &mut R, threat: bool) -> Value {
         "Level": level,
         "Message": msg,
         "SourceType": "redis",
-        "Host": format!("redis-{:02}", rng.gen_range(1..=2)),
+        "Host": format!("redis-{:02}", rng.random_range(1..=2)),
         "Properties": {
             "operation": op,
             "key": key,
@@ -208,9 +208,9 @@ fn gen_redis<R: Rng>(rng: &mut R, threat: bool) -> Value {
     })
 }
 
-fn gen_nginx<R: Rng>(rng: &mut R, threat: bool) -> Value {
+fn gen_nginx<R: RngExt>(rng: &mut R, threat: bool) -> Value {
     let methods = ["GET", "POST", "GET", "GET", "HEAD"];
-    let method = methods[rng.gen_range(0..methods.len())];
+    let method = methods[rng.random_range(0..methods.len())];
     let paths = [
         "/",
         "/index.html",
@@ -219,17 +219,17 @@ fn gen_nginx<R: Rng>(rng: &mut R, threat: bool) -> Value {
         "/.env",
         "/admin",
     ];
-    let path = paths[rng.gen_range(0..paths.len())];
+    let path = paths[rng.random_range(0..paths.len())];
     let source_ip = pick_ip(rng, threat);
     let (status, level) = if threat {
-        let s = [401, 403, 404, 500][rng.gen_range(0..4)];
+        let s = [401, 403, 404, 500][rng.random_range(0..4)];
         (s, "Warning")
     } else {
-        let s = [200, 200, 200, 304, 404][rng.gen_range(0..5)];
+        let s = [200, 200, 200, 304, 404][rng.random_range(0..5)];
         (s, if s >= 400 { "Warning" } else { "Information" })
     };
-    let bytes_sent = rng.gen_range(200..50000_i32);
-    let request_time: f64 = rng.gen_range(0.001..2.5);
+    let bytes_sent = rng.random_range(200..50000_i32);
+    let request_time: f64 = rng.random_range(0.001..2.5);
     let ts_nginx = ts();
     let msg =
         format!(r#"{source_ip} - - [{ts_nginx}] "{method} {path} HTTP/1.1" {status} {bytes_sent}"#);
@@ -238,7 +238,7 @@ fn gen_nginx<R: Rng>(rng: &mut R, threat: bool) -> Value {
         "Level": level,
         "Message": msg,
         "SourceType": "nginx",
-        "Host": format!("nginx-{:02}", rng.gen_range(1..=2)),
+        "Host": format!("nginx-{:02}", rng.random_range(1..=2)),
         "Properties": {
             "remote_addr": source_ip,
             "method": method,
@@ -251,7 +251,7 @@ fn gen_nginx<R: Rng>(rng: &mut R, threat: bool) -> Value {
     })
 }
 
-fn next_event<R: Rng>(rng: &mut R, threat: bool) -> Value {
+fn next_event<R: RngExt>(rng: &mut R, threat: bool) -> Value {
     let weights = [50u32, 20, 15, 15];
     let dist = WeightedIndex::new(weights).expect("weights");
     match dist.sample(rng) {
@@ -293,7 +293,7 @@ async fn post_ndjson(
 }
 
 async fn run_burst(client: &reqwest::Client, cfg: &Settings) -> Result<(usize, usize)> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let interval = Duration::from_secs_f64(1.0 / cfg.eps as f64);
     let deadline = Instant::now() + Duration::from_secs(cfg.burst_sec);
     let mut sent = 0usize;
@@ -301,7 +301,7 @@ async fn run_burst(client: &reqwest::Client, cfg: &Settings) -> Result<(usize, u
     let mut batch: Vec<Value> = Vec::with_capacity(cfg.batch_size);
 
     while Instant::now() < deadline {
-        let threat = rng.gen_bool(cfg.threat_ratio);
+        let threat = rng.random_bool(cfg.threat_ratio);
         batch.push(next_event(&mut rng, threat));
 
         if batch.len() >= cfg.batch_size {
