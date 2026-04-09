@@ -1,3 +1,4 @@
+# Prefer the Rust replacement: `siem-tools alert-seed` (see ../siem-tools).
 import json
 import os
 import random

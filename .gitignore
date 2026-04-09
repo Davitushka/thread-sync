@@ -1,12 +1,5 @@
-# Rust
-rust-parser/target/
-log-generator/target/
-detection-engine-rs/target/
-case-management-rs/target/
-siem-admin/target/
-siem-portal/target/
-siem-operator/target/
-stress/target/
+# Rust — артефакты Cargo во всех крейтах (в т.ч. siem-tools и новые)
+target/
 
 # Secrets — НИКОГДА не коммитим в репозиторий
 # Файлы секретов в корне (устаревшие пути)
