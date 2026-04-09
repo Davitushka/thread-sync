@@ -67,6 +67,8 @@ siem-lite/
 │       ├── clickhouse/config.xml    # ClickHouse: memory, compression, RBAC
 │       └── secrets/README.md        # Инструкция по созданию секретов
 │
+├── siem-tools/                      # Rust CLI: сиды алертов, правки JSON дашбордов Grafana
+│
 └── scripts/
     └── generate-certs.sh            # TLS сертификаты для Vector mTLS
 ```
@@ -184,13 +186,28 @@ docker compose -f deploy/docker/docker-compose.yml --profile tools up -d pgadmin
 
 ### Наполнение дашбордов и остановка
 
-- Сид демо-событий: `bash scripts/seed-data/seed.sh` (или дождаться `siem-log-generator` / `siem-stress` из compose).
+- **ClickHouse / SOC Workbench:** `bash scripts/seed-data/bootstrap_clickhouse.sh` или контейнер `soc-seed` (профиль `seed` в compose); события в поток — из **`siem-log-generator`** или **`siem-stress`** (см. [scripts/seed-data/README.md](scripts/seed-data/README.md)).
+- **Утилита `siem-tools`:** сид демо-алертов и обслуживание JSON Grafana — см. раздел [Утилита siem-tools](#siem-tools) ниже.
 - Остановка без удаления томов:  
   `docker compose -f deploy/docker/docker-compose.yml stop`  
 - Полное удаление контейнеров и **данных** томов:  
   `docker compose -f deploy/docker/docker-compose.yml down --volumes`
 
 Операции, бэкапы, проверки пайплайна: [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
+<a id="siem-tools"></a>
+
+### Утилита siem-tools
+
+Rust CLI в каталоге [`siem-tools/`](siem-tools/). Запуск из **корня репозитория** (`cargo` 1.85+):
+
+| Команда | Назначение |
+|---------|------------|
+| `cargo run --manifest-path siem-tools/Cargo.toml -- alert-seed` | Вставка синтетических строк в `siem.alerts` через HTTP ClickHouse (переменные `CLICKHOUSE_*`, см. `siem-tools/src/alert_seed.rs`). |
+| `cargo run --manifest-path siem-tools/Cargo.toml -- grafana-add-loki-panels` | Добавить панель Loki во все `grafana/dashboards/*.json`, если её ещё нет (идемпотентно). При необходимости: `--repo-root <путь>`. |
+| `cargo run --manifest-path siem-tools/Cargo.toml -- grafana-fix-datetime` | Исправить в дашбордах шаблоны `formatDateTime`: минуты — `%i`, не `%M`. |
+
+После `cargo build --manifest-path siem-tools/Cargo.toml --release` бинарь: `siem-tools/target/release/siem-tools` (или `siem-tools.exe` на Windows).
 
 ## Стек
 
@@ -235,7 +252,7 @@ docker run --rm -v siem-lite_geoip-data:/target -v /path/to/mmdb:/src alpine \
 |---------|---------|---------|
 | `siem-parser` не стартует | Нет Kafka при старте | Зависимость от `redpanda` healthy — проверить `docker compose ps` |
 | ClickHouse auth error | Несовпадение пароля | Проверить `deploy/docker/secrets/clickhouse_password.txt` |
-| Grafana нет данных | MV пустые (нет событий) | Запустить сид: `bash scripts/seed-data/seed.sh` |
+| Grafana нет данных | MV пустые (нет событий) | SQL-сид: `bash scripts/seed-data/bootstrap_clickhouse.sh`; поток событий: контейнер `siem-log-generator` или `cargo run --manifest-path log-generator/Cargo.toml` (переменные `SIEM_LOGGEN_*`) |
 | `detection_events_processed_total` = 0 | Correlator не потребляет Kafka | `docker logs siem-correlator`, Redpanda healthy, `curl http://localhost:9111/ready` |
 | Алерты не пишутся в siem.alerts | Alertmanager не достигает siem-parser | Проверить маршрут `clickhouse-siem` в Alertmanager, `curl http://localhost:7000/alerts/ingest` |
 | Disk alert срабатывает постоянно | Мало места на диске или метрика не найдена | Проверить `curl http://localhost:9363/metrics | grep DiskAvailable` |

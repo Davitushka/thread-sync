@@ -3,7 +3,7 @@ name = "siem-tools"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-description = "SOC utilities: alert seeding, future replacements for Python/shell helpers"
+description = "SOC utilities: alert seeding and Grafana dashboard maintenance"
 license = "Apache-2.0"
 
 [[bin]]

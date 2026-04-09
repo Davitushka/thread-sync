@@ -567,3 +567,22 @@ curl -s "http://localhost:8088/api/v1/cases/<CASE_UUID>/investigate" | jq .
 В ответе — `grafana.*` (готовые URL) и `suggested_clickhouse_queries` для копирования в Grafana Explore или `clickhouse-client`.
 
 4. Перед выводами по инциденту — проверить дашборд **доверие к данным**: нет ли всплеска `% NULL source_ip`, лага ingest или ошибок парсера.
+
+---
+
+## 10. Утилита `siem-tools`
+
+Rust CLI в каталоге [`siem-tools/`](../siem-tools/): сиды и правки артефактов Grafana из репозитория. Запуск из **корня** монорепозитория:
+
+```bash
+# Демо-строки в siem.alerts (HTTP ClickHouse, переменные CLICKHOUSE_*)
+cargo run --manifest-path siem-tools/Cargo.toml -- alert-seed
+
+# Добавить панель «Loki: логи контейнеров SIEM» во все grafana/dashboards/*.json (идемпотентно)
+cargo run --manifest-path siem-tools/Cargo.toml -- grafana-add-loki-panels
+
+# Исправить в JSON дашбордов шаблоны formatDateTime (%M → %i для минут)
+cargo run --manifest-path siem-tools/Cargo.toml -- grafana-fix-datetime
+```
+
+Полная таблица команд и сборка release-бинаря: раздел **«Утилита siem-tools»** в [README.md](../README.md#siem-tools).

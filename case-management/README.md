@@ -1,5 +1,5 @@
-# case-management (Go) — legacy
+# case-management — React UI
 
-Этот каталог — **устаревшая** реализация case management на Go. Текущий сервис в Docker Compose и в CI: **`case-management-rs`** (+ встроенный React UI), образ `deploy/docker/Dockerfile.casemgmt`.
+Каталог содержит **только фронтенд** (`web/`) для case management. Бэкенд и Docker-образ: **`case-management-rs`** (см. `deploy/docker/Dockerfile.casemgmt`).
 
-Новую функциональность добавляйте в `case-management-rs`; этот код оставлен для истории и при желании сравнения API.
+Устаревший Go-сервис из репозитория удалён; новую логику добавляйте в Rust-крейт.

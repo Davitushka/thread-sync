@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-SIEM-Lite Seed Data Generator
-Генерирует реалистичные логи 4 типов и отправляет их в Vector HTTP endpoint.
+SIEM-Lite Seed Data Generator (расширенный)
+
+Для обычного потока NDJSON в Vector предпочтителен крейт log-generator (контейнер
+siem-log-generator в compose, переменные SIEM_LOGGEN_*). Этот скрипт — опционально:
+YAML-конфиг, несколько форматов логов (dotnet, postgresql, redis, nginx) и сценарии attack.
 
 Использование:
     python generate_logs.py --eps 100 --duration 60

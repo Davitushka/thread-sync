@@ -1,6 +1,20 @@
 # SIEM-Lite Seed Data Generator
 
-Генерирует реалистичные логи 4 типов и отправляет их в Vector HTTP endpoint для тестирования SIEM-Lite.
+Набор сидов для ClickHouse и генераторов событий в Vector (`http://…:8080/logs`).
+
+## Поток в Vector (рекомендуется: Rust `log-generator`)
+
+В Docker Compose по умолчанию поднимается **`siem-log-generator`** (крейт [`log-generator/`](../../log-generator/) в репозитории). Переменные окружения: префикс **`SIEM_LOGGEN_`** (URL, EPS, доля «угроз», батчи и т.д. — см. [`log-generator/src/main.rs`](../../log-generator/src/main.rs)).
+
+Локально из корня репозитория:
+
+```bash
+cargo run --manifest-path log-generator/Cargo.toml
+```
+
+Демо-алерты в ClickHouse без Python: **`siem-tools alert-seed`** — см. [README § «Утилита siem-tools»](../../README.md#siem-tools).
+
+Обслуживание JSON дашбордов Grafana (панель Loki, правка `formatDateTime`): команды **`grafana-add-loki-panels`** и **`grafana-fix-datetime`** в том же `siem-tools`.
 
 ## ClickHouse: события + алерты + IoC (дашборды не пустые)
 
@@ -27,14 +41,18 @@ docker compose -f deploy/docker/docker-compose.yml --profile seed up soc-seed
 
 Связка Grafana (ClickHouse vs Prometheus): [`docs/DATA_PROMETHEUS_GRAFANA.md`](../../docs/DATA_PROMETHEUS_GRAFANA.md).
 
-## Установка
+## Расширенный генератор логов (Python, опционально)
+
+Скрипт **`generate_logs.py`** — несколько форматов (dotnet, PostgreSQL, Redis, nginx), конфиг **`config.yaml`** и сценарии «атак» для отладки коррелятора. Для обычного smoke-теста стека чаще достаточно **`log-generator`** (Rust) выше.
+
+### Установка
 
 ```bash
 cd scripts/seed-data
 pip install -r requirements.txt
 ```
 
-## Использование
+### Использование
 
 ```bash
 # Базовая генерация: 100 EPS в течение 60 секунд
@@ -53,7 +71,7 @@ python generate_logs.py --attack all
 python generate_logs.py --attack sql_injection --dry-run
 ```
 
-## Типы событий
+## Типы событий (только Python-генератор)
 
 | Тип | Вес | Описание |
 |-----|-----|---------|

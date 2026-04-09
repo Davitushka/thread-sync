@@ -116,7 +116,7 @@ Total checks: 45  |  Passed: 43  |  Failed: 0  |  Warnings: 2
 - Проверьте сеть: `docker network inspect siem-lite_siem-internal`
 
 ### Панели пустые
-- Это нормально если нет данных. Seed данные: `cd scripts/seed-data && python generate_logs.py --eps 100 --duration 90`
+- Это нормально если нет данных. Поток событий: убедитесь, что в compose запущен **`siem-log-generator`**, или локально `cargo run --manifest-path log-generator/Cargo.toml` (переменные `SIEM_LOGGEN_*`). Сид таблиц ClickHouse: `bash scripts/seed-data/bootstrap_clickhouse.sh`. Подробнее: [`scripts/seed-data/README.md`](../../scripts/seed-data/README.md).
 
 ### PyInstaller .exe не работает
 - Убедитесь что Python 3.10+ установлен

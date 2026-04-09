@@ -42,9 +42,3 @@ Thumbs.db
 # Frontend (case-management UI)
 case-management/web/node_modules/
 
-# Go build artifacts (legacy, kept for reference)
-detection-engine/detection-engine
-detection-engine/correlator
-detection-engine/*.exe
-case-management/casemgmt
-case-management/*.exe
