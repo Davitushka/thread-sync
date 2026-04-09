@@ -27,7 +27,8 @@
       "Bash(docker inspect *)",
       "Bash(select-string *)",
       "Bash(select-object *)",
-      "Bash(docker network *)"
+      "Bash(docker network *)",
+      "Bash(cargo run *)"
     ]
   },
   "$version": 3

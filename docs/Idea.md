@@ -72,3 +72,6 @@
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Диаграммы, потоки данных, гарантии доставки |
 | [`RISKS_AND_ROADMAP.md`](RISKS_AND_ROADMAP.md) | Таблица vs enterprise, масштабирование, фазы, риски Rust |
 | [`STACK.md`](STACK.md) | Стек и обоснование технологий |
+
+
+Обновить все версии до актульной rust, go.
