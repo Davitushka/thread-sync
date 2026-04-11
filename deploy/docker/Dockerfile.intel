@@ -1,0 +1,13 @@
+# Threat intel connector (Python): MISP / HTTP feed / local JSON → ClickHouse (+ optional Redis)
+FROM python:3.12-slim-bookworm
+
+WORKDIR /app
+
+COPY intel-connector/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY intel-connector/intel_connector ./intel_connector
+COPY intel-connector/examples ./examples
+
+ENV PYTHONUNBUFFERED=1
+CMD ["python", "-m", "intel_connector"]

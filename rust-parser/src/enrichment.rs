@@ -1,10 +1,11 @@
-//! Обогащение событий: GeoIP, ASN lookup, LRU-кэш пользователей.
+//! Обогащение событий: GeoIP, ASN lookup, LRU-кэш пользователей, threat intel (Redis SET).
 //! MaxMind MMDB читается через mmap — нулевые копии при каждом lookup.
 
 use crate::schema::{GeoInfo, NormalizedEvent};
 use lru::LruCache;
 use maxminddb::{geoip2, Reader};
 use memmap2::Mmap;
+use redis::Commands;
 use std::fs::File;
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
@@ -19,6 +20,8 @@ pub struct EnrichmentConfig {
     pub geoip_asn_db_path: String,
     pub user_cache_size: usize,
     pub user_cache_ttl_secs: u64,
+    /// Если задан URL Redis, проверяем `source_ip` в `SISMEMBER siem:intel:ipv4`.
+    pub intel_redis_url: Option<String>,
 }
 
 impl Default for EnrichmentConfig {
@@ -28,6 +31,7 @@ impl Default for EnrichmentConfig {
             geoip_asn_db_path: "/etc/geoip/GeoLite2-ASN.mmdb".to_string(),
             user_cache_size: 10_000,
             user_cache_ttl_secs: 300,
+            intel_redis_url: None,
         }
     }
 }
@@ -39,6 +43,7 @@ pub struct Enricher {
     asn_reader: Option<Reader<Mmap>>,
     // В продакшне LruCache с TTL лучше заменить на moka::sync::Cache
     user_cache: Arc<Mutex<LruCache<String, CachedUser>>>,
+    intel_redis: Option<Arc<Mutex<redis::Connection>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -56,10 +61,35 @@ impl Enricher {
         let cache_size =
             NonZeroUsize::new(config.user_cache_size).unwrap_or(NonZeroUsize::new(10_000).unwrap());
 
+        let intel_redis = config
+            .intel_redis_url
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .and_then(|url| match redis::Client::open(url) {
+                Ok(client) => match client.get_connection() {
+                    Ok(conn) => {
+                        info!("Threat intel Redis enrichment enabled (SET siem:intel:ipv4)");
+                        Some(Arc::new(Mutex::new(conn)))
+                    }
+                    Err(e) => {
+                        warn!(
+                            "INTEL redis URL set but connection failed: {} — intel match disabled",
+                            e
+                        );
+                        None
+                    }
+                },
+                Err(e) => {
+                    warn!("Invalid INTEL redis URL: {} — intel match disabled", e);
+                    None
+                }
+            });
+
         Self {
             city_reader,
             asn_reader,
             user_cache: Arc::new(Mutex::new(LruCache::new(cache_size))),
+            intel_redis,
         }
     }
 
@@ -75,6 +105,30 @@ impl Enricher {
                     debug!("Invalid IP address in source_ip: {}", ip_str);
                 }
             }
+        }
+        self.enrich_threat_intel(event);
+    }
+
+    fn enrich_threat_intel(&self, event: &mut NormalizedEvent) {
+        let Some(pool) = &self.intel_redis else {
+            return;
+        };
+        let Some(ip) = event.source_ip.as_deref().filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let Ok(mut conn) = pool.lock() else {
+            return;
+        };
+        let member: bool = conn.sismember("siem:intel:ipv4", ip).unwrap_or(false);
+        if member {
+            crate::metrics::INTEL_IOC_MATCH_TOTAL.inc();
+            event
+                .metadata
+                .insert("threat_intel_match".to_string(), serde_json::json!(true));
+            event.metadata.insert(
+                "threat_intel_ioc_type".to_string(),
+                serde_json::json!("ipv4"),
+            );
         }
     }
 

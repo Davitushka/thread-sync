@@ -11,6 +11,7 @@
 | [`RISKS_AND_ROADMAP.md`](RISKS_AND_ROADMAP.md) | Упрощения vs enterprise SIEM, масштабирование, Phase 1–3 |
 | [`Idea.md`](Idea.md) | Позиционирование SIEM-Lite относительно вендорских SIEM |
 | [`DATA_PROMETHEUS_GRAFANA.md`](DATA_PROMETHEUS_GRAFANA.md) | Почему панели пустые: ClickHouse vs Prometheus |
+| [`INTEL_CONNECTOR.md`](INTEL_CONNECTOR.md) | Threat intel: MISP/фид → ClickHouse + Redis, связка с парсером |
 | [`SIEM_PORTAL.md`](SIEM_PORTAL.md) | Веб-портал SOC (`siem-portal`, порт 8091), API-прокси |
 
 См. также: [`deploy/docker/secrets/README.md`](../deploy/docker/secrets/README.md), [`scripts/seed-data/README.md`](../scripts/seed-data/README.md).

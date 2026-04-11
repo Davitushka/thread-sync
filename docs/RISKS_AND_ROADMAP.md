@@ -7,7 +7,7 @@
 | Область | SIEM-Lite (текущее) | Enterprise SIEM | Workaround в lite |
 |---------|---------------------|-----------------|-------------------|
 | **Корреляция** | Sliding window и правила в **Rust** (detection-engine-rs, сервис `correlator` в Compose) + **Redis** | Сложные multi-hop корреляции, граф событий (Splunk UEBA) | Добавлять сценарии в detection-engine-rs; YAML в `sigma-rules/` — спецификация |
-| **Threat Intel** | Демо-таблица `siem.threat_intel` (сид SQL); **нет** live MISP/VirusTotal | Автоматический enrich по IP/hash/domain | Ручная проверка в Grafana; live-фиды — roadmap: Phase 2 |
+| **Threat Intel** | **intel-connector** (профиль Compose `intel`): MISP / HTTP JSON / файл → `threat_intel` + опц. Redis; парсер — матч по Redis. VirusTotal и др. API — по-прежнему roadmap | Автоматический enrich по IP/hash/domain из облачных лент | Расширять коннекторы (VT, OTX) и словари CH |
 | **SOAR** | Нет | Автоматический playbook (TheHive, Cortex) | Webhook в incident tracking (Jira) |
 | **Machine Learning** | Только простые threshold anomalies | UEBA, entity analytics (Exabeam, Azure Sentinel) | Roadmap: Phase 3, MLflow |
 | **Multi-tenancy** | Один namespace в ClickHouse | Полная изоляция tenant | Row-level security + отдельные БД |
@@ -94,15 +94,17 @@ spec:
 - ✅ Case management (**case-management-rs** + PostgreSQL + React в `case-management/web/`)
 - ✅ SOC-консоль (**siem-portal**), опционально **siem-admin**, **siem-operator** (egui)
 - ✅ Сиды и нагрузка: `scripts/seed-data/`, **log-generator**, **siem-stress**; демо **threat_intel** в ClickHouse
+- ✅ **intel-connector** (опционально, `--profile intel`): live IoC → ClickHouse + Redis; **siem-parser** — `SIEM__INTEL__REDIS_URL` для матча в `metadata`
 
 ### Phase 2 — SIEM-Standard, 6-12 месяцев
 
 ```
-Добавить:
+Добавить / углубление:
 ├── Threat Intel Integration
-│   ├── MISP connector (Python microservice, pull IoC каждые 1ч)
-│   ├── Обогащение событий: IP → threat_score, malware_family
-│   └── ClickHouse таблица: siem.threat_intel (IPv4, domain, hash → tags)
+│   ├── ✅ intel-connector (Python): MISP / HTTP JSON / файл → siem.threat_intel + Redis SET
+│   ├── ✅ siem-parser: SIEM__INTEL__REDIS_URL → metadata threat_intel_match (IPv4)
+│   ├── ○ VirusTotal / OTX / прочие API (roadmap)
+│   └── ○ Поля threat_score, malware_family в схеме события (roadmap)
 │
 ├── ClickHouse HA
 │   ├── 3-node cluster с ReplicatedMergeTree

@@ -1,0 +1,25 @@
+{
+  "iocs": [
+    {
+      "ioc_type": "ipv4",
+      "ioc_value": "203.0.113.99",
+      "threat_label": "Sample brute-force source (TEST-NET-3)",
+      "tags": ["sample", "auth"],
+      "confidence": 85
+    },
+    {
+      "ioc_type": "ipv4",
+      "ioc_value": "198.51.100.42",
+      "threat_label": "Example scanner",
+      "tags": ["sample"],
+      "confidence": 70
+    },
+    {
+      "ioc_type": "domain",
+      "ioc_value": "evil.example.invalid",
+      "threat_label": "Phishing domain (example)",
+      "tags": ["phishing"],
+      "confidence": 90
+    }
+  ]
+}

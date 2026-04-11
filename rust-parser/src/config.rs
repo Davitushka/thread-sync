@@ -1,11 +1,20 @@
 use serde::Deserialize;
 
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct IntelConfig {
+    /// `redis://redis:6379/0` — наборы `siem:intel:*` заполняет сервис `intel-connector`.
+    #[serde(default)]
+    pub redis_url: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub kafka: KafkaConfig,
     pub geoip: GeoIpConfig,
     pub processing: ProcessingConfig,
+    #[serde(default)]
+    pub intel: IntelConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]

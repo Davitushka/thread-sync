@@ -3,8 +3,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    register_histogram_vec, register_int_counter_vec, register_int_gauge, HistogramVec,
-    IntCounterVec, IntGauge,
+    register_histogram_vec, register_int_counter, register_int_counter_vec, register_int_gauge,
+    HistogramVec, IntCounter, IntCounterVec, IntGauge,
 };
 
 pub static EVENTS_PARSED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
@@ -68,6 +68,14 @@ pub static KAFKA_PRODUCED_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     .expect("metric registration failed")
 });
 
+pub static INTEL_IOC_MATCH_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+    register_int_counter!(
+        "siem_parser_intel_ioc_match_total",
+        "Events whose source_ip matched Redis SET siem:intel:ipv4"
+    )
+    .expect("metric registration failed")
+});
+
 /// Инициализирует метрики (вызывает Lazy::force).
 pub fn init() {
     Lazy::force(&EVENTS_PARSED_TOTAL);
@@ -76,4 +84,5 @@ pub fn init() {
     Lazy::force(&PII_MASKS_TOTAL);
     Lazy::force(&EVENTS_IN_FLIGHT);
     Lazy::force(&KAFKA_PRODUCED_TOTAL);
+    Lazy::force(&INTEL_IOC_MATCH_TOTAL);
 }

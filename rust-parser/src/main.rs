@@ -105,7 +105,8 @@ async fn main() -> Result<()> {
             "server": { "host": "0.0.0.0", "port": 7000, "metrics_port": 9100, "workers": 4 },
             "kafka": { "bootstrap_servers": "localhost:9092", "topic": "siem.events", "dlq_topic": "siem.events.dlq" },
             "geoip": { "city_db_path": "/etc/geoip/GeoLite2-City.mmdb", "asn_db_path": "/etc/geoip/GeoLite2-ASN.mmdb" },
-            "processing": { "max_event_size_bytes": 1048576, "channel_capacity": 100000, "enable_pii_masking": true, "enable_geoip": true }
+            "processing": { "max_event_size_bytes": 1048576, "channel_capacity": 100000, "enable_pii_masking": true, "enable_geoip": true },
+            "intel": {}
         })).expect("default config is valid")
     });
 
@@ -116,6 +117,7 @@ async fn main() -> Result<()> {
         geoip_city_db_path: config.geoip.city_db_path.clone(),
         geoip_asn_db_path: config.geoip.asn_db_path.clone(),
         user_cache_size: config.geoip.cache_size,
+        intel_redis_url: config.intel.redis_url.clone(),
         ..Default::default()
     });
 

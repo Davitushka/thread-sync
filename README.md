@@ -30,6 +30,7 @@ siem-lite/
 ├── siem-tools/                    # CLI: alert-seed, правки дашбордов Grafana
 ├── log-generator/                 # Rust: поток в Vector (siem-log-generator)
 ├── stress/                        # Нагрузка /parse и Vector (siem-stress)
+├── intel-connector/               # Python: MISP/фид → threat_intel (+ Redis); compose --profile intel
 │
 ├── vector/                        # agent.yaml, aggregator.yaml (Vector 0.43)
 ├── clickhouse/                    # init.sql, схема siem.*
@@ -215,6 +216,16 @@ Rust CLI в каталоге [`siem-tools/`](siem-tools/). Запуск из **�
 
 > **Для production** рекомендуется [SOPS + age](https://github.com/getsops/sops) для шифрования файлов секретов в git.
 
+## Threat intelligence (Phase 2)
+
+Сервис **`intel-connector`** периодически загружает IoC в **`siem.threat_intel`** (ClickHouse) и при `INTEL_SYNC_REDIS=1` зеркалирует наборы в **Redis** (`siem:intel:ipv4` и др.). Для матча на лету в нормализованном событии задайте у **`siem-parser`** переменную **`SIEM__INTEL__REDIS_URL=redis://redis:6379/0`** (см. `deploy/docker/docker-compose.yml`).
+
+```bash
+docker compose -f deploy/docker/docker-compose.yml --profile intel up -d --build intel-connector
+```
+
+Переменные MISP / HTTP-фида / локального JSON: [docs/INTEL_CONNECTOR.md](docs/INTEL_CONNECTOR.md).
+
 ## GeoIP Setup
 
 GeoIP обогащение опционально — без него события пишутся без geo-полей.
@@ -249,3 +260,4 @@ docker run --rm -v siem-lite_geoip-data:/target -v /path/to/mmdb:/src alpine \
 - [Идея и отличия от enterprise SIEM](docs/Idea.md)
 - [Данные в Grafana: ClickHouse vs Prometheus](docs/DATA_PROMETHEUS_GRAFANA.md)
 - [SIEM Portal (SOC)](docs/SIEM_PORTAL.md)
+- [Threat intel (intel-connector)](docs/INTEL_CONNECTOR.md)

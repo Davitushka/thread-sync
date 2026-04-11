@@ -165,6 +165,7 @@ flowchart TD
 | **siem-operator** | Десктоп-клиент оператора (Rust, egui); рекомендуемый API-базис — URL **siem-portal**. |
 | **siem-admin** | Профиль Compose `admin`: операции со стеком, сиды ClickHouse (Docker socket на хосте). |
 | **log-generator** / **siem-stress** | Синтетические события в Vector для метрик и проверки детекции. |
+| **intel-connector** | Профиль Compose `intel`: MISP / HTTP JSON / файл → `threat_intel` + опционально Redis для матча в парсере. См. [`INTEL_CONNECTOR.md`](INTEL_CONNECTOR.md). |
 
 **Мониторимое приложение** в архитектуре (типично **.NET 9 + React**) в репозитории **siem-lite не обязано присутствовать** — это целевой источник логов; SIEM принимает данные через Vector, HTTP ingest и другие настроенные источники.
 

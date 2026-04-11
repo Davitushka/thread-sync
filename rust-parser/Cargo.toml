@@ -69,6 +69,11 @@ smallvec = "1.15"
 # LRU кэш для enrichment
 lru = "0.16"
 
+# Threat intel: SISMEMBER по SET из intel-connector (опционально)
+# Без TLS к Redis (внутренняя сеть Docker); иначе на Windows тянется openssl-sys.
+# Без TLS к Redis; `keep-alive` — TCP-клиент без openssl (внутренняя сеть).
+redis = { version = "0.32", default-features = false, features = ["keep-alive"] }
+
 # Lazy static init
 once_cell = "1.21"
 

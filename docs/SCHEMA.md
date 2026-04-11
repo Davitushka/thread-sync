@@ -183,6 +183,7 @@
 | `Properties.Password` | `"SuperSecret123!"` | `"[REDACTED]"` | **Sensitive key** |
 | `Properties.Authorization` | `"Bearer eyJ..."` | `"[REDACTED]"` | **Token маскирование** |
 | `geo` | отсутствует | `{country_iso: "NL", ...}` | **GeoIP обогащение** |
+| `metadata.threat_intel_*` | отсутствует | `match` / `ioc_type` | Если задан `SIEM__INTEL__REDIS_URL` и IP в SET `siem:intel:ipv4` |
 | `event_id` | отсутствует | UUID v4 | **Добавлен для дедупликации** |
 | `ingest_ts` | отсутствует | timestamp | **Для расчёта lag** |
 
@@ -199,14 +200,16 @@
 
 ## Threat intelligence: `siem.threat_intel`
 
-Таблица IoC в ClickHouse для ручной загрузки и будущих коннекторов (MISP/STIX). События **`siem.events`** можно сопоставлять с записями `ioc_type = 'ipv4'` по `toString(source_ip)`.
+Таблица IoC в ClickHouse: ручной `INSERT`, сиды и сервис **`intel-connector`** (MISP / HTTP JSON / файл — см. [`INTEL_CONNECTOR.md`](INTEL_CONNECTOR.md)). События **`siem.events`** сопоставляют в Grafana по `toString(source_ip)` с `ioc_type = 'ipv4'`.
 
 | Колонка | Назначение |
 |---------|------------|
-| `ioc_type` | `ipv4`, `domain`, `sha256` |
+| `ioc_type` | `ipv4`, `domain`, `sha256`, `ipv6` |
 | `ioc_value` | Каноническое значение (IPv4 dotted, FQDN, hex SHA-256) |
-| `feed` | Источник: `manual`, `misp`, … |
+| `feed` | Источник: `manual`, `misp`, `local_feed`, `http_feed`, … |
 | `threat_label`, `tags`, `confidence` | Контекст для triage |
 | `first_seen`, `last_seen` | Версия строки для `ReplacingMergeTree` |
+
+**Обогащение в потоке (siem-parser):** при `SIEM__INTEL__REDIS_URL` и зеркале Redis из коннектора в **`metadata`** могут появиться `threat_intel_match` (bool) и `threat_intel_ioc_type` (строка, сейчас `ipv4`).
 
 Дашборд Grafana: **SIEM-Lite — SOC Workbench** (`/d/siem-soc-workbench`).
