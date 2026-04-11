@@ -1,5 +1,7 @@
 # SIEM-Lite Operator (десктоп)
 
+Десктоп-клиент SOC на **Rust (egui)**. Рекомендуемый upstream — **[siem-portal](http://localhost:8091)** (см. [`docs/SIEM_PORTAL.md`](../docs/SIEM_PORTAL.md)). В **GitHub Actions** этот крейт отдельным job не собирается — перед PR полезно локально: `cargo fmt`, `cargo clippy`, `cargo test` в каталоге `siem-operator/`.
+
 ## Запуск (рекомендуется — всегда должен подниматься)
 
 Нативный клиент на **egui** (все вкладки, API):

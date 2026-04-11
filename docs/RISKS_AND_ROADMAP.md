@@ -1,11 +1,13 @@
 # Риски, компромиссы и roadmap
 
+Указатель документации: [`README.md`](README.md).
+
 ## 1. Что упрощено в SIEM-Lite vs Enterprise SIEM
 
 | Область | SIEM-Lite (текущее) | Enterprise SIEM | Workaround в lite |
 |---------|---------------------|-----------------|-------------------|
-| **Корреляция** | Простые sliding window в Go + Redis | Сложные multi-hop корреляции, граф событий (Splunk UEBA) | Добавить правила в correlator постепенно |
-| **Threat Intel** | Нет интеграции с MISP/VirusTotal | Автоматический enrich по IP/hash/domain | Ручная проверка в Grafana; roadmap: Phase 2 |
+| **Корреляция** | Sliding window и правила в **Rust** (detection-engine-rs, сервис `correlator` в Compose) + **Redis** | Сложные multi-hop корреляции, граф событий (Splunk UEBA) | Добавлять сценарии в detection-engine-rs; YAML в `sigma-rules/` — спецификация |
+| **Threat Intel** | Демо-таблица `siem.threat_intel` (сид SQL); **нет** live MISP/VirusTotal | Автоматический enrich по IP/hash/domain | Ручная проверка в Grafana; live-фиды — roadmap: Phase 2 |
 | **SOAR** | Нет | Автоматический playbook (TheHive, Cortex) | Webhook в incident tracking (Jira) |
 | **Machine Learning** | Только простые threshold anomalies | UEBA, entity analytics (Exabeam, Azure Sentinel) | Roadmap: Phase 3, MLflow |
 | **Multi-tenancy** | Один namespace в ClickHouse | Полная изоляция tenant | Row-level security + отдельные БД |
@@ -83,12 +85,15 @@ spec:
 
 ### Phase 1 (текущее) — SIEM-Lite, 0-6 месяцев
 
-- ✅ Log collection (Vector 4 источника)
-- ✅ Parsing + PII masking (Rust)
-- ✅ Storage (ClickHouse single-node)
-- ✅ Detection (4 правила, Rust engine + YAML в `sigma-rules/` как спецификация)
+- ✅ Log collection (Vector: агент/агрегатор, HTTP ingest и др.)
+- ✅ Parsing + PII masking (Rust, `rust-parser` / образ `siem-parser`)
+- ✅ Storage (ClickHouse single-node, MinIO под cold tier)
+- ✅ Detection (4 правила, **detection-engine-rs** / сервис `correlator` + Redis; YAML в `sigma-rules/` как спецификация)
 - ✅ Alerting (Alertmanager → Slack/Email/PD)
-- ✅ Visualization (Grafana)
+- ✅ Visualization (Grafana, дашборды в `grafana/dashboards/`)
+- ✅ Case management (**case-management-rs** + PostgreSQL + React в `case-management/web/`)
+- ✅ SOC-консоль (**siem-portal**), опционально **siem-admin**, **siem-operator** (egui)
+- ✅ Сиды и нагрузка: `scripts/seed-data/`, **log-generator**, **siem-stress**; демо **threat_intel** в ClickHouse
 
 ### Phase 2 — SIEM-Standard, 6-12 месяцев
 
@@ -152,7 +157,7 @@ spec:
 | **`unsafe` блоки** | Низкая (код не использует unsafe) | Критический (memory safety нарушена) | Cargo clippy `#[deny(unsafe_code)]` в lib.rs, обязательный code review |
 | **Версионирование crates** | Средняя (breaking changes) | Средний | Cargo.lock в репозитории, Dependabot с еженедельными обновлениями |
 | **Отладка production** | Средняя | Высокий (Rust паники сложнее дебажить) | `RUST_BACKTRACE=1`, structured logging через tracing, pprof через tokio-console |
-| **rdkafka librdkafka** | Низкая (C библиотека через FFI) | Высокий (unsafe FFI) | Версия 0.36 протестирована, cmake-build для статической линковки |
+| **rdkafka librdkafka** | Низкая (C библиотека через FFI) | Высокий (unsafe FFI) | Версия в `rust-parser`: см. `Cargo.toml` (`rdkafka`, `cmake-build`); cargo audit в CI |
 | **GeoIP mmap** | Низкая | Средний (segfault если MMDB повреждён) | Валидация файла при старте, graceful degradation без GeoIP |
 
 ### Обязательные lint правила (добавить в `src/lib.rs`)
@@ -165,34 +170,23 @@ spec:
 #![allow(clippy::module_name_repetitions)]
 ```
 
-### CI pipeline для Rust (GitHub Actions)
+### CI (GitHub Actions)
 
-```yaml
-# .github/workflows/rust.yml
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - name: Format check
-        run: cargo fmt --check
-        working-directory: rust-parser
-      - name: Clippy (deny warnings)
-        run: cargo clippy --all-targets -- -D warnings
-        working-directory: rust-parser
-      - name: Tests
-        run: cargo test --locked
-        working-directory: rust-parser
-      - name: Benchmark (smoke)
-        run: cargo bench --bench parse_benchmark -- --output-format bencher | tee bench.txt
-        working-directory: rust-parser
-      - name: Security audit
-        uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: rust-parser
-```
+Единый workflow: **[`.github/workflows/ci.yml`](../.github/workflows/ci.yml)**. Jobs (имена могут расширяться):
+
+| Job | Назначение |
+|-----|------------|
+| **rust** | `rust-parser`: `fmt`, `clippy`, тесты, `cargo-llvm-cov`, порог покрытия, `rustsec/audit-check` |
+| **docker-parser** | Сборка Docker-образа `siem-parser`, smoke `curl /health` |
+| **detection-engine** / **docker-detection** | `detection-engine-rs` и образ детектора |
+| **case-management** / **docker-casemgmt** | `case-management-rs` + сборка React UI (`case-management/web`) |
+| **log-generator-rs** / **docker-loggen** | Крейт `log-generator` и образ |
+| **siem-admin-rs** | `siem-admin`: `fmt`, `clippy`, тесты, release build |
+| **compose-validate** | `docker compose config`, краткий прогон ClickHouse |
+| **pipeline-contracts** | Pytest `tests/pipeline`, валидация `vector/aggregator.yaml` в контейнере Vector 0.43 |
+| **grafana-validation** | Подъём стека, сид ClickHouse, stress, E2E `tests/grafana/validate_grafana.py` |
+| **yaml-lint** | `yamllint` для `sigma-rules/`, `vector/`, `alerting/alertmanager.yaml` |
+
+Остальные Rust-крейты (`siem-portal`, `siem-operator`, `siem-tools`, `stress`) проверяйте локально: `cargo clippy` / `cargo test` из корня соответствующего каталога.
+
+Дублирующий вымышленный `rust.yml` в репозитории не используется — ориентир только на `ci.yml`.

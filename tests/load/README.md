@@ -1,5 +1,7 @@
 # SIEM-Lite Load Tests
 
+Ручные сценарии нагрузки на парсер/ingest. Общая архитектура и масштаб: [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md), [`docs/RISKS_AND_ROADMAP.md`](../../docs/RISKS_AND_ROADMAP.md).
+
 ## Инструменты
 
 - **k6** — основной инструмент нагрузочного тестирования

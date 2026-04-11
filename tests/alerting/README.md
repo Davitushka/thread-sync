@@ -1,6 +1,6 @@
 # SIEM-Lite Alerting Tests
 
-Интеграционные тесты для проверки pipeline: генерация события → детекция → алерт в Alertmanager.
+Интеграционные тесты для проверки pipeline: генерация события → **correlator** (образ **detection-engine-rs**, Rust) → алерт в **Alertmanager**. Запуск вручную на поднятом `docker compose`; в едином CI см. job **`grafana-validation`** и скрипты в этом каталоге.
 
 ## Предварительные требования
 

@@ -1,5 +1,7 @@
 # Нормализованная схема событий
 
+Указатель документации: [`README.md`](README.md). Архитектура пайплайна: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ## JSON Schema (ECS-совместимая)
 
 ```json

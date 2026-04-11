@@ -1,6 +1,6 @@
 # Идея SIEM-Lite: позиция относительно enterprise SIEM
 
-Документ фиксирует **зачем** существует SIEM-Lite и **чем он отличается** от полноформатного вендорского SIEM. Детали архитектуры — в [`ARCHITECTURE.md`](ARCHITECTURE.md), таблица упрощений и roadmap — в [`RISKS_AND_ROADMAP.md`](RISKS_AND_ROADMAP.md).
+[Указатель `docs/`](README.md). Документ фиксирует **зачем** существует SIEM-Lite и **чем он отличается** от полноформатного вендорского SIEM. Детали архитектуры — в [`ARCHITECTURE.md`](ARCHITECTURE.md), таблица упрощений и roadmap — в [`RISKS_AND_ROADMAP.md`](RISKS_AND_ROADMAP.md).
 
 ---
 
@@ -58,7 +58,7 @@
 ## Эволюция: Lite → Standard → Enterprise (кратко)
 
 - **Phase 1** — рабочий контур: сбор, парсинг, хранение, детекция, алерты, Grafana.
-- **Phase 2** — threat intel (MISP), HA ClickHouse, LDAP/RBAC, усложнение коррелятора, интеграция с case management (например TheHive).
+- **Phase 2** — live threat intel (MISP и т.д.), HA ClickHouse, LDAP/RBAC, усложнение коррелятора, при необходимости интеграция с внешними IR-платформами (например TheHive) поверх текущего case-management-rs.
 - **Phase 3** — UEBA (ML), SOAR (n8n/Shuffle), расширенные отчёты под compliance, больше парсеров (облака, Windows, CEF/LEEF).
 
 Полный список — в roadmap того же [`RISKS_AND_ROADMAP.md`](RISKS_AND_ROADMAP.md).
@@ -69,9 +69,10 @@
 
 | Документ | Содержание |
 |----------|------------|
+| [Корневой `README.md`](../README.md) | Запуск Compose, эндпоинты, структура репозитория |
+| [`docs/README.md`](README.md) | Указатель всех файлов в `docs/` |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Диаграммы, потоки данных, гарантии доставки |
-| [`RISKS_AND_ROADMAP.md`](RISKS_AND_ROADMAP.md) | Таблица vs enterprise, масштабирование, фазы, риски Rust |
+| [`RISKS_AND_ROADMAP.md`](RISKS_AND_ROADMAP.md) | Таблица vs enterprise, масштабирование, фазы, риски Rust, CI |
 | [`STACK.md`](STACK.md) | Стек и обоснование технологий |
-
-
-Обновить все версии до актульной rust, go.
+| [`DATA_PROMETHEUS_GRAFANA.md`](DATA_PROMETHEUS_GRAFANA.md) | Разделение данных ClickHouse и Prometheus в Grafana |
+| [`SIEM_PORTAL.md`](SIEM_PORTAL.md) | Портал SOC и API-прокси |

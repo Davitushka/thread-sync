@@ -1,5 +1,7 @@
 # Стек технологий SIEM-Lite
 
+Версии образов ниже согласованы с `deploy/docker/docker-compose.yml` (при расхождении правьте таблицу или compose). Указатель всех документов: [`README.md`](README.md).
+
 ## Таблица компонентов
 
 | Компонент | Выбор | Версия | Язык | Лицензия | CPU/RAM @ 10k EPS | Почему | Альтернативы | Trade-offs |
@@ -10,8 +12,8 @@
 | **Message Queue** | Redpanda | 23.3 | C++ | BSL-1.1 | 1 CPU / 512MB | Kafka-совместим, без JVM, 5-10x меньше latency | Apache Kafka 3.7 (JVM, 1GB+), NATS JetStream (меньше экосистема) | BSL лицензия ограничивает SaaS-перепродажу |
 | **Storage (hot/warm)** | ClickHouse | 24.8 | C++ | Apache-2.0 | 2 CPU / 2GB | Лучшая in-class компрессия (5-10:1), колоночное хранение, fast aggregation | OpenSearch 2.x (JVM, хуже компрессия), Loki (только full-text) | CH: сложнее UPDATE/DELETE, не для OLTP |
 | **Storage (cold)** | MinIO | 2024.11 | Go | AGPL-3.0 | 0.5 CPU / 256MB | S3-совместим, self-hosted, интеграция с CH tiered storage | AWS S3 (no egress cost в on-prem), GCS | MinIO AGPL — нужна enterprise лицензия для embedded |
-| **Detection Engine** | detection-engine-rs | 0.1 | Rust | Apache-2.0 | 1 CPU / 256MB | Kafka consumer, правила на Rust (зеркало логики Sigma YAML в `sigma-rules/`), stateful окна через Redis | sigma-go, ElastAlert 2 | Правила не грузятся из YAML в рантайме — изменения в коде; YAML остаётся спецификацией/документацией |
-| **Correlator** | custom Go service | 0.1 | Go | Apache-2.0 | 0.5 CPU / 128MB (+Redis) | Sliding window в Redis, простота поддержки, горизонтальное масштабирование | Flink (JVM, overkill для 50k EPS), Spark Streaming | Redis потребует 100-200MB для state |
+| **Detection & correlation** | detection-engine-rs (в Compose сервис **`correlator`**, бинарь `correlator`; бинарь `detector` в крейте в стандартном Compose не поднимается) | 0.1 | Rust | Apache-2.0 | 1 CPU / 256MB (+Redis для state ~100–200MB) | Kafka consumer, правила на Rust (зеркало логики Sigma YAML в `sigma-rules/`), stateful окна в **Redis** | sigma-go, ElastAlert 2 | Правила не грузятся из YAML в рантайме — изменения в коде; YAML остаётся спецификацией |
+| **Detection state store** | Redis | 7.x | C | BSD-3-Clause | 0.25 CPU / 256MB | Счётчики и окна correlator с TTL | KeyDB, Valkey | Память под горячие ключи |
 | **GeoIP/ASN** | MaxMind GeoLite2 | 2024-11 | - | CC BY-SA 4.0 | mmap, 0 overhead | Стандарт индустрии, mmap reader, бесплатная tier | ip-api.com (внешний вызов, latency), DB-IP (похожая точность) | GeoLite2 менее точна чем GeoIP2 (платная) |
 | **Alerting** | Alertmanager | 0.27 | Go | Apache-2.0 | 0.2 CPU / 64MB | Зрелый, grouping/dedup/silence/inhibition, интеграция с Grafana | Opsgenie (проприетарный), VictorOps | Нет native correlation между алертами |
 | **Visualization** | Grafana | 11.4 | TypeScript/Go | AGPL-3.0 | 0.5 CPU / 256MB | ClickHouse plugin, богатые дашборды, RBAC | Kibana (требует Elasticsearch), Metabase (нет ClickHouse) | AGPL — встраивание в продукт требует лицензии |
@@ -28,13 +30,16 @@ Redpanda             2             1.5GB    ~50GB logs
 ClickHouse           4             4GB      ~200GB (сжатый: ~30GB при 5:1)
 siem-parser          2             512MB    –
 Vector Aggregator    2             512MB    256MB buffer
+correlator           1             256MB    –
+Redis                0.25          256MB    RDB/AOF по политике
+PostgreSQL           0.5           512MB    кейсы (case-management)
 Prometheus           2             2GB      ~10GB (15d)
 Loki                 1             1GB      ~20GB
 Grafana              1             512MB    –
 Alertmanager         0.5           256MB    –
 MinIO                1             512MB    ~2TB/year (cold)
 ─────────────────────────────────────────────────────
-ИТОГО                15.5 cores    11GB     ~2.3TB/year (cold included)
+ИТОГО                ~17 cores     ~12.5GB  ~2.3TB/year (cold included)
 Рекомендуемый сервер: 32 vCPU, 32GB RAM, 500GB NVMe + 2TB HDD
 ```
 
@@ -46,4 +51,4 @@ MinIO                1             512MB    ~2TB/year (cold)
 | Vector Aggregator | 2 реплики | 10 реплик | Горизонтально, stateless |
 | Redpanda | 1 node, 12 партиций | 3 nodes, 60 партиций | Добавить brokers |
 | ClickHouse | 1 node | ClickHouse Cluster (3 shards × 2 replicas) | Шардирование по source_type |
-| Detection | 1 инстанс | 3 инстанса (разные правила) | Партиционирование правил |
+| correlator | 1 инстанс | 3 инстанса (разные правила / group_id) | Партиционирование правил |

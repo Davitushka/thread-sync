@@ -1,5 +1,7 @@
 # SIEM-Lite: Архитектура и потоки данных
 
+Указатель документации: [`README.md`](README.md).
+
 ## 1. Общая архитектура
 
 ```mermaid
@@ -148,4 +150,22 @@ flowchart TD
 | siem-parser | Rust binary | <5ms SLA невозможен на JVM/GC-языках при p99 гарантиях |
 | PII masking | regex-automata crate | DFA без backtracking, zero-alloc на горячем пути |
 | GeoIP enrichment | maxminddb crate + mmap | Нулевые аллокации при lookup, mmap shared между потоками |
-| Protocol buffers | prost crate | Сериализация нормализованных событий между компонентами |
+| Protocol buffers | prost crate | Protobuf там, где включено в крейтах (зависимость siem-parser и др.) |
+
+## 5. Сервисы вокруг контура (продукт)
+
+Дополнительно к блокам на диаграмме §1:
+
+| Компонент | Назначение |
+|-----------|------------|
+| **PostgreSQL** | БД `soc_cases` для **case-management-rs** (кейсы, расследования). |
+| **Redis** | Состояние sliding windows и счётчиков для **correlator** (detection-engine-rs). |
+| **case-management-rs** | HTTP API кейсов; в Docker собирается вместе с React UI из `case-management/web/`. |
+| **siem-portal** | Единая SOC-веб-консоль (Rust): прокси к Prometheus, Alertmanager, case-management — см. [`SIEM_PORTAL.md`](SIEM_PORTAL.md). |
+| **siem-operator** | Десктоп-клиент оператора (Rust, egui); рекомендуемый API-базис — URL **siem-portal**. |
+| **siem-admin** | Профиль Compose `admin`: операции со стеком, сиды ClickHouse (Docker socket на хосте). |
+| **log-generator** / **siem-stress** | Синтетические события в Vector для метрик и проверки детекции. |
+
+**Мониторимое приложение** в архитектуре (типично **.NET 9 + React**) в репозитории **siem-lite не обязано присутствовать** — это целевой источник логов; SIEM принимает данные через Vector, HTTP ingest и другие настроенные источники.
+
+**Языки в репозитории:** основной код платформы — **Rust**; UI кейсов — **TypeScript/React**; тесты и сиды — **Python** (см. `tests/`, `scripts/seed-data/`).

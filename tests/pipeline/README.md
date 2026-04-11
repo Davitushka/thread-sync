@@ -2,6 +2,8 @@
 
 Проверяют, что конфиги и артефакты **согласованы** между собой (Grafana ↔ ClickHouse, сиды ↔ Vector, SQL-файлы), без обязательного запущенного Docker-стека.
 
+В CI: job **`pipeline-contracts`** в [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (`pytest tests/pipeline`, валидация `vector/aggregator.yaml` в контейнере Vector 0.43).
+
 ## Запуск
 
 ```bash

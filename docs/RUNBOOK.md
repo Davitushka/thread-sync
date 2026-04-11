@@ -1,5 +1,7 @@
 # SIEM-Lite Runbook & Operations
 
+Указатель документации: [`README.md`](README.md). Архитектура: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ## 1. Checklist первого запуска
 
 Каноничное описание «с нуля»: раздел **«Полный запуск (Docker Compose)»** в [README.md](../README.md). Ниже — операторский чеклист.

@@ -2,10 +2,12 @@
 
 Инструмент для проверки работоспособности Grafana и всего SIEM стека.
 
+В **CI** тот же сценарий выполняет job **`grafana-validation`** в [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) (подъём compose, `bootstrap_clickhouse.sh`, `siem-stress`, затем `validate_grafana.py`). Контекст панелей ClickHouse vs Prometheus: [`docs/DATA_PROMETHEUS_GRAFANA.md`](../../docs/DATA_PROMETHEUS_GRAFANA.md).
+
 ## Что проверяется
 
 1. **Datasource health** — ClickHouse, Prometheus, Loki, Alertmanager подключены
-2. **Dashboards exist** — все 6 дашбордов загружены в Grafana
+2. **Dashboards exist** — дашборды из provisioning (`grafana/provisioning/…`) загружены в Grafana (полный набор JSON — в `grafana/dashboards/`)
 3. **Panel queries** — SQL/PromQL запросы в панелях валидны и возвращают данные
 4. **Service endpoints** — HTTP health endpoints всех сервисов отвечают
 5. **Prometheus alerts** — активные алерты в корректном формате

@@ -1,6 +1,6 @@
 # SIEM-Lite Seed Data Generator
 
-Набор сидов для ClickHouse и генераторов событий в Vector (`http://…:8080/logs`).
+Набор сидов для ClickHouse и генераторов событий в Vector (`http://…:8080/logs`). Документация проекта: [`docs/README.md`](../../docs/README.md), разделение CH/Prom в Grafana: [`docs/DATA_PROMETHEUS_GRAFANA.md`](../../docs/DATA_PROMETHEUS_GRAFANA.md).
 
 ## Поток в Vector (рекомендуется: Rust `log-generator`)
 
