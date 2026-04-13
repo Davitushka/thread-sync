@@ -196,16 +196,16 @@ async fn main() {
         .route("/health", get(handlers::health).head(handlers::health))
         .route("/api/v1/cases", get(handlers::list_cases).post(handlers::create_case))
         .route(
-            "/api/v1/cases/:id/investigate",
+            "/api/v1/cases/{id}/investigate",
             get(handlers::investigate_case),
         )
         .route(
-            "/api/v1/cases/:id",
+            "/api/v1/cases/{id}",
             get(handlers::get_case).patch(handlers::patch_case),
         )
-        .route("/api/v1/cases/:id/timeline", post(handlers::add_timeline))
-        .route("/api/v1/cases/:id/events", post(handlers::link_event))
-        .route("/api/v1/cases/:id/alerts", post(handlers::link_alert))
+        .route("/api/v1/cases/{id}/timeline", post(handlers::add_timeline))
+        .route("/api/v1/cases/{id}/events", post(handlers::link_event))
+        .route("/api/v1/cases/{id}/alerts", post(handlers::link_alert))
         .route("/webhooks/alertmanager", post(alertmanager::handle_alertmanager))
         .fallback(spa_handler)
         .layer(CorsLayer::permissive())

@@ -141,12 +141,16 @@ impl Enricher {
         let city_info = self
             .city_reader
             .as_ref()
-            .and_then(|reader| reader.lookup::<geoip2::City>(ip).ok());
+            .and_then(|reader| reader.lookup(ip).ok())
+            .and_then(|result| result.decode::<geoip2::City>().ok())
+            .flatten();
 
         let asn_info = self
             .asn_reader
             .as_ref()
-            .and_then(|reader| reader.lookup::<geoip2::Asn>(ip).ok());
+            .and_then(|reader| reader.lookup(ip).ok())
+            .and_then(|result| result.decode::<geoip2::Asn>().ok())
+            .flatten();
 
         // Если нет ни GeoIP ни ASN данных — возвращаем None
         if city_info.is_none() && asn_info.is_none() {
@@ -155,31 +159,24 @@ impl Enricher {
 
         let country_iso = city_info
             .as_ref()
-            .and_then(|c| c.country.as_ref())
-            .and_then(|c| c.iso_code)
+            .and_then(|c| c.country.iso_code)
             .unwrap_or("XX")
             .to_string();
 
         let country_name = city_info
             .as_ref()
-            .and_then(|c| c.country.as_ref())
-            .and_then(|c| c.names.as_ref())
-            .and_then(|n| n.get("en"))
-            .copied()
+            .and_then(|c| c.country.names.english)
             .unwrap_or("Unknown")
             .to_string();
 
         let city = city_info
             .as_ref()
-            .and_then(|c| c.city.as_ref())
-            .and_then(|c| c.names.as_ref())
-            .and_then(|n| n.get("en"))
+            .and_then(|c| c.city.names.english)
             .map(|s| s.to_string());
 
         let (latitude, longitude) = city_info
             .as_ref()
-            .and_then(|c| c.location.as_ref())
-            .map(|loc| (loc.latitude, loc.longitude))
+            .map(|c| (c.location.latitude, c.location.longitude))
             .unwrap_or((None, None));
 
         let (asn_num, asn_org) = asn_info

@@ -91,9 +91,10 @@ impl Engine {
     }
 
     async fn emit_alert(&self, alert: Alert, rule_id: &str) {
+        let severity = alert.severity.to_string();
         self.metrics
             .alerts_fired
-            .with_label_values(&[&alert.severity.to_string(), rule_id])
+            .with_label_values(&[&severity, &rule_id.to_string()])
             .inc();
 
         info!(

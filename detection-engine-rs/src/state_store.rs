@@ -24,7 +24,7 @@ impl RedisStore {
         let client = redis::Client::open(url.as_str())
             .with_context(|| format!("invalid redis URL for {}", addr))?;
         let conn = client
-            .get_multiplexed_tokio_connection()
+            .get_multiplexed_async_connection()
             .await
             .with_context(|| format!("failed to connect to redis at {}", addr))?;
         Ok(Self { conn })
