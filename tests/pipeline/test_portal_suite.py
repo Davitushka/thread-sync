@@ -20,6 +20,8 @@ def test_portal_handlers_expose_suite_endpoints(repo_root: Path) -> None:
     required = [
         "overview_dashboard",
         "infrastructure_dashboard",
+        "alerts_overview",
+        "detections_overview",
         "search_events",
         "get_event",
         "entity_context",
@@ -61,4 +63,22 @@ def test_infrastructure_page_uses_native_infrastructure_api(repo_root: Path) -> 
     )
     assert "getInfrastructureDashboard" in infra, (
         "InfrastructurePage должен строиться на собственном portal API, а не только на встраивании Grafana."
+    )
+
+
+def test_alerts_page_uses_native_alerts_overview_api(repo_root: Path) -> None:
+    alerts = (repo_root / "siem-portal" / "web" / "src" / "pages" / "AlertsPage.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "getAlertsOverview" in alerts, (
+        "AlertsPage должен строиться на aggregated portal API, а не на сыром alert stack без triage summary."
+    )
+
+
+def test_detections_page_uses_native_detections_overview_api(repo_root: Path) -> None:
+    detections = (repo_root / "siem-portal" / "web" / "src" / "pages" / "DetectionsPage.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "getDetectionsOverview" in detections, (
+        "DetectionsPage должен строиться на aggregated portal API, а не на разрозненных correlator/prometheus вызовах."
     )

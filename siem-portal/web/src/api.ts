@@ -209,11 +209,68 @@ export type AlertItem = {
   endsAt?: string;
 };
 
+export type AlertsOverview = {
+  totals: {
+    total: number;
+    active: number;
+    critical: number;
+    silenced: number;
+    unique_sources: number;
+  };
+  severity_breakdown: Array<{ name: string; count: number }>;
+  source_breakdown: Array<{ name: string; count: number }>;
+  alerts: Array<{
+    fingerprint: string;
+    name: string;
+    severity: string;
+    state: string;
+    source: string;
+    summary: string;
+    description: string;
+    starts_at?: string;
+    ends_at?: string;
+    rule_id?: string;
+    source_ip?: string;
+    user_id?: string;
+    silenced_count: number;
+    labels: Record<string, string>;
+    annotations: Record<string, string>;
+  }>;
+};
+
 export type DetectionRow = {
   rule: string;
   severity: string;
   state: string;
   signal: string;
+};
+
+export type DetectionsOverview = {
+  stats: {
+    rules_count: number;
+    pending_alerts: number;
+    alert_capacity: number;
+    firing_count: number;
+    critical_firing: number;
+  };
+  severity_breakdown: Array<{ name: string; count: number }>;
+  state_breakdown: Array<{ name: string; count: number }>;
+  top_rules: Array<{ name: string; count: number }>;
+  firing_rows: Array<{
+    rule: string;
+    severity: string;
+    state: string;
+    signal: string;
+  }>;
+  rules: Array<{
+    id: string;
+    title: string;
+    severity: string;
+    kind?: string;
+    threshold?: number;
+    window_sec?: number;
+    firing_count: number;
+  }>;
 };
 
 export type CorrelatorStats = {
@@ -429,6 +486,12 @@ export async function getAlerts(): Promise<AlertItem[]> {
   return r.json();
 }
 
+export async function getAlertsOverview(): Promise<AlertsOverview> {
+  const r = await api("/alerts/overview");
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
 export async function getCorrelatorStats(): Promise<CorrelatorStats> {
   const r = await api("/proxy/correlator/stats");
   if (!r.ok) throw new Error(await r.text());
@@ -453,6 +516,12 @@ export async function getPromAlerts(): Promise<DetectionRow[]> {
     state: item.metric?.alertstate ?? "firing",
     signal: item.value?.[1] ?? "0",
   }));
+}
+
+export async function getDetectionsOverview(): Promise<DetectionsOverview> {
+  const r = await api("/detections/overview");
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 
 export async function searchEvents(params: Record<string, string>): Promise<EventSearchResponse> {

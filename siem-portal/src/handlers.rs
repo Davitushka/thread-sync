@@ -310,6 +310,24 @@ pub async fn infrastructure_dashboard(
         .map_err(service_error)
 }
 
+pub async fn alerts_overview(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state
+        .alerts
+        .overview(state.cfg.http_timeout)
+        .await
+        .map(|payload| Json(json!(payload)))
+        .map_err(service_error)
+}
+
+pub async fn detections_overview(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state
+        .detections
+        .overview(state.cfg.http_timeout)
+        .await
+        .map(|payload| Json(json!(payload)))
+        .map_err(service_error)
+}
+
 pub async fn search_events(
     State(state): State<AppState>,
     Query(params): Query<EventSearchParams>,

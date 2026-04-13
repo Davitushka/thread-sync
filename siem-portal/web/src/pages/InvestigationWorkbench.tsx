@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getCase, getInvestigation, type CaseDetail, type Investigation, type LinkedAlert, type LinkedEvent, type TimelineEntry } from "../api";
+import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 function sevClass(s: string) {
   return `badge sev-${s}`;
@@ -92,111 +93,159 @@ export default function InvestigationWorkbench() {
 
   return (
     <div className="workbench">
-      <p className="meta" style={{ marginBottom: "0.5rem" }}>
-        <Link to="/cases">Cases</Link>
-        {" · "}
-        <Link to={`/cases/${id}`}>Card</Link>
-      </p>
-
-      <header className="workbench-header">
-        <div>
-          <h1 style={{ margin: "0 0 0.35rem", fontSize: "1.35rem" }}>
-            {data.display_key} — {data.title}
-          </h1>
-          <p className="meta" style={{ margin: 0 }}>
-            Рабочее место аналитика: объединённая лента, alert context и pivot в данные
-          </p>
+      <section className="card hero-card entity-stack">
+        <div className="dashboard-hero">
+          <div>
+            <p className="meta" style={{ margin: 0 }}>
+              <Link to="/cases">Cases</Link>
+              {" / "}
+              <Link to={`/cases/${id}`}>Card</Link>
+            </p>
+            <h1 style={{ margin: "0.35rem 0 0.25rem", fontSize: "1.45rem" }}>
+              {data.display_key} — {data.title}
+            </h1>
+            <p className="meta" style={{ margin: 0 }}>
+              Рабочее место аналитика: unified feed, case context и controlled pivots в данные.
+            </p>
+          </div>
+          <div className="workbench-kpis">
+            <span className={sevClass(data.severity)}>{data.severity}</span>
+            <span className="kpi-pill">{data.status}</span>
+            {data.assignee && <span className="kpi-pill">@{data.assignee}</span>}
+            <span className="kpi-pill">SLA: {formatSla(data.due_at)}</span>
+          </div>
         </div>
-        <div className="workbench-kpis">
-          <span className={sevClass(data.severity)}>{data.severity}</span>
-          <span className="kpi-pill">{data.status}</span>
-          {data.assignee && <span className="kpi-pill">@{data.assignee}</span>}
-          <span className="kpi-pill">SLA: {formatSla(data.due_at)}</span>
-        </div>
-      </header>
 
-      {invErr && <p className="error workbench-banner">Сводка расследования: {invErr}</p>}
-
-      <section className="workbench-actions card">
-        <h2>Data pivots</h2>
-        <div className="btn-row">
-          {g?.siem_overview && (
-            <a className="tool-btn" href={g.siem_overview} target="_blank" rel="noreferrer">
-              SIEM dashboard
-            </a>
-          )}
-          {g?.explore_clickhouse_preset && (
-            <a className="tool-btn" href={g.explore_clickhouse_preset} target="_blank" rel="noreferrer">
-              Explore preset
-            </a>
-          )}
-          {g?.explore_loki && (
-            <a className="tool-btn" href={g.explore_loki} target="_blank" rel="noreferrer">
-              Explore Loki
-            </a>
-          )}
-          {g?.data_quality_dashboard && (
-            <a className="tool-btn secondary" href={g.data_quality_dashboard} target="_blank" rel="noreferrer">
-              Data quality
-            </a>
-          )}
+        <div className="summary-grid">
+          <div className="summary-card">
+            <span>Linked alerts</span>
+            <strong>{formatCompact(data.linked_alerts.length)}</strong>
+          </div>
+          <div className="summary-card">
+            <span>Linked events</span>
+            <strong>{formatCompact(data.linked_events.length)}</strong>
+          </div>
+          <div className="summary-card">
+            <span>Timeline entries</span>
+            <strong>{formatCompact(data.timeline.length)}</strong>
+          </div>
+          <div className="summary-card">
+            <span>Runbook</span>
+            <strong>{inv?.runbook_url ? "attached" : "—"}</strong>
+          </div>
         </div>
       </section>
 
+      {invErr && <p className="error workbench-banner">Сводка расследования: {invErr}</p>}
+
       <div className="workbench-grid">
-        <section className="card workbench-feed">
-          <h2>Unified feed</h2>
-          {feed.length === 0 ? (
-            <p className="meta">Пока пусто.</p>
-          ) : (
-            <ul className="feed-list">
-              {feed.map((item, idx) => (
-                <li key={`${item.kind}-${idx}-${item.ts}`} className={`feed-item feed-${item.kind}`}>
-                  <time>{new Date(item.ts).toLocaleString()}</time>
-                  {item.kind === "timeline" && (
-                    <div>
-                      <strong>{item.entry.actor}</strong> · <span className="feed-tag">{item.entry.entry_type}</span>
-                      {item.entry.body && <p className="feed-body">{item.entry.body}</p>}
-                    </div>
-                  )}
-                  {item.kind === "alert" && (
-                    <div>
-                      <span className="feed-tag">Alert</span> <code className="fp">{item.alert.fingerprint.slice(0, 20)}…</code>
+        <div className="entity-stack">
+          <section className="card workbench-actions entity-stack">
+            <h2>Investigation controls</h2>
+            <div className="property-grid">
+              <div className="property-card">
+                <span>Status workflow</span>
+                <strong>{inv?.process.status_workflow.join(" -> ") || "—"}</strong>
+              </div>
+              <div className="property-card">
+                <span>SLA hint</span>
+                <strong>{inv?.process.sla_hint || "—"}</strong>
+              </div>
+              <div className="property-card">
+                <span>Acknowledged</span>
+                <strong>{data.acknowledged_at ? shortDateTime(data.acknowledged_at) : "—"}</strong>
+              </div>
+              <div className="property-card">
+                <span>Due at</span>
+                <strong>{data.due_at ? shortDateTime(data.due_at) : "—"}</strong>
+              </div>
+            </div>
+
+            <div className="dense-inline-actions">
+              {g?.siem_overview && (
+                <a className="tool-btn" href={g.siem_overview} target="_blank" rel="noreferrer">
+                  SIEM dashboard
+                </a>
+              )}
+              {g?.explore_clickhouse_preset && (
+                <a className="tool-btn" href={g.explore_clickhouse_preset} target="_blank" rel="noreferrer">
+                  Explore preset
+                </a>
+              )}
+              {g?.explore_loki && (
+                <a className="tool-btn secondary" href={g.explore_loki} target="_blank" rel="noreferrer">
+                  Explore Loki
+                </a>
+              )}
+              {inv?.runbook_url && (
+                <a className="tool-btn secondary" href={inv.runbook_url} target="_blank" rel="noreferrer">
+                  Runbook
+                </a>
+              )}
+              {g?.data_quality_dashboard && (
+                <a className="tool-btn secondary" href={g.data_quality_dashboard} target="_blank" rel="noreferrer">
+                  Data quality
+                </a>
+              )}
+            </div>
+          </section>
+
+          <section className="card workbench-feed">
+            <h2>Unified feed</h2>
+            {feed.length === 0 ? (
+              <p className="meta">Пока пусто.</p>
+            ) : (
+              <ul className="feed-list">
+                {feed.map((item, idx) => (
+                  <li key={`${item.kind}-${idx}-${item.ts}`} className={`feed-item feed-${item.kind}`}>
+                    <time>{shortDateTime(item.ts)}</time>
+                    {item.kind === "timeline" && (
                       <div>
-                        <strong>{item.alert.rule_title ?? item.alert.rule_id ?? "rule"}</strong>
-                        {item.alert.severity && <span className={sevClass(item.alert.severity)}>{item.alert.severity}</span>}
+                        <strong>{item.entry.actor}</strong> · <span className="feed-tag">{item.entry.entry_type}</span>
+                        {item.entry.body && <p className="feed-body">{item.entry.body}</p>}
                       </div>
-                      {item.alert.description && <p className="feed-body">{item.alert.description}</p>}
-                    </div>
-                  )}
-                  {item.kind === "event" && (
-                    <div>
-                      <span className="feed-tag">Event</span> <code>{item.event.event_id}</code>
-                      {item.event.note && <p className="feed-body">{item.event.note}</p>}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    )}
+                    {item.kind === "alert" && (
+                      <div>
+                        <span className="feed-tag">Alert</span> <code className="fp">{item.alert.fingerprint.slice(0, 20)}…</code>
+                        <div>
+                          <strong>{item.alert.rule_title ?? item.alert.rule_id ?? "rule"}</strong>
+                          {item.alert.severity && <span className={sevClass(item.alert.severity)}>{item.alert.severity}</span>}
+                        </div>
+                        {item.alert.description && <p className="feed-body">{item.alert.description}</p>}
+                      </div>
+                    )}
+                    {item.kind === "event" && (
+                      <div>
+                        <span className="feed-tag">Event</span> <code>{item.event.event_id}</code>
+                        {item.event.note && <p className="feed-body">{item.event.note}</p>}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
 
         <aside className="workbench-aside">
-          <div className="card">
+          <div className="card entity-stack">
             <h2>Alert context</h2>
             {data.linked_alerts.length === 0 ? (
               <p className="meta">Нет привязанных алертов.</p>
             ) : (
-              <div className="alert-stack">
+              <div className="queue-list">
                 {data.linked_alerts.map((a) => (
-                  <article key={a.fingerprint} className="alert-card">
+                  <article key={a.fingerprint} className="queue-item">
                     <header>
+                      <div>
+                        <h4>{a.rule_title ?? a.rule_id ?? "Alert"}</h4>
+                        <p className="meta fp-wrap">
+                          <code>{a.fingerprint}</code>
+                        </p>
+                      </div>
                       <span className={a.severity ? sevClass(a.severity) : "badge"}>{a.severity ?? "—"}</span>
-                      <h3>{a.rule_title ?? a.rule_id ?? "Alert"}</h3>
                     </header>
-                    <p className="meta fp-wrap">
-                      <code>{a.fingerprint}</code>
-                    </p>
                     {a.description && <p className="alert-desc">{a.description}</p>}
                     {a.context && Object.keys(a.context).length > 0 && <pre className="context-json">{JSON.stringify(a.context, null, 2)}</pre>}
                   </article>
@@ -205,15 +254,15 @@ export default function InvestigationWorkbench() {
             )}
           </div>
 
-          <div className="card">
+          <div className="card entity-stack">
             <h2>ClickHouse pivots</h2>
             {!inv?.suggested_clickhouse_queries?.length ? (
               <p className="meta">Нет предложений.</p>
             ) : (
-              <ul className="query-suggest">
+              <div className="query-card-list">
                 {inv.suggested_clickhouse_queries.map((q, i) => (
-                  <li key={i}>
-                    <div className="query-title">{q.title}</div>
+                  <article key={i} className="query-card">
+                    <h3>{q.title}</h3>
                     <pre className="sql-block">{q.sql}</pre>
                     <div className="btn-row tight">
                       <button type="button" className="secondary" onClick={() => copyText(q.sql)}>
@@ -223,9 +272,9 @@ export default function InvestigationWorkbench() {
                         Explore
                       </a>
                     </div>
-                  </li>
+                  </article>
                 ))}
-              </ul>
+              </div>
             )}
           </div>
         </aside>

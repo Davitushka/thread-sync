@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from "react-router-dom";
+import { SuiteTopbar } from "./components/PageLayout";
 import OverviewPage from "./pages/OverviewPage";
 import InfrastructurePage from "./pages/InfrastructurePage";
 import AlertsPage from "./pages/AlertsPage";
@@ -33,10 +34,7 @@ export default function App() {
         </nav>
       </aside>
       <div className="suite-content">
-        <header className="suite-topbar">
-          <h1>Unified Analyst Suite</h1>
-          <p>Один вход для мониторинга, triage, расследований и кейсов.</p>
-        </header>
+        <SuiteTopbar />
         <main className="suite-main">
           <Routes>
             <Route path="/" element={<OverviewPage />} />

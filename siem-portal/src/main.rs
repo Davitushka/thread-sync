@@ -1,4 +1,6 @@
+mod alerts;
 mod config;
+mod detections;
 mod event_search;
 mod handlers;
 mod infrastructure;
@@ -11,6 +13,8 @@ use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::alerts::AlertsOverviewService;
+use crate::detections::DetectionsOverviewService;
 use crate::event_search::EventSearchService;
 use crate::infrastructure::InfrastructureService;
 use crate::overview::OverviewService;
@@ -19,6 +23,8 @@ use crate::overview::OverviewService;
 pub struct AppState {
     pub cfg: Arc<config::Config>,
     pub http: reqwest::Client,
+    pub alerts: AlertsOverviewService,
+    pub detections: DetectionsOverviewService,
     pub event_search: EventSearchService,
     pub infrastructure: InfrastructureService,
     pub overview: OverviewService,
@@ -39,6 +45,9 @@ async fn main() -> anyhow::Result<()> {
         .use_rustls_tls()
         .pool_max_idle_per_host(8)
         .build()?;
+    let alerts = AlertsOverviewService::new(http.clone(), cfg.alertmanager.clone());
+    let detections =
+        DetectionsOverviewService::new(http.clone(), cfg.correlator.clone(), cfg.prometheus.clone());
     let event_search = EventSearchService::new(http.clone(), cfg.clickhouse.clone());
     let infrastructure = InfrastructureService::new(http.clone(), cfg.prometheus.clone());
     let overview = OverviewService::new(http.clone(), cfg.clickhouse.clone());
@@ -46,6 +55,8 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         cfg: Arc::clone(&cfg),
         http,
+        alerts,
+        detections,
         event_search,
         infrastructure,
         overview,
@@ -59,6 +70,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/ui/config", get(handlers::ui_config))
         .route("/api/v1/overview", get(handlers::overview_dashboard))
         .route("/api/v1/infrastructure", get(handlers::infrastructure_dashboard))
+        .route("/api/v1/alerts/overview", get(handlers::alerts_overview))
+        .route("/api/v1/detections/overview", get(handlers::detections_overview))
         .route("/api/v1/stack/status", get(handlers::stack_status))
         .route(
             "/api/v1/proxy/prometheus/query",
