@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(handlers::health))
         .route("/", get(handlers::ui_root))
-        .route("/assets/*path", get(handlers::asset_path))
+        .route("/assets/{*path}", get(handlers::asset_path))
         .route("/favicon.ico", get(handlers::favicon_noop))
         .route("/api/v1/ui/config", get(handlers::ui_config))
         .route("/api/v1/stack/status", get(handlers::stack_status))
@@ -66,31 +66,31 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/proxy/cases", get(handlers::proxy_cases).post(handlers::proxy_create_case))
         .route(
-            "/api/v1/proxy/cases/:id",
+            "/api/v1/proxy/cases/{id}",
             get(handlers::proxy_case_detail).patch(handlers::proxy_patch_case),
         )
         .route(
-            "/api/v1/proxy/cases/:id/timeline",
+            "/api/v1/proxy/cases/{id}/timeline",
             post(handlers::proxy_case_timeline),
         )
         .route(
-            "/api/v1/proxy/cases/:id/events",
+            "/api/v1/proxy/cases/{id}/events",
             post(handlers::proxy_case_event_link),
         )
         .route(
-            "/api/v1/proxy/cases/:id/alerts",
+            "/api/v1/proxy/cases/{id}/alerts",
             post(handlers::proxy_case_alert_link),
         )
         .route(
-            "/api/v1/proxy/cases/:id/investigate",
+            "/api/v1/proxy/cases/{id}/investigate",
             get(handlers::proxy_investigate),
         )
         .route("/api/v1/proxy/correlator/stats", get(handlers::proxy_correlator_stats))
         .route("/api/v1/proxy/correlator/rules", get(handlers::proxy_correlator_rules))
         .route("/api/v1/events/search", get(handlers::search_events))
-        .route("/api/v1/events/:id", get(handlers::get_event))
+        .route("/api/v1/events/{id}", get(handlers::get_event))
         .route(
-            "/api/v1/entities/:kind/:value/context",
+            "/api/v1/entities/{kind}/{value}/context",
             get(handlers::entity_context),
         )
         .layer(CorsLayer::permissive())
