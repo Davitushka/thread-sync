@@ -60,6 +60,9 @@ export default function OverviewPage() {
           <Link className="tool-btn" to="/alerts">
             Open alert inbox
           </Link>
+          <Link className="tool-btn secondary" to="/dashboards">
+            Open dashboards
+          </Link>
           <Link className="tool-btn" to="/events">
             Search events
           </Link>
@@ -100,6 +103,10 @@ export default function OverviewPage() {
       <section className="card">
         <h2>External tools</h2>
         <div className="home-grid">
+          <Link className="home-card" to="/dashboards">
+            <h2>Embedded dashboards</h2>
+            <p>Overview, infrastructure, validation, ClickHouse и другие Grafana dashboards внутри suite.</p>
+          </Link>
           <a className="home-card" href={config?.links.grafana || "#"} target="_blank" rel="noreferrer">
             <h2>Grafana</h2>
             <p>Dashboards, Explore и deep-dive по ClickHouse/Loki.</p>

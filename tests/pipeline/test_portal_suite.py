@@ -38,7 +38,7 @@ def test_portal_handlers_expose_suite_endpoints(repo_root: Path) -> None:
 
 def test_portal_web_app_has_core_routes(repo_root: Path) -> None:
     app_tsx = (repo_root / "siem-portal" / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    for route in ["/alerts", "/detections", "/events", "/cases"]:
+    for route in ["/dashboards", "/alerts", "/detections", "/events", "/cases"]:
         assert route in app_tsx, (
             f"Unified Suite должен включать маршрут {route!r} в основном app shell."
         )

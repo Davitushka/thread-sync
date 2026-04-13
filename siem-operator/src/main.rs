@@ -31,6 +31,7 @@ SIEM-Lite Operator (один бинарь)
   SIEM_OPERATOR_MODE=native     — как --native
 
   SIEM_OPERATOR_PORTAL_URL      — URL портала / Unified Suite для WebView
+  SIEM_OPERATOR_AUTOSTART_PORTAL — auto-start локального siem-portal (default: on)
   SIEM_OPERATOR_API           — базовый API для egui
 "
     );

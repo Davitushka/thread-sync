@@ -471,6 +471,93 @@ tr:hover td {
   color: var(--accent);
 }
 
+.dashboard-page {
+  max-width: 1600px;
+}
+
+.dashboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.dashboard-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tab-btn {
+  min-width: 120px;
+}
+
+.tab-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+}
+
+.dashboard-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.dashboard-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-soft);
+  min-height: 128px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.9rem 1rem;
+}
+
+.dashboard-card strong {
+  font-size: 0.96rem;
+}
+
+.dashboard-card span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.dashboard-card.active {
+  border-color: rgba(77, 155, 255, 0.7);
+  box-shadow: 0 0 0 1px rgba(77, 155, 255, 0.22);
+}
+
+.dashboard-shell {
+  padding-bottom: 1rem;
+}
+
+.dashboard-frame-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-note {
+  margin-bottom: 0.9rem;
+}
+
+.dashboard-frame {
+  width: 100%;
+  min-height: 1040px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #0a111b;
+}
+
 .workbench {
   max-width: 1460px;
 }

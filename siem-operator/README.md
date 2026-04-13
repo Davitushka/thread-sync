@@ -21,7 +21,7 @@ cargo run --release
 
 ## Окно с Unified Suite (WebView)
 
-Тот же exe: нужен **WebView2** (Windows 10/11 обычно уже есть) и запущенный **siem-portal** на `8091`.
+Тот же exe: нужен **WebView2** (Windows 10/11 обычно уже есть). Если `SIEM_OPERATOR_PORTAL_URL` указывает на локальный `127.0.0.1` / `localhost`, оператор сначала попробует сам поднять **`siem-portal`**, дождётся `GET /health`, а затем откроет Unified Suite внутри окна.
 
 ```bash
 cargo run --release
@@ -54,6 +54,8 @@ cargo run --release -- --native
 | `SIEM_OPERATOR_API` | Базовый URL для **egui** (по умолчанию **`http://127.0.0.1:8091`** — портал) |
 | `SIEM_OPERATOR_ALERTMANAGER_URL` | Прямой Alertmanager, если портал не отвечает (по умолчанию тот же хост, что у API, порт **9093**) |
 | `SIEM_OPERATOR_PORTAL_URL` | URL Unified Suite для режима WebView |
+| `SIEM_OPERATOR_AUTOSTART_PORTAL` | Автозапуск локального `siem-portal` (`true` по умолчанию; `false`/`0` выключает) |
+| `SIEM_OPERATOR_PORTAL_BIN` | Явный путь к бинарнику `siem-portal`, если нужно не искать его рядом с репозиторием |
 | `SIEM_OPERATOR_MODE` | `portal` / `web` / `webview` или `native` |
 
 Подними стек или хотя бы те сервисы, к которым клиент ходит.

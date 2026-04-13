@@ -25,7 +25,7 @@ pub async fn ui_config(State(state): State<AppState>) -> Json<Value> {
         "links": state.cfg.public,
         "suite": {
             "api_base": "/api/v1",
-            "modules": ["overview", "alerts", "detections", "events", "cases", "investigations"]
+            "modules": ["overview", "dashboards", "alerts", "detections", "events", "cases", "investigations"]
         }
     }))
 }
