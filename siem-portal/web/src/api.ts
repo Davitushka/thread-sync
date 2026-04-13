@@ -51,6 +51,7 @@ export type StackStatus = {
 
 export type OverviewDashboard = {
   window_hours: number;
+  bucket_minutes: number;
   kpis: {
     total_events_24h: number;
     critical_events_24h: number;
@@ -63,6 +64,12 @@ export type OverviewDashboard = {
   severity_breakdown: Array<{
     severity: string;
     events: number;
+  }>;
+  severity_timeline: Array<{
+    bucket: string;
+    critical: number;
+    error: number;
+    warning: number;
   }>;
   source_breakdown: Array<{
     source_type: string;
@@ -310,14 +317,14 @@ export async function stackStatus(): Promise<StackStatus> {
   return r.json();
 }
 
-export async function getOverviewDashboard(): Promise<OverviewDashboard> {
-  const r = await api("/overview");
+export async function getOverviewDashboard(hours = 24): Promise<OverviewDashboard> {
+  const r = await api(`/overview?hours=${hours}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getInfrastructureDashboard(): Promise<InfrastructureDashboard> {
-  const r = await api("/infrastructure");
+export async function getInfrastructureDashboard(hours = 6): Promise<InfrastructureDashboard> {
+  const r = await api(`/infrastructure?hours=${hours}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

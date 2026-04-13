@@ -207,6 +207,29 @@ pre {
   background: linear-gradient(180deg, rgba(77, 155, 255, 0.1), rgba(17, 25, 39, 0.95));
 }
 
+.dashboard-hero {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.dashboard-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.dashboard-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -374,6 +397,69 @@ pre {
 
 .recent-event-card small {
   color: var(--muted);
+}
+
+.native-chart-shell {
+  width: 100%;
+  min-height: 200px;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.01), rgba(0, 0, 0, 0.08));
+}
+
+.native-chart-svg {
+  width: 100%;
+  height: 180px;
+  display: block;
+}
+
+.native-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.7rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.native-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.native-chart-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.bar-track {
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
 }
 
 .sparkline-stack {
@@ -816,6 +902,10 @@ code.fp {
   .workbench-grid,
   .overview-grid,
   .infra-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bar-row {
     grid-template-columns: 1fr;
   }
 }

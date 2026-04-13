@@ -6,8 +6,33 @@ use reqwest::Url;
 use serde::Serialize;
 use serde_json::Value;
 
-const WINDOW_HOURS: u8 = 6;
-const STEP_SEC: u32 = 300;
+const DEFAULT_WINDOW_HOURS: u16 = 6;
+const MIN_WINDOW_HOURS: u16 = 1;
+const MAX_WINDOW_HOURS: u16 = 168;
+
+#[derive(Debug, Clone, Copy)]
+pub struct InfrastructureRequest {
+    pub window_hours: u16,
+    pub step_sec: u32,
+}
+
+impl InfrastructureRequest {
+    pub fn from_query(hours: Option<u16>) -> Self {
+        let window_hours = hours
+            .unwrap_or(DEFAULT_WINDOW_HOURS)
+            .clamp(MIN_WINDOW_HOURS, MAX_WINDOW_HOURS);
+        let step_sec = match window_hours {
+            0..=6 => 120,
+            7..=24 => 300,
+            25..=72 => 900,
+            _ => 1800,
+        };
+        Self {
+            window_hours,
+            step_sec,
+        }
+    }
+}
 
 const HOST_CPU_QUERY: &str =
     "(100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\",job=\"node-exporter\"}[2m])) * 100)) or (100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[2m])) * 100)) or vector(0)";
@@ -37,7 +62,7 @@ const COMPONENT_STATUS_QUERY: &str =
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InfrastructureDashboard {
-    pub window_hours: u8,
+    pub window_hours: u16,
     pub step_sec: u32,
     pub host: InfrastructureHostSummary,
     pub cpu_series: Vec<MetricPoint>,
@@ -93,9 +118,9 @@ impl InfrastructureService {
         Self { http, prometheus }
     }
 
-    pub async fn dashboard(&self, timeout: Duration) -> Result<InfrastructureDashboard> {
+    pub async fn dashboard(&self, request: InfrastructureRequest, timeout: Duration) -> Result<InfrastructureDashboard> {
         let end = unix_now();
-        let start = end.saturating_sub((WINDOW_HOURS as i64) * 3600);
+        let start = end.saturating_sub((request.window_hours as i64) * 3600);
 
         let (
             cpu_now,
@@ -126,17 +151,17 @@ impl InfrastructureService {
             self.instant_named_metrics(TOP_CPU_CONTAINERS_QUERY, "container", timeout),
             self.instant_named_metrics(TOP_MEMORY_CONTAINERS_QUERY, "container", timeout),
             self.component_status(timeout),
-            self.range_series(HOST_CPU_QUERY, start, end, STEP_SEC, timeout),
-            self.range_series(HOST_RX_QUERY, start, end, STEP_SEC, timeout),
-            self.range_series(HOST_TX_QUERY, start, end, STEP_SEC, timeout),
+            self.range_series(HOST_CPU_QUERY, start, end, request.step_sec, timeout),
+            self.range_series(HOST_RX_QUERY, start, end, request.step_sec, timeout),
+            self.range_series(HOST_TX_QUERY, start, end, request.step_sec, timeout),
         )?;
 
         let healthy_components = component_status.iter().filter(|item| item.up).count() as u32;
         let total_components = component_status.len() as u32;
 
         Ok(InfrastructureDashboard {
-            window_hours: WINDOW_HOURS,
-            step_sec: STEP_SEC,
+            window_hours: request.window_hours,
+            step_sec: request.step_sec,
             host: InfrastructureHostSummary {
                 cpu_usage_pct: cpu_now,
                 memory_usage_pct: memory_now,

@@ -10,7 +10,12 @@ use rust_embed::RustEmbed;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::{event_search::EventSearchParams, AppState};
+use crate::{
+    event_search::EventSearchParams,
+    infrastructure::InfrastructureRequest,
+    overview::OverviewRequest,
+    AppState,
+};
 
 #[derive(RustEmbed)]
 #[folder = "static"]
@@ -52,6 +57,11 @@ pub struct CasesQuery {
     pub limit: Option<i32>,
     pub offset: Option<i32>,
     pub q: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct DashboardRangeQuery {
+    pub hours: Option<u16>,
 }
 
 pub async fn stack_status(State(state): State<AppState>) -> Json<Value> {
@@ -276,10 +286,13 @@ pub async fn proxy_correlator_rules(State(state): State<AppState>) -> Result<Res
     proxy_get_json(&state.http, url, state.cfg.http_timeout).await
 }
 
-pub async fn overview_dashboard(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+pub async fn overview_dashboard(
+    State(state): State<AppState>,
+    Query(range): Query<DashboardRangeQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     state
         .overview
-        .dashboard(state.cfg.http_timeout)
+        .dashboard(OverviewRequest::from_query(range.hours), state.cfg.http_timeout)
         .await
         .map(|payload| Json(json!(payload)))
         .map_err(service_error)
@@ -287,10 +300,11 @@ pub async fn overview_dashboard(State(state): State<AppState>) -> Result<Json<Va
 
 pub async fn infrastructure_dashboard(
     State(state): State<AppState>,
+    Query(range): Query<DashboardRangeQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     state
         .infrastructure
-        .dashboard(state.cfg.http_timeout)
+        .dashboard(InfrastructureRequest::from_query(range.hours), state.cfg.http_timeout)
         .await
         .map(|payload| Json(json!(payload)))
         .map_err(service_error)
