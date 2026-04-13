@@ -322,6 +322,47 @@ jobs:
       - name: Tests + build
         run: cargo test --locked && cargo build --release --locked
 
+  # ── SIEM Portal (Rust + Unified Suite web) ───────────────────────────────
+  siem-portal:
+    name: SIEM Portal (Rust + web)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: siem-portal/web/package-lock.json
+
+      - name: Build web suite
+        working-directory: siem-portal/web
+        run: npm ci && npm run build
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: siem-portal
+
+      - name: Check formatting
+        working-directory: siem-portal
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: siem-portal
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        working-directory: siem-portal
+        run: cargo build --release --locked
+
   # ── Docker Compose validation ─────────────────────────────────────────────
   compose-validate:
     name: Docker Compose Config Validate

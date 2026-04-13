@@ -22,10 +22,10 @@ siem-lite/
 │
 ├── rust-parser/                   # Образ Docker: siem-parser (HTTP /parse, Kafka)
 ├── detection-engine-rs/           # correlator (+ бинарь detector в крейте)
-├── siem-portal/                   # SOC веб-консоль (прокси API)
+├── siem-portal/                   # Unified analyst suite + portal BFF (SOC web app)
 ├── case-management-rs/            # API кейсов (Docker: case-management)
 ├── case-management/web/           # React UI кейсов (сборка в образ)
-├── siem-operator/                 # Десктоп egui → API через portal
+├── siem-operator/                 # Гибридная desktop-оболочка над unified suite
 ├── siem-admin/                    # Профиль compose admin, сиды
 ├── siem-tools/                    # CLI: alert-seed, правки дашбордов Grafana
 ├── log-generator/                 # Rust: поток в Vector (siem-log-generator)
@@ -152,7 +152,7 @@ docker compose -f deploy/docker/docker-compose.yml --profile tools up -d pgadmin
 | Prometheus | http://localhost:9090 | — |
 | Alertmanager | http://localhost:9093 | — |
 | Case management (главная приложения) | http://localhost:8088/ | Список кейсов: `/cases`; расследование: `/cases/:id/investigate`. API — [RUNBOOK §9](docs/RUNBOOK.md) |
-| SIEM Portal (SOC консоль, Rust) | http://localhost:8091 | Прокси к Prometheus, Alertmanager и case-management без новых БД — [docs/SIEM_PORTAL.md](docs/SIEM_PORTAL.md) |
+| SIEM Portal (Unified Suite, Rust) | http://localhost:8091 | Единый analyst-facing web app: overview, alerts, detections, native event search, cases, investigations — [docs/SIEM_PORTAL.md](docs/SIEM_PORTAL.md) |
 | siem-parser | http://localhost:7000/health | Метрики: http://localhost:9100/metrics |
 | Vector HTTP ingest | http://localhost:8080/logs | NDJSON (см. [vector/aggregator.yaml](vector/aggregator.yaml)) |
 | Loki (логи контейнеров) | в Grafana → Explore, datasource **Loki** | Promtail шлёт stdout/stderr Docker в Loki (`siem-promtail`) |

@@ -160,9 +160,9 @@ flowchart TD
 |-----------|------------|
 | **PostgreSQL** | БД `soc_cases` для **case-management-rs** (кейсы, расследования). |
 | **Redis** | Состояние sliding windows и счётчиков для **correlator** (detection-engine-rs). |
-| **case-management-rs** | HTTP API кейсов; в Docker собирается вместе с React UI из `case-management/web/`. |
-| **siem-portal** | Единая SOC-веб-консоль (Rust): прокси к Prometheus, Alertmanager, case-management — см. [`SIEM_PORTAL.md`](SIEM_PORTAL.md). |
-| **siem-operator** | Десктоп-клиент оператора (Rust, egui); рекомендуемый API-базис — URL **siem-portal**. |
+| **case-management-rs** | HTTP API кейсов; остаётся отдельным сервисом для lifecycle/timeline/investigation данных. |
+| **siem-portal** | Единый analyst-facing **Unified Suite** (Rust): web app + BFF к Prometheus, Alertmanager, correlator, case-management и read-only event search поверх ClickHouse — см. [`SIEM_PORTAL.md`](SIEM_PORTAL.md). |
+| **siem-operator** | Гибридная десктоп-оболочка оператора (Rust): WebView над Unified Suite по умолчанию, egui — fallback/legacy-native слой. |
 | **siem-admin** | Профиль Compose `admin`: операции со стеком, сиды ClickHouse (Docker socket на хосте). |
 | **log-generator** / **siem-stress** | Синтетические события в Vector для метрик и проверки детекции. |
 | **intel-connector** | Профиль Compose `intel`: MISP / HTTP JSON / файл → `threat_intel` + опционально Redis для матча в парсере. См. [`INTEL_CONNECTOR.md`](INTEL_CONNECTOR.md). |

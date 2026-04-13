@@ -23,13 +23,14 @@ fn print_help() {
         "\
 SIEM-Lite Operator (один бинарь)
 
-  cargo run                    — нативный UI (egui)
-  cargo run -- --web           — окно с SIEM Portal в WebView (http://127.0.0.1:8091/)
+  cargo run                    — окно с Unified Suite в WebView (по умолчанию через SIEM Portal)
+  cargo run -- --native        — нативный UI (egui, legacy fallback)
   cargo run -- --help          — эта справка
 
-  SIEM_OPERATOR_MODE=portal     — как --web (в PowerShell: $env:SIEM_OPERATOR_MODE='portal')
+  SIEM_OPERATOR_MODE=portal     — как режим WebView / Unified Suite
+  SIEM_OPERATOR_MODE=native     — как --native
 
-  SIEM_OPERATOR_PORTAL_URL      — URL портала для WebView
+  SIEM_OPERATOR_PORTAL_URL      — URL портала / Unified Suite для WebView
   SIEM_OPERATOR_API           — базовый API для egui
 "
     );
@@ -42,7 +43,15 @@ fn main() {
         return;
     }
 
-    if portal_mode_from_args() || portal_mode_from_env() {
+    let native_mode = args
+        .iter()
+        .skip(1)
+        .any(|a| matches!(a.as_str(), "--native" | "--egui"))
+        || std::env::var("SIEM_OPERATOR_MODE")
+            .map(|v| v.trim().eq_ignore_ascii_case("native"))
+            .unwrap_or(false);
+
+    if !native_mode && (args.len() == 1 || portal_mode_from_args() || portal_mode_from_env()) {
         if let Err(e) = siem_operator::run_portal_webview() {
             eprintln!("WebView / Portal: {e}");
             std::process::exit(1);

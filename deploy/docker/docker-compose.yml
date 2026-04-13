@@ -282,7 +282,12 @@ services:
       SIEM_PORTAL_CASEMGMT_URL: "http://case-management:8088"
       SIEM_PORTAL_PROMETHEUS_URL: "http://prometheus:9090"
       SIEM_PORTAL_ALERTMANAGER_URL: "http://alertmanager:9093"
+      SIEM_PORTAL_CORRELATOR_URL: "http://correlator:9111"
       SIEM_PORTAL_GRAFANA_URL: "http://grafana:3000"
+      SIEM_PORTAL_CLICKHOUSE_URL: "http://clickhouse:8123"
+      SIEM_PORTAL_CLICKHOUSE_USER: "siem"
+      SIEM_PORTAL_CLICKHOUSE_DATABASE: "siem"
+      SIEM_PORTAL_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ClickHousePass123!}
       SIEM_PORTAL_PUBLIC_GRAFANA: "http://localhost:3000"
       SIEM_PORTAL_PUBLIC_PROMETHEUS: "http://localhost:9090"
       SIEM_PORTAL_PUBLIC_ALERTMANAGER: "http://localhost:9093"
@@ -296,6 +301,10 @@ services:
       alertmanager:
         condition: service_healthy
       grafana:
+        condition: service_healthy
+      correlator:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     healthcheck:
       <<: *healthcheck-defaults

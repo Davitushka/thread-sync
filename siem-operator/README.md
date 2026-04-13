@@ -1,17 +1,17 @@
 # SIEM-Lite Operator (десктоп)
 
-Десктоп-клиент SOC на **Rust (egui)**. Рекомендуемый upstream — **[siem-portal](http://localhost:8091)** (см. [`docs/SIEM_PORTAL.md`](../docs/SIEM_PORTAL.md)). В **GitHub Actions** этот крейт отдельным job не собирается — перед PR полезно локально: `cargo fmt`, `cargo clippy`, `cargo test` в каталоге `siem-operator/`.
+Гибридная десктоп-оболочка над **Unified Suite**, который хостится через **[siem-portal](http://localhost:8091)** (см. [`docs/SIEM_PORTAL.md`](../docs/SIEM_PORTAL.md)). Нативный **egui**-режим остаётся как fallback и для отдельных operator-сценариев. В **GitHub Actions** этот крейт отдельным job не собирается — перед PR полезно локально: `cargo fmt`, `cargo clippy`, `cargo test` в каталоге `siem-operator/`.
 
-## Запуск (рекомендуется — всегда должен подниматься)
+## Запуск
 
-Нативный клиент на **egui** (все вкладки, API):
+Рекомендуемый режим: WebView с единым web-first приложением.
 
 ```bash
 cd siem-operator
 cargo run --release
 ```
 
-Один бинарь **`siem-operator`**: по умолчанию **egui**; режим портала в WebView — флаг **`--web`** (см. ниже).
+Один бинарь **`siem-operator`**: по умолчанию открывает Unified Suite в WebView; нативный **egui** можно включить флагом **`--native`**.
 
 **Windows:** [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (C++, `link.exe`).
 
@@ -19,19 +19,31 @@ cargo run --release
 
 ---
 
-## Окно с порталом (WebView → кастомный веб-UI)
+## Окно с Unified Suite (WebView)
 
 Тот же exe: нужен **WebView2** (Windows 10/11 обычно уже есть) и запущенный **siem-portal** на `8091`.
 
 ```bash
-cargo run --release -- --web
+cargo run --release
 ```
 
-Альтернатива без флага: **`SIEM_OPERATOR_MODE=portal`** (или `web` / `webview`).
+Альтернатива: **`SIEM_OPERATOR_MODE=portal`** (или `web` / `webview`).
 
-Переменная **`SIEM_OPERATOR_PORTAL_URL`** — другой URL портала (по умолчанию `http://127.0.0.1:8091/`). Если в браузере не открывается `localhost`, в URL используй **`127.0.0.1`**.
+Переменная **`SIEM_OPERATOR_PORTAL_URL`** — другой URL портала / Unified Suite (по умолчанию `http://127.0.0.1:8091/`). Если в браузере не открывается `localhost`, в URL используй **`127.0.0.1`**.
 
 **Linux:** для WebView нужны зависимости **webkit2gtk** (см. документацию `wry`).
+
+---
+
+## Нативный fallback (egui)
+
+```bash
+cargo run --release -- --native
+```
+
+Или через окружение: **`SIEM_OPERATOR_MODE=native`**.
+
+Этот режим полезен как запасной вариант и для тех operator-фич, которые ещё не перенесены в web suite.
 
 ---
 
@@ -39,9 +51,9 @@ cargo run --release -- --web
 
 | Переменная | Смысл |
 |------------|--------|
-| `SIEM_OPERATOR_API` | Базовый URL для **egui** (по умолчанию **`http://127.0.0.1:8091`** — портал; для прямого case-management — `http://127.0.0.1:8088`) |
+| `SIEM_OPERATOR_API` | Базовый URL для **egui** (по умолчанию **`http://127.0.0.1:8091`** — портал) |
 | `SIEM_OPERATOR_ALERTMANAGER_URL` | Прямой Alertmanager, если портал не отвечает (по умолчанию тот же хост, что у API, порт **9093**) |
-| `SIEM_OPERATOR_PORTAL_URL` | URL портала для режима **`--web`** (WebView) |
-| `SIEM_OPERATOR_MODE` | `portal` / `web` / `webview` — как **`--web`** |
+| `SIEM_OPERATOR_PORTAL_URL` | URL Unified Suite для режима WebView |
+| `SIEM_OPERATOR_MODE` | `portal` / `web` / `webview` или `native` |
 
 Подними стек или хотя бы те сервисы, к которым клиент ходит.

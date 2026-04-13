@@ -1,6 +1,6 @@
 # SIEM Portal (`siem-portal`)
 
-См. [указатель `docs/`](README.md). Единый **веб-интерфейс и HTTP API-шлюз** на Rust (Axum): агрегирует статус компонентов siem-lite и **проксирует** запросы к уже существующим сервисам. **Новых таблиц БД не создаёт.** detection-engine, alerting-конфиги и case-management **не переписывает** — только вызывает их HTTP API.
+См. [указатель `docs/`](README.md). Единый **web-first Unified Suite** и HTTP API-шлюз на Rust (Axum): агрегирует статус компонентов siem-lite, хостит SPA для аналитика и **проксирует** запросы к уже существующим сервисам. **Новых таблиц БД не создаёт.** detection-engine, alerting-конфиги и case-management **не переписывает** — только вызывает их HTTP API и добавляет безопасный read-only слой поиска событий поверх ClickHouse.
 
 ## Запуск
 
@@ -12,7 +12,7 @@
 ### Страница не открывается
 
 1. **Убедись, что портал запущен.** В логах должно быть `siem-portal listening` и строка с **`http://127.0.0.1:8091/`**. Проверка: `curl http://127.0.0.1:8091/health` → `{"status":"ok",...}`.
-2. **Docker:** из корня репозитория подними стек (или хотя бы сервис `siem-portal`). После смены файлов в `siem-portal/static/` **пересобери образ** (`docker compose build siem-portal`), иначе в контейнере может быть старый бинарник без `/assets/app.css` и `/assets/app.js`.
+2. **Docker:** из корня репозитория подними стек (или хотя бы сервис `siem-portal`). После смены файлов в `siem-portal/web/` или `siem-portal/static/` **пересобери образ** (`docker compose build siem-portal`), иначе в контейнере может быть старый frontend bundle.
 3. **Порт занят** — задай другой: `SIEM_PORTAL_ADDR=127.0.0.1:8092` и открой `http://127.0.0.1:8092/`.
 4. **Только `http://`, не `https://`** — TLS на портале по умолчанию не поднят.
 5. **Локальный `cargo run` без Docker:** адреса вроде `http://case-management:8088` с хоста не резолвятся. Задай upstream на свои порты, например:  
@@ -27,7 +27,10 @@
 | `SIEM_PORTAL_CASEMGMT_URL` | Базовый URL case-management-rs | `http://case-management:8088` |
 | `SIEM_PORTAL_PROMETHEUS_URL` | Базовый URL Prometheus | `http://prometheus:9090` |
 | `SIEM_PORTAL_ALERTMANAGER_URL` | Базовый URL Alertmanager | `http://alertmanager:9093` |
+| `SIEM_PORTAL_CORRELATOR_URL` | Базовый URL correlator | `http://correlator:9111` |
 | `SIEM_PORTAL_GRAFANA_URL` | Базовый URL Grafana (health) | `http://grafana:3000` |
+| `SIEM_PORTAL_CLICKHOUSE_URL` | HTTP URL ClickHouse для event search | `http://clickhouse:8123` |
+| `SIEM_PORTAL_CLICKHOUSE_USER`, `SIEM_PORTAL_CLICKHOUSE_DATABASE`, `SIEM_PORTAL_CLICKHOUSE_PASSWORD(_FILE)` | Доступ к ClickHouse | `siem`, `siem`, secret/env |
 | `SIEM_PORTAL_PUBLIC_*` | URL **для браузера** (кнопки, iframe) | см. compose |
 
 Публичные ссылки (`SIEM_PORTAL_PUBLIC_*`) нужны потому, что браузер пользователя не резолвит Docker DNS (`grafana`, `prometheus`, …).
@@ -44,7 +47,7 @@
 
 | Метод | Путь | Назначение |
 |-------|------|------------|
-| `GET` | `/api/v1/ui/config` | JSON с объектом `links` (публичные URL Grafana, Prometheus, Alertmanager, case-management, дашборд overview) |
+| `GET` | `/api/v1/ui/config` | JSON с объектом `links` (публичные URL Grafana, Prometheus, Alertmanager, case-management, дашборд overview) и описанием suite-модулей |
 
 ### Прокси к Prometheus ([Query API](https://prometheus.io/docs/prometheus/latest/querying/api/))
 
@@ -67,31 +70,57 @@
 | Метод | Путь | Upstream |
 |-------|------|----------|
 | `GET` | `/api/v1/proxy/cases?status=&severity=&limit=&offset=&q=` | `GET {case-management}/api/v1/cases?...` |
+| `POST` | `/api/v1/proxy/cases` | `POST {case-management}/api/v1/cases` |
+| `GET` | `/api/v1/proxy/cases/:id` | `GET {case-management}/api/v1/cases/:id` |
+| `PATCH` | `/api/v1/proxy/cases/:id` | `PATCH {case-management}/api/v1/cases/:id` |
+| `POST` | `/api/v1/proxy/cases/:id/timeline` | `POST {case-management}/api/v1/cases/:id/timeline` |
+| `POST` | `/api/v1/proxy/cases/:id/events` | `POST {case-management}/api/v1/cases/:id/events` |
+| `POST` | `/api/v1/proxy/cases/:id/alerts` | `POST {case-management}/api/v1/cases/:id/alerts` |
 | `GET` | `/api/v1/proxy/cases/:id/investigate` | `GET {case-management}/api/v1/cases/:id/investigate` |
 
 См. исходные маршруты: `case-management-rs/src/main.rs`.
 
+### Прокси к correlator
+
+| Метод | Путь | Upstream |
+|-------|------|----------|
+| `GET` | `/api/v1/proxy/correlator/stats` | `GET {correlator}/api/v1/stats` |
+| `GET` | `/api/v1/proxy/correlator/rules` | `GET {correlator}/api/v1/rules` |
+
+### Native event search
+
+| Метод | Путь | Назначение |
+|-------|------|------------|
+| `GET` | `/api/v1/events/search?...` | Безопасный read-only поиск событий по `siem.events` |
+| `GET` | `/api/v1/events/:id` | Детали одного события |
+| `GET` | `/api/v1/entities/:kind/:value/context` | Быстрый контекст по `ip`, `user`, `host` |
+
+Поиск идёт не через raw SQL из браузера, а через whitelisted фильтры в портале.
+
 ## Grafana и ClickHouse
 
 - **Дашборды и Explore по ClickHouse** остаются в **Grafana** (как в архитектуре проекта).
+- В первой версии Unified Suite есть и **нативный event search** внутри портала, но для глубокого анализа SQL/Explore Grafana остаётся основным deep-dive инструментом.
 - На главной странице портала есть **iframe** с дашбордом Overview; если сессия не передалась, откройте ссылку в новой вкладке. Для осознанного встраивания в доверенной среде можно включить `GF_SECURITY_ALLOW_EMBEDDING` в Grafana (см. документацию Grafana).
 
 ## Отличие от `siem-admin`
 
 | Компонент | Назначение |
 |-----------|------------|
-| `siem-portal` | Всегда в основном compose: «операторская консоль» + прокси API. |
+| `siem-portal` | Всегда в основном compose: Unified Suite для аналитика + прокси API + event search. |
 | `siem-admin` | Профиль `admin`, Docker socket, сиды — админка стека. |
 
 ## Интеграция с `siem-operator`
 
-Desktop-клиент `siem-operator` (вкладки `Overview/Alerts/Events/Assets`) использует portal как единый API-шлюз:
+Desktop-клиент `siem-operator` теперь рассматривается как **гибридная оболочка** над Unified Suite. Портал остаётся главным продуктовым входом и единым API-шлюзом:
 
 - `GET /api/v1/proxy/cases?...` для case KPI/asset risk (через кейсы).
 - `GET /api/v1/proxy/alertmanager/v2/alerts` для ленты `Events`.
 - `GET /api/v1/proxy/prometheus/query?...` для `Overview` observability KPI.
+- `GET /api/v1/events/search?...` для нативного event search в web suite.
+- `GET /api/v1/proxy/correlator/stats` / `rules` для detection views.
 
-Рекомендация: для оператора выставлять `SIEM_OPERATOR_API` на адрес `siem-portal`, чтобы убрать прямые обращения к localhost-сервисам.
+Рекомендация: для оператора выставлять `SIEM_OPERATOR_API` на адрес `siem-portal`, а для ежедневной работы использовать WebView / browser-режим Unified Suite как основной путь.
 
 ### Hybrid SIEM вкладки в Operator
 
