@@ -292,7 +292,7 @@ impl EventSearchService {
         }
         let resp = self
             .http
-            .post(url)
+            .get(url)
             .basic_auth(&self.cfg.user, Some(&self.cfg.password))
             .timeout(timeout)
             .send()

@@ -1,6 +1,8 @@
 mod config;
 mod event_search;
 mod handlers;
+mod infrastructure;
+mod overview;
 
 use std::sync::Arc;
 
@@ -10,12 +12,16 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::event_search::EventSearchService;
+use crate::infrastructure::InfrastructureService;
+use crate::overview::OverviewService;
 
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Arc<config::Config>,
     pub http: reqwest::Client,
     pub event_search: EventSearchService,
+    pub infrastructure: InfrastructureService,
+    pub overview: OverviewService,
 }
 
 #[tokio::main]
@@ -34,11 +40,15 @@ async fn main() -> anyhow::Result<()> {
         .pool_max_idle_per_host(8)
         .build()?;
     let event_search = EventSearchService::new(http.clone(), cfg.clickhouse.clone());
+    let infrastructure = InfrastructureService::new(http.clone(), cfg.prometheus.clone());
+    let overview = OverviewService::new(http.clone(), cfg.clickhouse.clone());
 
     let state = AppState {
         cfg: Arc::clone(&cfg),
         http,
         event_search,
+        infrastructure,
+        overview,
     };
 
     let app = Router::new()
@@ -47,6 +57,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/assets/{*path}", get(handlers::asset_path))
         .route("/favicon.ico", get(handlers::favicon_noop))
         .route("/api/v1/ui/config", get(handlers::ui_config))
+        .route("/api/v1/overview", get(handlers::overview_dashboard))
+        .route("/api/v1/infrastructure", get(handlers::infrastructure_dashboard))
         .route("/api/v1/stack/status", get(handlers::stack_status))
         .route(
             "/api/v1/proxy/prometheus/query",

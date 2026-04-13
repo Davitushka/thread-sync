@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import OverviewPage from "./pages/OverviewPage";
+import InfrastructurePage from "./pages/InfrastructurePage";
 import AlertsPage from "./pages/AlertsPage";
 import DetectionsPage from "./pages/DetectionsPage";
 import DashboardsPage from "./pages/DashboardsPage";
@@ -23,6 +24,7 @@ export default function App() {
           <NavLink to="/" end>
             Overview
           </NavLink>
+          <NavLink to="/infrastructure">Infrastructure</NavLink>
           <NavLink to="/dashboards">Dashboards</NavLink>
           <NavLink to="/alerts">Alerts</NavLink>
           <NavLink to="/detections">Detections</NavLink>
@@ -38,6 +40,7 @@ export default function App() {
         <main className="suite-main">
           <Routes>
             <Route path="/" element={<OverviewPage />} />
+            <Route path="/infrastructure" element={<InfrastructurePage />} />
             <Route path="/dashboards" element={<DashboardsPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/detections" element={<DetectionsPage />} />

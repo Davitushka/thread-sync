@@ -18,6 +18,8 @@ def test_portal_web_bundle_exists(repo_root: Path) -> None:
 def test_portal_handlers_expose_suite_endpoints(repo_root: Path) -> None:
     handlers = (repo_root / "siem-portal" / "src" / "handlers.rs").read_text(encoding="utf-8")
     required = [
+        "overview_dashboard",
+        "infrastructure_dashboard",
         "search_events",
         "get_event",
         "entity_context",
@@ -38,7 +40,25 @@ def test_portal_handlers_expose_suite_endpoints(repo_root: Path) -> None:
 
 def test_portal_web_app_has_core_routes(repo_root: Path) -> None:
     app_tsx = (repo_root / "siem-portal" / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    for route in ["/dashboards", "/alerts", "/detections", "/events", "/cases"]:
+    for route in ["/infrastructure", "/dashboards", "/alerts", "/detections", "/events", "/cases"]:
         assert route in app_tsx, (
             f"Unified Suite должен включать маршрут {route!r} в основном app shell."
         )
+
+
+def test_overview_page_uses_native_overview_api(repo_root: Path) -> None:
+    overview = (repo_root / "siem-portal" / "web" / "src" / "pages" / "OverviewPage.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "getOverviewDashboard" in overview, (
+        "OverviewPage должен строиться на собственном portal API, а не только на внешних ссылках Grafana."
+    )
+
+
+def test_infrastructure_page_uses_native_infrastructure_api(repo_root: Path) -> None:
+    infra = (repo_root / "siem-portal" / "web" / "src" / "pages" / "InfrastructurePage.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "getInfrastructureDashboard" in infra, (
+        "InfrastructurePage должен строиться на собственном portal API, а не только на встраивании Grafana."
+    )

@@ -25,7 +25,7 @@ pub async fn ui_config(State(state): State<AppState>) -> Json<Value> {
         "links": state.cfg.public,
         "suite": {
             "api_base": "/api/v1",
-            "modules": ["overview", "dashboards", "alerts", "detections", "events", "cases", "investigations"]
+            "modules": ["overview", "infrastructure", "dashboards", "alerts", "detections", "events", "cases", "investigations"]
         }
     }))
 }
@@ -274,6 +274,26 @@ pub async fn proxy_correlator_rules(State(state): State<AppState>) -> Result<Res
         .join("/api/v1/rules")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     proxy_get_json(&state.http, url, state.cfg.http_timeout).await
+}
+
+pub async fn overview_dashboard(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state
+        .overview
+        .dashboard(state.cfg.http_timeout)
+        .await
+        .map(|payload| Json(json!(payload)))
+        .map_err(service_error)
+}
+
+pub async fn infrastructure_dashboard(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state
+        .infrastructure
+        .dashboard(state.cfg.http_timeout)
+        .await
+        .map(|payload| Json(json!(payload)))
+        .map_err(service_error)
 }
 
 pub async fn search_events(

@@ -49,6 +49,65 @@ export type StackStatus = {
   components: Record<string, StackComponent>;
 };
 
+export type OverviewDashboard = {
+  window_hours: number;
+  kpis: {
+    total_events_24h: number;
+    critical_events_24h: number;
+    error_pct_24h: number;
+  };
+  events_per_minute: Array<{
+    minute: string;
+    events: number;
+  }>;
+  severity_breakdown: Array<{
+    severity: string;
+    events: number;
+  }>;
+  source_breakdown: Array<{
+    source_type: string;
+    events: number;
+  }>;
+  top_source_ips: Array<{
+    source_ip: string;
+    events: number;
+    threats: number;
+  }>;
+  recent_security_events: Array<{
+    timestamp: string;
+    event_id: string;
+    source_type: string;
+    severity: string;
+    host: string;
+    source_ip?: string;
+    message: string;
+  }>;
+};
+
+export type InfrastructureDashboard = {
+  window_hours: number;
+  step_sec: number;
+  host: {
+    cpu_usage_pct: number;
+    memory_usage_pct: number;
+    disk_usage_pct: number;
+    network_rx_bps: number;
+    network_tx_bps: number;
+    uptime_sec: number;
+    container_count: number;
+    total_container_cpu_pct: number;
+    total_container_memory_bytes: number;
+    healthy_components: number;
+    total_components: number;
+  };
+  cpu_series: Array<{ ts: number; value: number }>;
+  network_rx_series: Array<{ ts: number; value: number }>;
+  network_tx_series: Array<{ ts: number; value: number }>;
+  top_cpu_containers: Array<{ name: string; value: number }>;
+  top_memory_containers: Array<{ name: string; value: number }>;
+  component_status: Array<{ job: string; up: boolean; value: number }>;
+};
+
 export type Case = {
   id: string;
   case_number: number;
@@ -247,6 +306,18 @@ export async function uiConfig(): Promise<UiConfig> {
 
 export async function stackStatus(): Promise<StackStatus> {
   const r = await api("/stack/status");
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getOverviewDashboard(): Promise<OverviewDashboard> {
+  const r = await api("/overview");
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getInfrastructureDashboard(): Promise<InfrastructureDashboard> {
+  const r = await api("/infrastructure");
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
