@@ -12,8 +12,9 @@ use eframe::egui;
 use reqwest::Url;
 use tao::{
     dpi::LogicalSize,
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event::{ElementState, Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy},
+    keyboard::{Key, KeyCode, ModifiersState},
     window::WindowBuilder,
 };
 use wry::WebViewBuilder;
@@ -244,9 +245,21 @@ fn spawn_portal_process(repo_root: &Path, portal_url: &str) -> std::io::Result<C
     cmd.spawn()
 }
 
-fn ensure_local_portal_available(raw: &str) -> std::io::Result<Option<Child>> {
-    if !portal_autostart_enabled() || !portal_is_local(raw) || portal_ready(raw, Duration::from_secs(2)) {
+fn ensure_portal_available(raw: &str) -> std::io::Result<Option<Child>> {
+    if portal_ready(raw, Duration::from_secs(2)) {
         return Ok(None);
+    }
+
+    if !portal_is_local(raw) {
+        return Err(std::io::Error::other(format!(
+            "portal is unavailable at {raw}. Check the remote URL, VPN/proxy/firewall, or start the suite in a browser first"
+        )));
+    }
+
+    if !portal_autostart_enabled() {
+        return Err(std::io::Error::other(format!(
+            "portal is unavailable at {raw} and auto-start is disabled. Start `siem-portal` manually or enable SIEM_OPERATOR_AUTOSTART_PORTAL"
+        )));
     }
 
     let repo_root = locate_repo_root().ok_or_else(|| {
@@ -255,31 +268,355 @@ fn ensure_local_portal_available(raw: &str) -> std::io::Result<Option<Child>> {
             "Не удалось найти репозиторий рядом с siem-operator для автозапуска siem-portal",
         )
     })?;
-    let child = spawn_portal_process(&repo_root, raw)?;
+    let mut child = spawn_portal_process(&repo_root, raw)?;
 
     if wait_for_portal(raw, Duration::from_secs(30)) {
         Ok(Some(child))
     } else {
+        let _ = child.kill();
         Err(std::io::Error::other(
             "siem-operator запустил siem-portal, но портал не поднялся за 30 секунд",
         ))
     }
 }
 
+enum UserEvent {
+    PortalBootstrapFinished(Result<Option<Child>, String>),
+    RetryPortalBootstrap,
+    OpenPortalInBrowser,
+    UpdateTitle(String),
+}
+
+fn operator_window_title(document_title: Option<&str>) -> String {
+    let title = document_title.unwrap_or("Unified Suite").trim();
+    if title.is_empty() {
+        "SIEM-Lite Operator".to_string()
+    } else if title.starts_with("SIEM-Lite Operator") {
+        title.to_string()
+    } else {
+        format!("SIEM-Lite Operator · {title}")
+    }
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn loading_screen_html(url: &str, status: &str) -> String {
+    let url = escape_html(url);
+    let status = escape_html(status);
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Launching Unified Suite</title>
+    <style>
+      :root {{
+        color-scheme: dark;
+        --bg: #08101a;
+        --panel: rgba(17,25,39,.92);
+        --panel-soft: rgba(77,155,255,.08);
+        --border: rgba(77,155,255,.18);
+        --text: #e8eef7;
+        --muted: #91a4ba;
+        --accent: #4d9bff;
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(circle at top, rgba(77,155,255,.14), transparent 38%),
+          linear-gradient(180deg, #071019 0%, #0d1520 100%);
+        color: var(--text);
+      }}
+      .shell {{
+        width: min(780px, 100%);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 28px;
+        box-shadow: 0 30px 80px rgba(0,0,0,.35);
+      }}
+      .eyebrow {{
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(77,155,255,.1);
+        border: 1px solid rgba(77,155,255,.18);
+        color: #bfdcff;
+        font-size: 12px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }}
+      .spinner {{
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 0 0 rgba(77,155,255,.75);
+        animation: pulse 1.25s infinite;
+      }}
+      @keyframes pulse {{
+        0% {{ box-shadow: 0 0 0 0 rgba(77,155,255,.6); }}
+        70% {{ box-shadow: 0 0 0 16px rgba(77,155,255,0); }}
+        100% {{ box-shadow: 0 0 0 0 rgba(77,155,255,0); }}
+      }}
+      h1 {{ margin: 18px 0 10px; font-size: 32px; }}
+      p {{ margin: 0; color: var(--muted); line-height: 1.6; }}
+      .panel {{
+        margin-top: 20px;
+        padding: 16px 18px;
+        border-radius: 16px;
+        background: var(--panel-soft);
+        border: 1px solid rgba(77,155,255,.12);
+      }}
+      .meta {{
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+      }}
+      .meta div {{
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255,255,255,.03);
+        border: 1px solid rgba(255,255,255,.05);
+      }}
+      .meta span:first-child {{
+        color: var(--muted);
+      }}
+      .actions {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }}
+      button {{
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font: inherit;
+        font-weight: 600;
+        background: var(--accent);
+        color: white;
+      }}
+      button.secondary {{
+        background: transparent;
+        border-color: rgba(255,255,255,.1);
+        color: var(--text);
+      }}
+      code {{
+        font-family: "Cascadia Mono", Consolas, monospace;
+        color: var(--text);
+        word-break: break-all;
+      }}
+    </style>
+  </head>
+  <body>
+    <section class="shell">
+      <span class="eyebrow"><span class="spinner"></span> SIEM-Lite Unified Suite</span>
+      <h1>Bringing the portal online</h1>
+      <p>The desktop shell is live already. While the portal becomes healthy, this window stays responsive and gives you recovery actions.</p>
+      <div class="panel">{status}</div>
+      <div class="meta">
+        <div><span>Target URL</span><code>{url}</code></div>
+        <div><span>Shortcut</span><strong>F5 / Ctrl+R to retry or reload</strong></div>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="window.ipc.postMessage('retry')">Retry startup</button>
+        <button type="button" class="secondary" onclick="window.ipc.postMessage('open-external')">Open in browser</button>
+      </div>
+    </section>
+  </body>
+</html>"#
+    )
+}
+
+fn error_screen_html(url: &str, message: &str) -> String {
+    let url = escape_html(url);
+    let message = escape_html(message).replace('\n', "<br />");
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Portal unavailable</title>
+    <style>
+      :root {{
+        color-scheme: dark;
+        --bg: #08101a;
+        --panel: rgba(17,25,39,.94);
+        --border: rgba(248,81,73,.2);
+        --text: #e8eef7;
+        --muted: #91a4ba;
+        --critical: #f85149;
+        --critical-soft: rgba(248,81,73,.1);
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(circle at top, rgba(248,81,73,.16), transparent 36%),
+          linear-gradient(180deg, #071019 0%, #0d1520 100%);
+        color: var(--text);
+      }}
+      .shell {{
+        width: min(820px, 100%);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 28px;
+        box-shadow: 0 30px 80px rgba(0,0,0,.35);
+      }}
+      .eyebrow {{
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--critical-soft);
+        border: 1px solid rgba(248,81,73,.2);
+        color: #ffb4b1;
+        font-size: 12px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }}
+      h1 {{ margin: 18px 0 10px; font-size: 32px; }}
+      p {{ margin: 0; color: var(--muted); line-height: 1.6; }}
+      .error {{
+        margin-top: 20px;
+        padding: 16px 18px;
+        border-radius: 16px;
+        background: var(--critical-soft);
+        border: 1px solid rgba(248,81,73,.16);
+        color: #ffd7d5;
+        line-height: 1.6;
+      }}
+      .meta {{
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+      }}
+      .meta div {{
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255,255,255,.03);
+        border: 1px solid rgba(255,255,255,.05);
+      }}
+      .meta span:first-child {{
+        color: var(--muted);
+      }}
+      .actions {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }}
+      button {{
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font: inherit;
+        font-weight: 600;
+        background: var(--critical);
+        color: white;
+      }}
+      button.secondary {{
+        background: transparent;
+        border-color: rgba(255,255,255,.1);
+        color: var(--text);
+      }}
+      code {{
+        font-family: "Cascadia Mono", Consolas, monospace;
+        color: var(--text);
+        word-break: break-all;
+      }}
+    </style>
+  </head>
+  <body>
+    <section class="shell">
+      <span class="eyebrow">Portal unavailable</span>
+      <h1>The desktop shell could not reach the suite</h1>
+      <p>The operator window is still healthy. You can retry startup, or open the target URL in an external browser for direct troubleshooting.</p>
+      <div class="error">{message}</div>
+      <div class="meta">
+        <div><span>Target URL</span><code>{url}</code></div>
+        <div><span>Hint</span><strong>Check Docker/services, firewall, auth, and SIEM_OPERATOR_PORTAL_URL</strong></div>
+      </div>
+      <div class="actions">
+        <button type="button" onclick="window.ipc.postMessage('retry')">Retry startup</button>
+        <button type="button" class="secondary" onclick="window.ipc.postMessage('open-external')">Open in browser</button>
+      </div>
+    </section>
+  </body>
+</html>"#
+    )
+}
+
+fn start_portal_bootstrap(url: String, proxy: EventLoopProxy<UserEvent>) {
+    std::thread::spawn(move || {
+        let result = ensure_portal_available(&url).map_err(|err| err.to_string());
+        let _ = proxy.send_event(UserEvent::PortalBootstrapFinished(result));
+    });
+}
+
 /// Окно WebView → SIEM Portal (нужен WebView2 / webkit2gtk).
 pub fn run_portal_webview() -> wry::Result<()> {
     let url = portal_url();
-    let managed_portal = ensure_local_portal_available(&url).map_err(wry::Error::Io)?;
-
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let proxy = event_loop.create_proxy();
     let window = WindowBuilder::new()
-        .with_title("SIEM-Lite Operator · Portal")
-        .with_inner_size(LogicalSize::new(1180.0, 760.0))
-        .with_min_inner_size(LogicalSize::new(900.0, 560.0))
+        .with_title(&operator_window_title(Some("Launching Unified Suite")))
+        .with_inner_size(LogicalSize::new(1360.0, 860.0))
+        .with_min_inner_size(LogicalSize::new(1040.0, 640.0))
         .build(&event_loop)
         .map_err(|e| wry::Error::Io(std::io::Error::other(e)))?;
 
-    let builder = WebViewBuilder::new().with_url(&url);
+    let ipc_proxy = proxy.clone();
+    let title_proxy = proxy.clone();
+    let builder = WebViewBuilder::new()
+        .with_html(loading_screen_html(
+            &url,
+            "Checking whether SIEM Portal is already healthy and starting it automatically when possible.",
+        ))
+        .with_ipc_handler(move |req| match req.body().as_str() {
+            "retry" => {
+                let _ = ipc_proxy.send_event(UserEvent::RetryPortalBootstrap);
+            }
+            "open-external" => {
+                let _ = ipc_proxy.send_event(UserEvent::OpenPortalInBrowser);
+            }
+            _ => {}
+        })
+        .with_document_title_changed_handler(move |title| {
+            let _ = title_proxy.send_event(UserEvent::UpdateTitle(title));
+        });
 
     #[cfg(any(
         target_os = "windows",
@@ -287,7 +624,7 @@ pub fn run_portal_webview() -> wry::Result<()> {
         target_os = "ios",
         target_os = "android"
     ))]
-    let _webview = builder.build(&window)?;
+    let webview = builder.build(&window)?;
 
     #[cfg(not(any(
         target_os = "windows",
@@ -295,7 +632,7 @@ pub fn run_portal_webview() -> wry::Result<()> {
         target_os = "ios",
         target_os = "android"
     )))]
-    let _webview = {
+    let webview = {
         use tao::platform::unix::WindowExtUnix;
         use wry::WebViewBuilderExtUnix;
         let vbox = window
@@ -304,19 +641,92 @@ pub fn run_portal_webview() -> wry::Result<()> {
         builder.build_gtk(vbox)?
     };
 
-    let mut managed_portal = managed_portal;
+    let mut managed_portal: Option<Child> = None;
+    let mut modifiers = ModifiersState::empty();
+    let mut boot_in_progress = true;
+    let mut portal_loaded = false;
+    let bootstrap_proxy = proxy.clone();
+    start_portal_bootstrap(url.clone(), bootstrap_proxy);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            if let Some(child) = managed_portal.as_mut() {
-                let _ = child.kill();
+        match event {
+            Event::UserEvent(UserEvent::PortalBootstrapFinished(result)) => {
+                boot_in_progress = false;
+                match result {
+                    Ok(child) => {
+                        managed_portal = child;
+                        portal_loaded = true;
+                        window.set_title(&operator_window_title(Some("Unified Suite")));
+                        let _ = webview.load_url(&url);
+                    }
+                    Err(message) => {
+                        portal_loaded = false;
+                        window.set_title(&operator_window_title(Some("Portal unavailable")));
+                        let _ = webview.load_html(&error_screen_html(&url, &message));
+                    }
+                }
             }
-            *control_flow = ControlFlow::Exit;
+            Event::UserEvent(UserEvent::RetryPortalBootstrap) => {
+                if boot_in_progress {
+                    return;
+                }
+                if let Some(child) = managed_portal.as_mut() {
+                    let _ = child.kill();
+                }
+                managed_portal = None;
+                portal_loaded = false;
+                boot_in_progress = true;
+                window.set_title(&operator_window_title(Some("Launching Unified Suite")));
+                let _ = webview.load_html(&loading_screen_html(
+                    &url,
+                    "Retrying portal health check and local auto-start sequence.",
+                ));
+                start_portal_bootstrap(url.clone(), proxy.clone());
+            }
+            Event::UserEvent(UserEvent::OpenPortalInBrowser) => {
+                let _ = webbrowser::open(&url);
+            }
+            Event::UserEvent(UserEvent::UpdateTitle(title)) => {
+                window.set_title(&operator_window_title(Some(&title)));
+            }
+            Event::WindowEvent {
+                event: WindowEvent::ModifiersChanged(next),
+                ..
+            } => {
+                modifiers = next;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::KeyboardInput { event, .. },
+                ..
+            } => {
+                if event.state != ElementState::Pressed || event.repeat {
+                    return;
+                }
+                let reload_pressed = event.physical_key == KeyCode::F5
+                    || ((modifiers.control_key() || modifiers.super_key())
+                        && matches!(
+                            event.key_without_modifiers(),
+                            Key::Character(ch) if ch.eq_ignore_ascii_case("r")
+                        ));
+                if reload_pressed {
+                    if portal_loaded {
+                        let _ = webview.reload();
+                    } else if !boot_in_progress {
+                        let _ = proxy.send_event(UserEvent::RetryPortalBootstrap);
+                    }
+                }
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                if let Some(child) = managed_portal.as_mut() {
+                    let _ = child.kill();
+                }
+                *control_flow = ControlFlow::Exit;
+            }
+            _ => {}
         }
     });
 }

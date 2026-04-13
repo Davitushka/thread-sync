@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from "react-router-dom";
-import { SuiteTopbar } from "./components/PageLayout";
+import { SuiteTopbar, useActorState } from "./components/PageLayout";
+import CommandPalette from "./components/CommandPalette";
 import OverviewPage from "./pages/OverviewPage";
 import InfrastructurePage from "./pages/InfrastructurePage";
 import AlertsPage from "./pages/AlertsPage";
@@ -9,8 +10,11 @@ import EventsPage from "./pages/EventsPage";
 import CasesList from "./pages/CasesList";
 import CaseDetail from "./pages/CaseDetail";
 import InvestigationWorkbench from "./pages/InvestigationWorkbench";
+import { SUITE_NAV_ITEMS } from "./suite-meta";
 
 export default function App() {
+  const { actor } = useActorState();
+
   return (
     <div className="suite-app">
       <aside className="suite-side">
@@ -22,15 +26,11 @@ export default function App() {
           </span>
         </NavLink>
         <nav className="suite-nav">
-          <NavLink to="/" end>
-            Overview
-          </NavLink>
-          <NavLink to="/infrastructure">Infrastructure</NavLink>
-          <NavLink to="/dashboards">Dashboards</NavLink>
-          <NavLink to="/alerts">Alerts</NavLink>
-          <NavLink to="/detections">Detections</NavLink>
-          <NavLink to="/events">Events</NavLink>
-          <NavLink to="/cases">Cases</NavLink>
+          {SUITE_NAV_ITEMS.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end}>
+              {item.label}
+            </NavLink>
+          ))}
         </nav>
       </aside>
       <div className="suite-content">
@@ -49,6 +49,7 @@ export default function App() {
           </Routes>
         </main>
       </div>
+      <CommandPalette actor={actor} />
     </div>
   );
 }

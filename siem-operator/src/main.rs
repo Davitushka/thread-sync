@@ -1,4 +1,4 @@
-//! Один exe: по умолчанию egui; `cargo run -- --web` или `SIEM_OPERATOR_MODE=portal` — WebView с порталом.
+//! Один exe: по умолчанию WebView с Unified Suite; `--native` или `SIEM_OPERATOR_MODE=native` — legacy egui fallback.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn portal_mode_from_env() -> bool {
@@ -26,6 +26,8 @@ SIEM-Lite Operator (один бинарь)
   cargo run                    — окно с Unified Suite в WebView (по умолчанию через SIEM Portal)
   cargo run -- --native        — нативный UI (egui, legacy fallback)
   cargo run -- --help          — эта справка
+
+  F5 / Ctrl+R                  — reload / retry Portal inside WebView shell
 
   SIEM_OPERATOR_MODE=portal     — как режим WebView / Unified Suite
   SIEM_OPERATOR_MODE=native     — как --native

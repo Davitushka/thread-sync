@@ -1,129 +1,46 @@
-import { Link, useLocation, matchPath } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-
-type HeaderMeta = {
-  title: string;
-  subtitle: string;
-  crumbs: Array<{ label: string; to?: string }>;
-  mode?: string;
-};
-
-const ROUTE_META: Array<{ path: string; end: boolean; meta: HeaderMeta }> = [
-  {
-    path: "/",
-    end: true,
-    meta: {
-      title: "SOC overview",
-      subtitle: "Ключевые сигналы, состояние стека и быстрые переходы для ежедневной работы.",
-      crumbs: [{ label: "Overview" }],
-      mode: "suite",
-    },
-  },
-  {
-    path: "/infrastructure",
-    end: true,
-    meta: {
-      title: "Infrastructure",
-      subtitle: "Host, network, containers и health-сигналы платформы.",
-      crumbs: [{ label: "Infrastructure" }],
-      mode: "ops",
-    },
-  },
-  {
-    path: "/dashboards",
-    end: true,
-    meta: {
-      title: "Dashboards",
-      subtitle: "Каталог deep-dive dashboard-ов и fallback на embedded Grafana.",
-      crumbs: [{ label: "Dashboards" }],
-      mode: "analytics",
-    },
-  },
-  {
-    path: "/alerts",
-    end: true,
-    meta: {
-      title: "Alerts console",
-      subtitle: "Плотный triage inbox для алертов, очередей и быстрых действий.",
-      crumbs: [{ label: "Alerts" }],
-      mode: "triage",
-    },
-  },
-  {
-    path: "/detections",
-    end: true,
-    meta: {
-      title: "Detections console",
-      subtitle: "Engine health, firing rules и noisy signals в одном экране.",
-      crumbs: [{ label: "Detections" }],
-      mode: "triage",
-    },
-  },
-  {
-    path: "/events",
-    end: true,
-    meta: {
-      title: "Event search",
-      subtitle: "Native ClickHouse search, pivots и event detail внутри suite.",
-      crumbs: [{ label: "Events" }],
-      mode: "hunt",
-    },
-  },
-  {
-    path: "/cases",
-    end: true,
-    meta: {
-      title: "Cases",
-      subtitle: "Единый case workflow поверх portal BFF и case-management.",
-      crumbs: [{ label: "Cases" }],
-      mode: "casework",
-    },
-  },
-  {
-    path: "/cases/:id",
-    end: true,
-    meta: {
-      title: "Case detail",
-      subtitle: "Управление статусом, timeline и связанными signal-ами.",
-      crumbs: [{ label: "Cases", to: "/cases" }, { label: "Case detail" }],
-      mode: "casework",
-    },
-  },
-  {
-    path: "/cases/:id/investigate",
-    end: true,
-    meta: {
-      title: "Investigation workbench",
-      subtitle: "Сводка кейса, merged feed и investigative pivots.",
-      crumbs: [{ label: "Cases", to: "/cases" }, { label: "Investigation" }],
-      mode: "investigation",
-    },
-  },
-];
+import { resolveHeaderMeta } from "../suite-meta";
 
 export function useActorState() {
   const [actor, setActor] = useState(() => localStorage.getItem("soc_actor") || "analyst");
 
   useEffect(() => {
     localStorage.setItem("soc_actor", actor);
+    window.dispatchEvent(new CustomEvent("suite:actor-changed", { detail: actor }));
   }, [actor]);
+
+  useEffect(() => {
+    const syncActor = (nextActor: string | null) => {
+      if (!nextActor) return;
+      setActor((current) => (current === nextActor ? current : nextActor));
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "soc_actor") {
+        syncActor(event.newValue);
+      }
+    };
+
+    const onActorChanged = (event: Event) => {
+      syncActor((event as CustomEvent<string>).detail ?? null);
+    };
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("suite:actor-changed", onActorChanged as EventListener);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("suite:actor-changed", onActorChanged as EventListener);
+    };
+  }, []);
 
   return { actor, setActor };
 }
 
 export function SuiteTopbar() {
   const location = useLocation();
-  const meta = useMemo(() => {
-    return (
-      ROUTE_META.find((entry) => matchPath({ path: entry.path, end: entry.end }, location.pathname))?.meta ??
-      {
-        title: "Unified Analyst Suite",
-        subtitle: "Один вход для мониторинга, triage, расследований и кейсов.",
-        crumbs: [{ label: "Suite" }],
-        mode: "suite",
-      }
-    );
-  }, [location.pathname]);
+  const meta = useMemo(() => resolveHeaderMeta(location.pathname), [location.pathname]);
 
   return (
     <header className="suite-topbar">
@@ -143,7 +60,17 @@ export function SuiteTopbar() {
           <h1>{meta.title}</h1>
           <p>{meta.subtitle}</p>
         </div>
-        {meta.mode ? <span className="suite-mode-pill">{meta.mode}</span> : null}
+        <div className="suite-topbar-actions">
+          <button
+            type="button"
+            className="suite-command-btn"
+            onClick={() => window.dispatchEvent(new CustomEvent("suite:open-command-palette"))}
+          >
+            Search or run
+            <span>Ctrl+K</span>
+          </button>
+          {meta.mode ? <span className="suite-mode-pill">{meta.mode}</span> : null}
+        </div>
       </div>
     </header>
   );
