@@ -254,6 +254,11 @@ pre {
   max-width: 1600px;
 }
 
+.operations-page,
+.data-quality-page {
+  max-width: 1600px;
+}
+
 .triage-page {
   max-width: 1720px;
 }
@@ -484,6 +489,15 @@ pre {
 .property-card code {
   display: block;
   margin-top: 0.18rem;
+}
+
+.property-card small {
+  display: block;
+  margin-top: 0.3rem;
+}
+
+.ops-property-grid {
+  margin-top: 1rem;
 }
 
 .fact-list {

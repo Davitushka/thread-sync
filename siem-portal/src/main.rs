@@ -1,9 +1,11 @@
 mod alerts;
 mod config;
+mod data_quality;
 mod detections;
 mod event_search;
 mod handlers;
 mod infrastructure;
+mod operations;
 mod overview;
 
 use std::sync::Arc;
@@ -14,9 +16,11 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::alerts::AlertsOverviewService;
+use crate::data_quality::DataQualityService;
 use crate::detections::DetectionsOverviewService;
 use crate::event_search::EventSearchService;
 use crate::infrastructure::InfrastructureService;
+use crate::operations::OperationsService;
 use crate::overview::OverviewService;
 
 #[derive(Clone)]
@@ -27,7 +31,9 @@ pub struct AppState {
     pub detections: DetectionsOverviewService,
     pub event_search: EventSearchService,
     pub infrastructure: InfrastructureService,
+    pub operations: OperationsService,
     pub overview: OverviewService,
+    pub data_quality: DataQualityService,
 }
 
 #[tokio::main]
@@ -50,7 +56,9 @@ async fn main() -> anyhow::Result<()> {
         DetectionsOverviewService::new(http.clone(), cfg.correlator.clone(), cfg.prometheus.clone());
     let event_search = EventSearchService::new(http.clone(), cfg.clickhouse.clone());
     let infrastructure = InfrastructureService::new(http.clone(), cfg.prometheus.clone());
+    let operations = OperationsService::new(http.clone(), cfg.prometheus.clone());
     let overview = OverviewService::new(http.clone(), cfg.clickhouse.clone());
+    let data_quality = DataQualityService::new(http.clone(), cfg.clickhouse.clone(), cfg.prometheus.clone());
 
     let state = AppState {
         cfg: Arc::clone(&cfg),
@@ -59,7 +67,9 @@ async fn main() -> anyhow::Result<()> {
         detections,
         event_search,
         infrastructure,
+        operations,
         overview,
+        data_quality,
     };
 
     let app = Router::new()
@@ -70,6 +80,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/ui/config", get(handlers::ui_config))
         .route("/api/v1/overview", get(handlers::overview_dashboard))
         .route("/api/v1/infrastructure", get(handlers::infrastructure_dashboard))
+        .route("/api/v1/operations", get(handlers::operations_dashboard))
+        .route("/api/v1/data-quality", get(handlers::data_quality_dashboard))
         .route("/api/v1/alerts/overview", get(handlers::alerts_overview))
         .route("/api/v1/detections/overview", get(handlers::detections_overview))
         .route("/api/v1/stack/status", get(handlers::stack_status))

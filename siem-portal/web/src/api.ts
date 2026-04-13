@@ -115,6 +115,47 @@ export type InfrastructureDashboard = {
   component_status: Array<{ job: string; up: boolean; value: number }>;
 };
 
+export type OperationsDashboard = {
+  window_hours: number;
+  step_sec: number;
+  totals: {
+    clickhouse_select_qps: number;
+    clickhouse_insert_qps: number;
+    redpanda_records_rate: number;
+    vector_ingest_rate: number;
+    vector_forward_rate: number;
+    detection_processed_rate: number;
+    firing_alerts: number;
+    parser_in_flight: number;
+    parse_errors_24h: number;
+    dropped_alerts_24h: number;
+    healthy_components: number;
+    total_components: number;
+  };
+  component_status: Array<{ job: string; up: boolean; value: number }>;
+  clickhouse_series: Array<{ ts: number; select_qps: number; insert_qps: number; failed_qps: number }>;
+  vector_series: Array<{ ts: number; http_ingest_eps: number; to_redpanda_eps: number }>;
+  pipeline_series: Array<{ ts: number; redpanda_records_eps: number; detection_processed_eps: number }>;
+};
+
+export type DataQualityDashboard = {
+  window_hours: number;
+  step_sec: number;
+  lag_window_hours: number;
+  kpis: {
+    total_events: number;
+    missing_source_ip_pct: number;
+    p95_ingest_lag_ms: number;
+    unique_source_types: number;
+    parser_ok_rate: number;
+    parser_error_rate: number;
+    consumer_lag: number;
+  };
+  lag_series: Array<{ bucket: string; p95_lag_ms: number }>;
+  parser_series: Array<{ ts: number; ok_rate: number; error_rate: number }>;
+  consumer_lag_series: Array<{ ts: number; lag: number }>;
+};
+
 export type Case = {
   id: string;
   case_number: number;
@@ -382,6 +423,18 @@ export async function getOverviewDashboard(hours = 24): Promise<OverviewDashboar
 
 export async function getInfrastructureDashboard(hours = 6): Promise<InfrastructureDashboard> {
   const r = await api(`/infrastructure?hours=${hours}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getOperationsDashboard(hours = 24): Promise<OperationsDashboard> {
+  const r = await api(`/operations?hours=${hours}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getDataQualityDashboard(hours = 24): Promise<DataQualityDashboard> {
+  const r = await api(`/data-quality?hours=${hours}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

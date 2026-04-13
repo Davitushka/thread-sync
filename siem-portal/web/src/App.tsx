@@ -3,6 +3,8 @@ import { SuiteTopbar, useActorState } from "./components/PageLayout";
 import CommandPalette from "./components/CommandPalette";
 import OverviewPage from "./pages/OverviewPage";
 import InfrastructurePage from "./pages/InfrastructurePage";
+import OperationsPage from "./pages/OperationsPage";
+import DataQualityPage from "./pages/DataQualityPage";
 import AlertsPage from "./pages/AlertsPage";
 import DetectionsPage from "./pages/DetectionsPage";
 import DashboardsPage from "./pages/DashboardsPage";
@@ -39,6 +41,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<OverviewPage />} />
             <Route path="/infrastructure" element={<InfrastructurePage />} />
+            <Route path="/operations" element={<OperationsPage />} />
+            <Route path="/data-quality" element={<DataQualityPage />} />
             <Route path="/dashboards" element={<DashboardsPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/detections" element={<DetectionsPage />} />

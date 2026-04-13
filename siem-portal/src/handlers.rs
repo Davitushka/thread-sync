@@ -11,8 +11,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
+    data_quality::DataQualityRequest,
     event_search::EventSearchParams,
     infrastructure::InfrastructureRequest,
+    operations::OperationsRequest,
     overview::OverviewRequest,
     AppState,
 };
@@ -305,6 +307,30 @@ pub async fn infrastructure_dashboard(
     state
         .infrastructure
         .dashboard(InfrastructureRequest::from_query(range.hours), state.cfg.http_timeout)
+        .await
+        .map(|payload| Json(json!(payload)))
+        .map_err(service_error)
+}
+
+pub async fn operations_dashboard(
+    State(state): State<AppState>,
+    Query(range): Query<DashboardRangeQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state
+        .operations
+        .dashboard(OperationsRequest::from_query(range.hours), state.cfg.http_timeout)
+        .await
+        .map(|payload| Json(json!(payload)))
+        .map_err(service_error)
+}
+
+pub async fn data_quality_dashboard(
+    State(state): State<AppState>,
+    Query(range): Query<DashboardRangeQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    state
+        .data_quality
+        .dashboard(DataQualityRequest::from_query(range.hours), state.cfg.http_timeout)
         .await
         .map(|payload| Json(json!(payload)))
         .map_err(service_error)

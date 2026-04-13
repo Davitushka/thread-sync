@@ -119,6 +119,12 @@ export default function OverviewPage() {
           <Link className="tool-btn secondary" to="/infrastructure">
             Open infrastructure
           </Link>
+          <Link className="tool-btn secondary" to="/operations">
+            Open operations center
+          </Link>
+          <Link className="tool-btn secondary" to="/data-quality">
+            Open data quality
+          </Link>
           <Link className="tool-btn" to="/alerts">
             Open alert inbox
           </Link>

@@ -180,6 +180,16 @@ export default function DashboardsPage() {
                 <Link className="tool-btn secondary" to={current.path}>
                   Open in current window
                 </Link>
+                {current.id === "operations" ? (
+                  <Link className="tool-btn secondary" to="/data-quality">
+                    Open data quality too
+                  </Link>
+                ) : null}
+                {current.id === "data-quality" ? (
+                  <Link className="tool-btn secondary" to="/operations">
+                    Open operations too
+                  </Link>
+                ) : null}
               </div>
             </div>
             <div className="dashboard-native-list">

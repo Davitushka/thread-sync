@@ -20,6 +20,8 @@ def test_portal_handlers_expose_suite_endpoints(repo_root: Path) -> None:
     required = [
         "overview_dashboard",
         "infrastructure_dashboard",
+        "operations_dashboard",
+        "data_quality_dashboard",
         "alerts_overview",
         "detections_overview",
         "search_events",
@@ -42,7 +44,7 @@ def test_portal_handlers_expose_suite_endpoints(repo_root: Path) -> None:
 
 def test_portal_web_app_has_core_routes(repo_root: Path) -> None:
     app_tsx = (repo_root / "siem-portal" / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    for route in ["/infrastructure", "/dashboards", "/alerts", "/detections", "/events", "/cases"]:
+    for route in ["/infrastructure", "/operations", "/data-quality", "/dashboards", "/alerts", "/detections", "/events", "/cases"]:
         assert route in app_tsx, (
             f"Unified Suite должен включать маршрут {route!r} в основном app shell."
         )
@@ -63,6 +65,24 @@ def test_infrastructure_page_uses_native_infrastructure_api(repo_root: Path) -> 
     )
     assert "getInfrastructureDashboard" in infra, (
         "InfrastructurePage должен строиться на собственном portal API, а не только на встраивании Grafana."
+    )
+
+
+def test_operations_page_uses_native_operations_api(repo_root: Path) -> None:
+    operations = (repo_root / "siem-portal" / "web" / "src" / "pages" / "OperationsPage.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "getOperationsDashboard" in operations, (
+        "OperationsPage должен строиться на native portal API, а не оставаться только Grafana deep-dive экраном."
+    )
+
+
+def test_data_quality_page_uses_native_data_quality_api(repo_root: Path) -> None:
+    quality = (repo_root / "siem-portal" / "web" / "src" / "pages" / "DataQualityPage.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "getDataQualityDashboard" in quality, (
+        "DataQualityPage должен строиться на собственном portal API, а не только на Grafana dashboard."
     )
 
 

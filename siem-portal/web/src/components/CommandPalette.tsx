@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { listCases, uiConfig, type Case, type UiConfig } from "../api";
 import { shortDateTime } from "../dashboard-utils";
 import { DASHBOARDS, grafanaDashboardUrl } from "../dashboard-catalog";
@@ -39,6 +39,26 @@ function scoreCommand(query: string, action: CommandAction) {
 
 function openExternal(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function routeContext(pathname: string, search: string) {
+  const params = new URLSearchParams(search);
+  return {
+    overview: pathname === "/",
+    infrastructure: pathname === "/infrastructure",
+    operations: pathname === "/operations",
+    dataQuality: pathname === "/data-quality",
+    dashboards: pathname === "/dashboards",
+    alerts: pathname === "/alerts",
+    detections: pathname === "/detections",
+    events: pathname === "/events",
+    cases: pathname === "/cases",
+    caseDetail: matchPath("/cases/:id", pathname),
+    investigation: matchPath("/cases/:id/investigate", pathname),
+    eventQuery: params.get("q")?.trim() ?? "",
+    eventSeverity: params.get("severity")?.trim() ?? "",
+    eventSource: params.get("source_type")?.trim() ?? "",
+  };
 }
 
 type Props = {
@@ -130,6 +150,7 @@ export default function CommandPalette({ actor }: Props) {
   const queryValue = normalize(query);
 
   const currentMeta = useMemo(() => resolveHeaderMeta(location.pathname), [location.pathname]);
+  const context = useMemo(() => routeContext(location.pathname, location.search), [location.pathname, location.search]);
 
   const actions = useMemo<CommandAction[]>(() => {
     const items: CommandAction[] = [];
@@ -156,6 +177,202 @@ export default function CommandPalette({ actor }: Props) {
       keywords: `${location.pathname} current route`,
       run: () => setOpen(false),
     });
+
+    if (context.overview || context.infrastructure || context.operations || context.dataQuality) {
+      items.push({
+        id: `context:refresh:${location.pathname}`,
+        title: "Refresh current workspace",
+        subtitle: `Reload ${currentMeta.title.toLowerCase()} and keep the current route context.`,
+        section: "On this page",
+        keywords: `refresh reload ${location.pathname}`,
+        run: () => {
+          window.location.reload();
+        },
+      });
+    }
+
+    if (context.overview) {
+      items.push({
+        id: "context:overview-ops",
+        title: "Open operations center",
+        subtitle: "Pivot from the SOC overview to the native pipeline operations workspace.",
+        section: "On this page",
+        keywords: "overview operations center pipeline",
+        run: () => {
+          navigate("/operations");
+          setOpen(false);
+        },
+      });
+      items.push({
+        id: "context:overview-quality",
+        title: "Open data quality",
+        subtitle: "Jump from the overview into the trust layer for completeness and ingest lag.",
+        section: "On this page",
+        keywords: "overview data quality trust",
+        run: () => {
+          navigate("/data-quality");
+          setOpen(false);
+        },
+      });
+    }
+
+    if (context.infrastructure) {
+      items.push({
+        id: "context:infra-ops",
+        title: "Switch to operations center",
+        subtitle: "Move from host-level health to pipeline and service flow monitoring.",
+        section: "On this page",
+        keywords: "infrastructure operations pipeline",
+        run: () => {
+          navigate("/operations");
+          setOpen(false);
+        },
+      });
+    }
+
+    if (context.operations) {
+      items.push({
+        id: "context:ops-quality",
+        title: "Open data quality view",
+        subtitle: "Pivot from throughput and uptime into trust/completeness signals.",
+        section: "On this page",
+        keywords: "operations data quality trust",
+        run: () => {
+          navigate("/data-quality");
+          setOpen(false);
+        },
+      });
+      items.push({
+        id: "context:ops-prom",
+        title: "Open Prometheus for operations deep-dive",
+        subtitle: "Use raw PromQL when the native operations charts are not enough.",
+        section: "On this page",
+        keywords: "operations prometheus promql",
+        href: config?.links.prometheus || "#",
+        external: true,
+      });
+    }
+
+    if (context.dataQuality) {
+      items.push({
+        id: "context:quality-events",
+        title: "Inspect raw events behind quality issues",
+        subtitle: "Jump into native event search to validate source IP completeness and lag suspicions.",
+        section: "On this page",
+        keywords: "data quality events inspect",
+        run: () => {
+          navigate("/events");
+          setOpen(false);
+        },
+      });
+      items.push({
+        id: "context:quality-ops",
+        title: "Return to operations center",
+        subtitle: "Move back to service uptime and throughput after trust analysis.",
+        section: "On this page",
+        keywords: "data quality operations",
+        run: () => {
+          navigate("/operations");
+          setOpen(false);
+        },
+      });
+    }
+
+    if (context.events) {
+      items.push({
+        id: "context:events-clear",
+        title: "Clear event search filters",
+        subtitle: "Reset the current event route back to the base search screen.",
+        section: "On this page",
+        keywords: "events clear filters search",
+        run: () => {
+          navigate("/events");
+          setOpen(false);
+        },
+      });
+      if (context.eventQuery) {
+        items.push({
+          id: "context:events-repeat",
+          title: `Repeat current event search for "${context.eventQuery}"`,
+          subtitle: "Keep the current route query but jump directly back into the search view.",
+          section: "On this page",
+          keywords: `events query ${context.eventQuery}`,
+          run: () => {
+            navigate(`/events?q=${encodeURIComponent(context.eventQuery)}`);
+            setOpen(false);
+          },
+        });
+      }
+    }
+
+    if (context.alerts) {
+      items.push({
+        id: "context:alerts-events",
+        title: "Pivot from alerts to event search",
+        subtitle: "Move from triage inbox to raw event hunt for validation and context.",
+        section: "On this page",
+        keywords: "alerts events pivot",
+        run: () => {
+          navigate("/events");
+          setOpen(false);
+        },
+      });
+    }
+
+    if (context.detections) {
+      items.push({
+        id: "context:detections-alerts",
+        title: "Open alert inbox from detections",
+        subtitle: "Move from firing rules to the triage queue.",
+        section: "On this page",
+        keywords: "detections alerts triage",
+        run: () => {
+          navigate("/alerts");
+          setOpen(false);
+        },
+      });
+    }
+
+    if (context.cases) {
+      items.push({
+        id: "context:cases-new",
+        title: "Open case queue and create a new case",
+        subtitle: "Use the queue workspace with the case modal and actor context.",
+        section: "On this page",
+        keywords: "cases create new",
+        run: () => {
+          setOpen(false);
+        },
+      });
+    }
+
+    if (context.caseDetail?.params.id) {
+      items.push({
+        id: `context:case-investigate:${context.caseDetail.params.id}`,
+        title: "Open investigation workbench",
+        subtitle: "Continue from case detail into the investigation workspace.",
+        section: "On this page",
+        keywords: `case ${context.caseDetail.params.id} investigate`,
+        run: () => {
+          navigate(`/cases/${context.caseDetail?.params.id}/investigate`);
+          setOpen(false);
+        },
+      });
+    }
+
+    if (context.investigation?.params.id) {
+      items.push({
+        id: `context:investigation-back:${context.investigation.params.id}`,
+        title: "Back to case detail",
+        subtitle: "Return from investigation to structured case management.",
+        section: "On this page",
+        keywords: `investigation case detail ${context.investigation.params.id}`,
+        run: () => {
+          navigate(`/cases/${context.investigation?.params.id}`);
+          setOpen(false);
+        },
+      });
+    }
 
     for (const entry of DASHBOARDS) {
       if (entry.kind === "native" && entry.path) {
@@ -283,7 +500,28 @@ export default function CommandPalette({ actor }: Props) {
     }
 
     return items;
-  }, [actor, config, currentMeta.subtitle, currentMeta.title, location.pathname, navigate, queryValue, recentCases]);
+  }, [
+    actor,
+    config,
+    context.alerts,
+    context.caseDetail,
+    context.cases,
+    context.dataQuality,
+    context.dashboards,
+    context.detections,
+    context.eventQuery,
+    context.events,
+    context.infrastructure,
+    context.investigation,
+    context.operations,
+    context.overview,
+    currentMeta.subtitle,
+    currentMeta.title,
+    location.pathname,
+    navigate,
+    queryValue,
+    recentCases,
+  ]);
 
   const filtered = useMemo(() => {
     return actions

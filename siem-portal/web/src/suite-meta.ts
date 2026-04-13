@@ -28,6 +28,18 @@ export const SUITE_NAV_ITEMS = [
     end: false,
   },
   {
+    to: "/operations",
+    label: "Operations",
+    description: "Pipeline flow, service uptime and storage throughput in a native operations center.",
+    end: false,
+  },
+  {
+    to: "/data-quality",
+    label: "Data Quality",
+    description: "Trust layer for event completeness, parser quality and ingest lag.",
+    end: false,
+  },
+  {
     to: "/dashboards",
     label: "Dashboards",
     description: "Native analytics hub with Grafana reserved for deep dives.",
@@ -78,6 +90,26 @@ export const ROUTE_META: Array<{ path: string; end: boolean; meta: HeaderMeta }>
       subtitle: "Host, network, container and health signals across the platform.",
       crumbs: [{ label: "Infrastructure" }],
       mode: "ops",
+    },
+  },
+  {
+    path: "/operations",
+    end: true,
+    meta: {
+      title: "Operations center",
+      subtitle: "Native pipeline monitoring for service status, ClickHouse workload and flow pressure.",
+      crumbs: [{ label: "Operations" }],
+      mode: "ops",
+    },
+  },
+  {
+    path: "/data-quality",
+    end: true,
+    meta: {
+      title: "Data quality",
+      subtitle: "Trust layer for completeness, parser quality, ingest lag and consumer delay.",
+      crumbs: [{ label: "Data Quality" }],
+      mode: "trust",
     },
   },
   {
