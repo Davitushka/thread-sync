@@ -493,6 +493,7 @@ services:
   # ════════════════════════════════════════════════════════════════
   # Демо-генератор логов (Rust siem-log-generator) → Vector → Kafka → ClickHouse
   # Переменные: SIEM_LOGGEN_* (см. log-generator/src/main.rs)
+  # SIEM_LOGGEN_RANDOMIZE=1 — каждый burst со случайным EPS/угрозой/паузой (живые графики)
   # Отключить: docker compose stop siem-log-generator
   # ════════════════════════════════════════════════════════════════
   log-generator:
@@ -507,11 +508,15 @@ services:
       <<: *common-env
       RUST_LOG: siem_log_generator=info
       SIEM_LOGGEN_URL: http://vector-aggregator:8080/logs
-      SIEM_LOGGEN_EPS: "18"
+      SIEM_LOGGEN_EPS: "22"
       SIEM_LOGGEN_BURST_SEC: "90"
       SIEM_LOGGEN_SLEEP_SEC: "8"
-      SIEM_LOGGEN_THREAT_RATIO: "0.05"
+      SIEM_LOGGEN_THREAT_RATIO: "0.06"
       SIEM_LOGGEN_BATCH_SIZE: "100"
+      SIEM_LOGGEN_RANDOMIZE: "1"
+      SIEM_LOGGEN_EPS_SPREAD: "0.5"
+      SIEM_LOGGEN_THREAT_SPREAD: "0.65"
+      SIEM_LOGGEN_SLEEP_JITTER_MAX_SEC: "14"
     depends_on:
       redpanda:
         condition: service_healthy

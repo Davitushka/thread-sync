@@ -4,7 +4,7 @@
 
 ## Поток в Vector (рекомендуется: Rust `log-generator`)
 
-В Docker Compose по умолчанию поднимается **`siem-log-generator`** (крейт [`log-generator/`](../../log-generator/) в репозитории). Переменные окружения: префикс **`SIEM_LOGGEN_`** (URL, EPS, доля «угроз», батчи и т.д. — см. [`log-generator/src/main.rs`](../../log-generator/src/main.rs)).
+В Docker Compose по умолчанию поднимается **`siem-log-generator`** (крейт [`log-generator/`](../../log-generator/) в репозитории). Переменные окружения: префикс **`SIEM_LOGGEN_`** (URL, EPS, доля «угроз», батчи и т.д. — см. [`log-generator/src/main.rs`](../../log-generator/src/main.rs)). Для «живых» демо-графиков включён **`SIEM_LOGGEN_RANDOMIZE=1`**: на каждый burst случайно подбираются EPS, доля угроз и дополнительная пауза (`SIEM_LOGGEN_EPS_SPREAD`, `SIEM_LOGGEN_THREAT_SPREAD`, `SIEM_LOGGEN_SLEEP_JITTER_MAX_SEC`). Отключить рандомизацию: `SIEM_LOGGEN_RANDOMIZE=0` в compose или override.
 
 Локально из корня репозитория:
 

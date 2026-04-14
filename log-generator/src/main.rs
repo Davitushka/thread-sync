@@ -33,6 +33,12 @@ struct Settings {
     threat_ratio: f64,
     batch_size: usize,
     request_timeout: Duration,
+    /// Each burst picks eps / threat in a band around the base values (demo dashboards look «alive»).
+    randomize_bursts: bool,
+    eps_spread: f64,
+    threat_spread: f64,
+    /// Uniform extra delay [0, max] seconds after each burst (only if randomize_bursts).
+    sleep_jitter_max_sec: u64,
 }
 
 impl Settings {
@@ -46,8 +52,23 @@ impl Settings {
             threat_ratio: parse_f64_env("SIEM_LOGGEN_THREAT_RATIO", 0.05).clamp(0.0, 1.0),
             batch_size: parse_usize_env("SIEM_LOGGEN_BATCH_SIZE", 100).max(1),
             request_timeout: Duration::from_secs(parse_u64_env("SIEM_LOGGEN_HTTP_TIMEOUT_SEC", 10)),
+            randomize_bursts: parse_bool_env("SIEM_LOGGEN_RANDOMIZE"),
+            eps_spread: parse_f64_env("SIEM_LOGGEN_EPS_SPREAD", 0.45).clamp(0.0, 0.95),
+            threat_spread: parse_f64_env("SIEM_LOGGEN_THREAT_SPREAD", 0.55).clamp(0.0, 0.95),
+            sleep_jitter_max_sec: parse_u64_env("SIEM_LOGGEN_SLEEP_JITTER_MAX_SEC", 12),
         }
     }
+}
+
+fn parse_bool_env(k: &str) -> bool {
+    matches!(
+        std::env::var(k)
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn parse_u32_env(k: &str, d: u32) -> u32 {
@@ -292,16 +313,23 @@ async fn post_ndjson(
     Ok(batch.len())
 }
 
-async fn run_burst(client: &reqwest::Client, cfg: &Settings) -> Result<(usize, usize)> {
+async fn run_burst(
+    client: &reqwest::Client,
+    cfg: &Settings,
+    eps: u32,
+    threat_ratio: f64,
+) -> Result<(usize, usize)> {
     let mut rng = rand::rng();
-    let interval = Duration::from_secs_f64(1.0 / cfg.eps as f64);
+    let eps = eps.max(1);
+    let threat_ratio = threat_ratio.clamp(0.0, 1.0);
+    let interval = Duration::from_secs_f64(1.0 / eps as f64);
     let deadline = Instant::now() + Duration::from_secs(cfg.burst_sec);
     let mut sent = 0usize;
     let mut errors = 0usize;
     let mut batch: Vec<Value> = Vec::with_capacity(cfg.batch_size);
 
     while Instant::now() < deadline {
-        let threat = rng.random_bool(cfg.threat_ratio);
+        let threat = rng.random_bool(threat_ratio);
         batch.push(next_event(&mut rng, threat));
 
         if batch.len() >= cfg.batch_size {
@@ -349,6 +377,7 @@ async fn main() -> Result<()> {
         eps = cfg.eps,
         burst_sec = cfg.burst_sec,
         sleep_sec = cfg.sleep_sec,
+        randomize_bursts = cfg.randomize_bursts,
         "siem-log-generator started"
     );
 
@@ -358,12 +387,31 @@ async fn main() -> Result<()> {
         .context("build HTTP client")?;
 
     loop {
+        let mut rng = rand::rng();
+        let (burst_eps, burst_threat) = if cfg.randomize_bursts {
+            let lo = ((cfg.eps as f64) * (1.0 - cfg.eps_spread)).round().max(1.0) as u32;
+            let hi = ((cfg.eps as f64) * (1.0 + cfg.eps_spread)).round().max(1.0) as u32;
+            let e = if lo >= hi { lo } else { rng.random_range(lo..=hi) };
+            let tlo = (cfg.threat_ratio * (1.0 - cfg.threat_spread)).clamp(0.0, 1.0);
+            let thi = (cfg.threat_ratio * (1.0 + cfg.threat_spread)).clamp(0.0, 1.0);
+            let t = if (thi - tlo) <= f64::EPSILON {
+                tlo
+            } else {
+                tlo + (thi - tlo) * rng.random_range(0.0_f64..1.0_f64)
+            };
+            (e.max(1), t)
+        } else {
+            (cfg.eps, cfg.threat_ratio)
+        };
+
         let start = Instant::now();
-        match run_burst(&client, &cfg).await {
+        match run_burst(&client, &cfg, burst_eps, burst_threat).await {
             Ok((s, err)) => {
                 info!(
                     sent = s,
                     errors = err,
+                    burst_eps,
+                    burst_threat = format!("{burst_threat:.4}"),
                     elapsed_sec = start.elapsed().as_secs_f64(),
                     "burst finished"
                 );
@@ -373,8 +421,15 @@ async fn main() -> Result<()> {
             }
         }
 
+        let jitter = if cfg.randomize_bursts && cfg.sleep_jitter_max_sec > 0 {
+            rng.random_range(0..=cfg.sleep_jitter_max_sec)
+        } else {
+            0
+        };
+        let pause = cfg.sleep_sec.saturating_add(jitter);
+
         tokio::select! {
-            _ = sleep(Duration::from_secs(cfg.sleep_sec)) => {}
+            _ = sleep(Duration::from_secs(pause)) => {}
             _ = tokio::signal::ctrl_c() => {
                 info!("shutdown");
                 break;
