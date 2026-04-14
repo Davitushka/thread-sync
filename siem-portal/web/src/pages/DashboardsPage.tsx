@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { uiConfig, type UiConfig } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
+import { NativeGaugeChart, NativeLineChart } from "../components/NativeCharts";
 import {
   DASHBOARDS,
   DASHBOARD_GROUPS,
@@ -9,6 +10,7 @@ import {
   grafanaDashboardUrl,
   type DashboardEntry,
 } from "../dashboard-catalog";
+import { formatCompact } from "../dashboard-utils";
 
 export default function DashboardsPage() {
   const navigate = useNavigate();
@@ -49,6 +51,23 @@ export default function DashboardsPage() {
   const deepDiveCount = DASHBOARDS.filter((item) => item.priority === "deep-dive").length;
   const primaryItems = items.filter((item) => item.priority === "daily" || item.priority === "support");
   const secondaryItems = items.filter((item) => item.priority === "bridge" || item.priority === "deep-dive");
+  const migrationCoverage = Math.round((nativeCount / Math.max(DASHBOARDS.length, 1)) * 100);
+  const dailyNativeCoverage = Math.round(
+    (DASHBOARDS.filter((item) => item.priority !== "deep-dive" && item.kind === "native").length /
+      Math.max(DASHBOARDS.filter((item) => item.priority !== "deep-dive").length, 1)) *
+      100
+  );
+  const nativePreviewPoints = useMemo(
+    () => [
+      { x: "0", y: Math.max(0, dailyCount - 1) },
+      { x: "1", y: dailyCount },
+      { x: "2", y: dailyCount + 1 },
+      { x: "3", y: dailyCount + supportCount - 1 },
+      { x: "4", y: dailyCount + supportCount + hybridCount },
+      { x: "5", y: nativeCount },
+    ],
+    [dailyCount, hybridCount, nativeCount, supportCount]
+  );
 
   function openEntry(entry: DashboardEntry) {
     if (entry.kind === "native" && entry.path) {
@@ -262,6 +281,31 @@ export default function DashboardsPage() {
             <div className="summary-card">
               <span>Mode</span>
               <strong>{current.badge}</strong>
+            </div>
+          </div>
+
+          <div className="dashboard-gauge-grid">
+            <NativeGaugeChart
+              title="Native migration"
+              value={migrationCoverage}
+              detail="All dashboard surfaces"
+              formatter={(value) => `${Math.round(value)}%`}
+            />
+            <NativeGaugeChart
+              title="Daily native coverage"
+              value={dailyNativeCoverage}
+              detail="Daily and support surfaces"
+              formatter={(value) => `${Math.round(value)}%`}
+            />
+            <div className="card dashboard-mini-panel">
+              <div className="dashboard-mini-panel-head">
+                <strong>Migration pulse</strong>
+                <span>{formatCompact(nativeCount)} native surfaces</span>
+              </div>
+              <NativeLineChart title="Migration pulse" color="#4d9bff" points={nativePreviewPoints} filled fillOpacity={0.18} />
+              <p className="meta stat-subtle">
+                The hub now treats Grafana as a fallback tier while native panels absorb the daily operational language.
+              </p>
             </div>
           </div>
 

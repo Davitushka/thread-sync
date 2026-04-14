@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { getDataQualityDashboard, uiConfig, type DataQualityDashboard, type UiConfig } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
-import { NativeBarChart, NativeLineChart, NativeMultiLineChart } from "../components/NativeCharts";
+import { NativeBarChart, NativeGaugeChart, NativeLineChart, NativeMultiLineChart } from "../components/NativeCharts";
 import { formatCompact } from "../dashboard-utils";
 
 export default function DataQualityPage() {
@@ -112,6 +112,37 @@ export default function DataQualityPage() {
         </div>
       </section>
 
+      <section className="dashboard-gauge-grid">
+        <NativeGaugeChart
+          title="Parser success"
+          value={
+            data
+              ? (data.kpis.parser_ok_rate / Math.max(data.kpis.parser_ok_rate + data.kpis.parser_error_rate, 1)) * 100
+              : null
+          }
+          detail="Healthy parser throughput"
+          formatter={(value) => `${value.toFixed(1)}%`}
+        />
+        <NativeGaugeChart
+          title="Freshness"
+          value={data ? Math.max(0, 100 - (data.kpis.p95_ingest_lag_ms / 10_000) * 100) : null}
+          detail="Lower lag means healthier data"
+          formatter={(value) => `${value.toFixed(0)}%`}
+        />
+        <NativeGaugeChart
+          title="Source completeness"
+          value={data ? Math.max(0, 100 - data.kpis.missing_source_ip_pct) : null}
+          detail="Rows with source identity"
+          formatter={(value) => `${value.toFixed(1)}%`}
+        />
+        <NativeGaugeChart
+          title="Consumer readiness"
+          value={data ? Math.max(0, 100 - Math.min(100, (data.kpis.consumer_lag / 5000) * 100)) : null}
+          detail="Lag kept under control"
+          formatter={(value) => `${value.toFixed(0)}%`}
+        />
+      </section>
+
       <section className="infra-grid">
         <article className="card">
           <h2>Pipeline trust summary</h2>
@@ -138,6 +169,8 @@ export default function DataQualityPage() {
                 title="Lag ingest by hour"
                 color="#f85149"
                 points={data.lag_series.map((row) => ({ x: row.bucket, y: row.p95_lag_ms }))}
+                filled
+                fillOpacity={0.18}
               />
               <p className="meta stat-subtle">The lag series is shown over {data?.lag_window_hours ?? 24}h to reveal delayed ingestion patterns.</p>
             </>

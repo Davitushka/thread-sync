@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { getInfrastructureDashboard, uiConfig, type InfrastructureDashboard, type UiConfig } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
-import { NativeBarChart, NativeLineChart } from "../components/NativeCharts";
+import { NativeBarChart, NativeGaugeChart, NativeLineChart } from "../components/NativeCharts";
 import { formatBytes, formatCompact, formatPercent, formatRate, formatUptime } from "../dashboard-utils";
 
 export default function InfrastructurePage() {
@@ -121,6 +121,33 @@ export default function InfrastructurePage() {
         </div>
       </section>
 
+      <section className="dashboard-gauge-grid">
+        <NativeGaugeChart
+          title="CPU usage"
+          value={data?.host.cpu_usage_pct}
+          detail="Host pressure"
+          formatter={(value) => formatPercent(value)}
+        />
+        <NativeGaugeChart
+          title="Memory usage"
+          value={data?.host.memory_usage_pct}
+          detail="Working set pressure"
+          formatter={(value) => formatPercent(value)}
+        />
+        <NativeGaugeChart
+          title="Disk usage"
+          value={data?.host.disk_usage_pct}
+          detail="Storage saturation"
+          formatter={(value) => formatPercent(value)}
+        />
+        <NativeGaugeChart
+          title="Component health"
+          value={data ? (data.host.healthy_components / Math.max(data.host.total_components, 1)) * 100 : null}
+          detail="Reachable components"
+          formatter={(value) => formatPercent(value)}
+        />
+      </section>
+
       <section className="infra-grid">
         <article className="card">
           <h2>Host CPU trend</h2>
@@ -128,6 +155,8 @@ export default function InfrastructurePage() {
             title="Host CPU trend"
             color="#7be37c"
             points={(data?.cpu_series ?? []).map((point) => ({ x: String(point.ts), y: point.value }))}
+            filled
+            fillOpacity={0.2}
           />
           <p className="meta stat-subtle">
             Последние {data?.window_hours ?? 6} часов, шаг {Math.round((data?.step_sec ?? 300) / 60)} минут.

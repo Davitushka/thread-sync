@@ -166,6 +166,8 @@ export default function OverviewPage() {
                 title="Events timeline"
                 color="#7be37c"
                 points={overview.events_per_minute.map((point) => ({ x: point.minute, y: point.events }))}
+                filled
+                fillOpacity={0.2}
               />
               <p className="meta stat-subtle">
                 Bucket = {overview.bucket_minutes} min, range = {overview.window_hours}h.

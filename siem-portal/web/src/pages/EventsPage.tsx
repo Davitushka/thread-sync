@@ -11,6 +11,7 @@ import {
   type EventRow,
   type EventSearchResponse,
 } from "../api";
+import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
@@ -36,6 +37,18 @@ const INITIAL_FILTERS: Filters = {
   start: "",
   end: "",
 };
+
+function severityTone(value?: string) {
+  return (value || "info").toLowerCase();
+}
+
+function priorityFromSeverity(value?: string) {
+  const severity = severityTone(value);
+  if (severity === "critical") return { label: "P1", tone: "critical" as const };
+  if (severity === "error") return { label: "P2", tone: "high" as const };
+  if (severity === "warning") return { label: "P3", tone: "medium" as const };
+  return { label: "P4", tone: "low" as const };
+}
 
 export default function EventsPage() {
   const navigate = useNavigate();
@@ -126,6 +139,16 @@ export default function EventsPage() {
   }, []);
 
   const selectedEntityValue = selected?.event.source_ip || selected?.event.user_id || selected?.event.host;
+  const logRows = results?.rows ?? [];
+  const topSourceTypes = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of logRows) {
+      counts.set(row.source_type, (counts.get(row.source_type) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4);
+  }, [logRows]);
 
   const promoteToCase = useCallback(
     async (row: EventRow) => {
@@ -267,9 +290,9 @@ export default function EventsPage() {
   return (
     <div className="page-grid triage-page">
       <section className="card hero-card triage-card">
-        <h2>Native event search</h2>
+        <h2>Log explorer</h2>
         <p className="meta">
-          Safe read-only поиск по ClickHouse через портал. Теперь с более взрослым detail pane, entity context и удобными pivots.
+          Native read-only event and log exploration over ClickHouse with a denser stream, context-aware pivots and a workflow closer to a real log console.
         </p>
         <form className="toolbar" onSubmit={load}>
           <label>
@@ -311,7 +334,7 @@ export default function EventsPage() {
         {results && (
           <div className="summary-grid">
             <div className="summary-card">
-              <span>Returned</span>
+              <span>Log lines</span>
               <strong>{formatCompact(results.meta.returned)}</strong>
             </div>
             <div className="summary-card">
@@ -319,95 +342,116 @@ export default function EventsPage() {
               <strong>{formatCompact(results.meta.limit)}</strong>
             </div>
             <div className="summary-card">
-              <span>Window start</span>
-              <strong>{results.meta.filters.start}</strong>
+              <span>Top source</span>
+              <strong>{topSourceTypes[0]?.[0] ?? "—"}</strong>
             </div>
             <div className="summary-card">
-              <span>Window end</span>
-              <strong>{results.meta.filters.end}</strong>
+              <span>Time window</span>
+              <strong>{results.meta.filters.start && results.meta.filters.end ? "bounded" : "live query"}</strong>
             </div>
           </div>
         )}
         {err && <p className="error">{err}</p>}
       </section>
 
-      <section className="entity-layout">
-        <div className="entity-stack">
-          <section className="card event-result-shell workspace-pane">
-            <div className="workspace-pane-header">
-              <div className="workspace-pane-copy">
-                <span className="workspace-pane-kicker">Results pane</span>
-                <h2>Search results</h2>
-                <p className="workspace-pane-subtitle">Structured event table for hunts, pivots and focused inspection.</p>
-              </div>
+      <AdaptivePaneLayout
+        storageKey="events-log-explorer"
+        defaultSizes={[0.52, 0.28, 0.2]}
+        minSizes={[0.36, 0.24, 0.18]}
+        className="log-explorer-layout"
+      >
+        <section className="card event-result-shell workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Stream pane</span>
+              <h2>Log stream</h2>
+              <p className="workspace-pane-subtitle">Dense event feed with severity accents, key fields and a Grafana-like scan rhythm.</p>
             </div>
-            {!results ? (
-              <p className="meta">Нажми Search, чтобы загрузить события.</p>
-            ) : !results.rows.length ? (
-              <p className="meta">По текущим фильтрам ничего не найдено.</p>
-            ) : (
-              <div className="event-table-shell">
-                <table className="compact-table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Severity</th>
-                      <th>Source</th>
-                      <th>Host</th>
-                      <th>Message</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.rows.map((row) => (
-                      <tr
-                        key={row.event_id}
-                        onClick={() => openEvent(row)}
-                        className={selected?.event.event_id === row.event_id ? "selectable-row active" : "selectable-row"}
-                      >
-                        <td>{shortDateTime(row.timestamp)}</td>
-                        <td>
-                          <span className={`badge sev-${row.severity.toLowerCase()}`}>{row.severity}</span>
-                        </td>
-                        <td>{row.source_type}</td>
-                        <td>{row.host}</td>
-                        <td>
-                          <div>{row.message}</div>
-                          <div className="fact-list" style={{ marginTop: "0.45rem" }}>
-                            {row.source_ip ? <span className="token">ip:{row.source_ip}</span> : null}
-                            {row.user_id ? <span className="token">user:{row.user_id}</span> : null}
-                            {row.action ? <span className="token">{row.action}</span> : null}
-                            {row.url_path ? <span className="token">{row.url_path}</span> : null}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          </div>
+          {!results ? (
+            <p className="meta">Нажми Search, чтобы загрузить события.</p>
+          ) : !results.rows.length ? (
+            <p className="meta">По текущим фильтрам ничего не найдено.</p>
+          ) : (
+            <div className="log-stream">
+              {results.rows.map((row) => {
+                const priority = priorityFromSeverity(row.severity);
+                const isActive = selected?.event.event_id === row.event_id;
+                return (
+                  <button
+                    key={row.event_id}
+                    type="button"
+                    className={[
+                      "log-row",
+                      `severity-${priority.tone}`,
+                      isActive ? "active" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => openEvent(row)}
+                  >
+                    <div className="log-row-gutter">
+                      <span className={`priority-pill priority-${priority.tone}`}>{priority.label}</span>
+                      <time>{shortDateTime(row.timestamp)}</time>
+                    </div>
+                    <div className="log-row-body">
+                      <div className="log-row-head">
+                        <div className="log-row-title">
+                          <strong>{row.source_type}</strong>
+                          <small>{row.host || "unknown host"}</small>
+                        </div>
+                        <div className="queue-item-badges">
+                          <span className={`badge sev-${severityTone(row.severity)}`}>{row.severity}</span>
+                          {row.status_code ? <span className="token">HTTP {row.status_code}</span> : null}
+                        </div>
+                      </div>
+                      <p className="log-row-message">{row.message}</p>
+                      <div className="log-row-meta">
+                        {row.source_ip ? <span className="token">ip:{row.source_ip}</span> : null}
+                        {row.user_id ? <span className="token">user:{row.user_id}</span> : null}
+                        {row.action ? <span className="token">{row.action}</span> : null}
+                        {row.url_path ? <span className="token">{row.url_path}</span> : null}
+                        <span className="token fp">{row.event_id}</span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
-          {selected && (
-            <section className="card entity-stack workspace-pane">
-              <div className="workspace-pane-header">
+        <section className="card entity-stack workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Detail pane</span>
+              <h2>Event detail</h2>
+              <p className="workspace-pane-subtitle">Focused record view with technical fields, geo enrichment and case promotion actions.</p>
+            </div>
+          </div>
+          {!selected ? (
+            <p className="meta">Открой строку из log stream, чтобы увидеть детальный разбор события.</p>
+          ) : (
+            <>
+              <div className="dashboard-hero">
                 <div>
-                  <span className="workspace-pane-kicker">Detail pane</span>
-                  <h2>Event detail</h2>
+                  <strong>{selected.event.source_type}</strong>
                   <p className="meta">
                     <code>{selected.event.event_id}</code>
                   </p>
                 </div>
-                <span className={`badge sev-${selected.event.severity.toLowerCase()}`}>{selected.event.severity}</span>
+                <div className="queue-item-badges">
+                  <span className={`priority-pill priority-${priorityFromSeverity(selected.event.severity).tone}`}>
+                    {priorityFromSeverity(selected.event.severity).label}
+                  </span>
+                  <span className={`badge sev-${severityTone(selected.event.severity)}`}>{selected.event.severity}</span>
+                </div>
               </div>
 
               <div className="summary-grid">
                 <div className="summary-card">
                   <span>Timestamp</span>
                   <strong>{shortDateTime(selected.event.timestamp)}</strong>
-                </div>
-                <div className="summary-card">
-                  <span>Source type</span>
-                  <strong>{selected.event.source_type}</strong>
                 </div>
                 <div className="summary-card">
                   <span>Host</span>
@@ -417,6 +461,15 @@ export default function EventsPage() {
                   <span>Ingested</span>
                   <strong>{shortDateTime(selected.ingest_ts)}</strong>
                 </div>
+                <div className="summary-card">
+                  <span>Action</span>
+                  <strong>{selected.event.action || "—"}</strong>
+                </div>
+              </div>
+
+              <div className="insight-panel">
+                <strong>Message</strong>
+                <p>{selected.event.message}</p>
               </div>
 
               <div className="property-grid">
@@ -433,10 +486,6 @@ export default function EventsPage() {
                   <strong>{selected.duration_ms != null ? `${selected.duration_ms.toFixed(1)} ms` : "—"}</strong>
                 </div>
                 <div className="property-card">
-                  <span>Action</span>
-                  <strong>{selected.event.action || "—"}</strong>
-                </div>
-                <div className="property-card">
                   <span>Source IP</span>
                   <strong>{selected.event.source_ip || "—"}</strong>
                 </div>
@@ -444,29 +493,10 @@ export default function EventsPage() {
                   <span>User</span>
                   <strong>{selected.event.user_id || "—"}</strong>
                 </div>
-              </div>
-
-              <div className="card" style={{ padding: "0.9rem 1rem" }}>
-                <span className="meta">Message</span>
-                <p style={{ margin: "0.35rem 0 0" }}>{selected.event.message}</p>
-              </div>
-
-              <div className="property-grid">
                 <div className="property-card">
-                  <span>Geo country</span>
+                  <span>Geo</span>
                   <strong>{selected.enrich.geo_country_name || selected.enrich.geo_country_iso || "—"}</strong>
-                </div>
-                <div className="property-card">
-                  <span>Geo city</span>
-                  <strong>{selected.enrich.geo_city || "—"}</strong>
-                </div>
-                <div className="property-card">
-                  <span>ASN</span>
-                  <strong>{selected.enrich.geo_asn ?? "—"}</strong>
-                </div>
-                <div className="property-card">
-                  <span>Org</span>
-                  <strong>{selected.enrich.geo_org || "—"}</strong>
+                  <small>{selected.enrich.geo_city || selected.enrich.geo_org || ""}</small>
                 </div>
               </div>
 
@@ -490,9 +520,9 @@ export default function EventsPage() {
                 <p className="meta">Metadata</p>
                 <pre className="sql-block">{JSON.stringify(selected.metadata, null, 2)}</pre>
               </div>
-            </section>
+            </>
           )}
-        </div>
+        </section>
 
         <aside className="detail-side entity-stack">
           <section className="card entity-stack workspace-pane">
@@ -500,7 +530,7 @@ export default function EventsPage() {
               <div className="workspace-pane-copy">
                 <span className="workspace-pane-kicker">Context pane</span>
                 <h2>Entity context</h2>
-                <p className="workspace-pane-subtitle">Correlated entity activity, host presence and recent matching events.</p>
+                <p className="workspace-pane-subtitle">Correlated entity activity, recent matching log lines and quick operational pivots.</p>
               </div>
             </div>
             {!context ? (
@@ -540,28 +570,34 @@ export default function EventsPage() {
                 )}
 
                 <div>
-                  <p className="meta">Recent events</p>
-                  <div className="queue-list">
-                    {context.recent_events.slice(0, 8).map((row) => (
-                      <button
-                        type="button"
-                        key={row.event_id}
-                        className="queue-item"
-                        onClick={() => openEvent(row)}
-                      >
-                        <header>
-                          <div>
-                            <h4>{row.source_type}</h4>
-                            <p className="meta">{row.message}</p>
+                  <p className="meta">Recent logs</p>
+                  <div className="queue-list queue-list-dense">
+                    {context.recent_events.slice(0, 6).map((row) => {
+                      const priority = priorityFromSeverity(row.severity);
+                      return (
+                        <button
+                          type="button"
+                          key={row.event_id}
+                          className={`queue-item queue-item-enterprise severity-${priority.tone}`}
+                          onClick={() => openEvent(row)}
+                        >
+                          <header>
+                            <div>
+                              <h4>{row.source_type}</h4>
+                              <p className="meta">{row.message}</p>
+                            </div>
+                            <div className="queue-item-badges">
+                              <span className={`priority-pill priority-${priority.tone}`}>{priority.label}</span>
+                              <span className={`badge sev-${severityTone(row.severity)}`}>{row.severity}</span>
+                            </div>
+                          </header>
+                          <div className="queue-item-meta">
+                            <span className="token">{shortDateTime(row.timestamp)}</span>
+                            <span className="token">{row.host}</span>
                           </div>
-                          <span className={`badge sev-${row.severity.toLowerCase()}`}>{row.severity}</span>
-                        </header>
-                        <div className="queue-item-meta">
-                          <span className="token">{shortDateTime(row.timestamp)}</span>
-                          <span className="token">{row.host}</span>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </>
@@ -573,7 +609,7 @@ export default function EventsPage() {
               <div className="workspace-pane-copy">
                 <span className="workspace-pane-kicker">Action pane</span>
                 <h2>Quick pivots</h2>
-                <p className="workspace-pane-subtitle">Jump across cases, alerts and detection operations without leaving search.</p>
+                <p className="workspace-pane-subtitle">Jump across cases, alerts and detection operations without leaving the log explorer.</p>
               </div>
             </div>
             <div className="dense-inline-actions">
@@ -591,7 +627,7 @@ export default function EventsPage() {
             </div>
           </section>
         </aside>
-      </section>
+      </AdaptivePaneLayout>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import OverviewPage from "./pages/OverviewPage";
 import InfrastructurePage from "./pages/InfrastructurePage";
 import OperationsPage from "./pages/OperationsPage";
 import DataQualityPage from "./pages/DataQualityPage";
+import ValidationPage from "./pages/ValidationPage";
 import AlertsPage from "./pages/AlertsPage";
 import DetectionsPage from "./pages/DetectionsPage";
 import DashboardsPage from "./pages/DashboardsPage";
@@ -290,6 +291,7 @@ function AppShell({ actor }: { actor: string }) {
             <Route path="/infrastructure" element={<InfrastructurePage />} />
             <Route path="/operations" element={<OperationsPage />} />
             <Route path="/data-quality" element={<DataQualityPage />} />
+            <Route path="/validation" element={<ValidationPage />} />
             <Route path="/dashboards" element={<DashboardsPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/detections" element={<DetectionsPage />} />

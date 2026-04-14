@@ -378,6 +378,30 @@ export const SUITE_ROUTE_REGISTRY: SuiteRouteDefinition[] = [
       mode: "trust",
     },
   },
+  {
+    id: "validation",
+    path: "/validation",
+    to: "/validation",
+    label: "Validation",
+    tabLabel: "Validation",
+    description: "Native trust and health checks for service reachability, ingest continuity and parser quality.",
+    end: true,
+    nav: true,
+    navId: "validation",
+    groupId: "platform",
+    iconKey: "data-quality",
+    workspaceKind: "workspace",
+    closable: true,
+    defaultOpen: false,
+    defaultPinned: false,
+    keywords: "validation trust checks ingest continuity parser service health",
+    meta: {
+      title: "Validation workspace",
+      subtitle: "Native replacement for stack validation checks, trust signals and dashboard readiness.",
+      crumbs: [{ label: "Platform" }, { label: "Validation" }],
+      mode: "trust",
+    },
+  },
 ];
 
 export const SUITE_NAV_ITEMS: SuiteNavItem[] = SUITE_ROUTE_REGISTRY.filter((route) => route.nav).map((route) => ({
