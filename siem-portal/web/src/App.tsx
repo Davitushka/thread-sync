@@ -292,6 +292,11 @@ function WorkspaceTabs() {
   const { tabs, activePath, openOrFocusWorkspace, closeWorkspace, pinWorkspace, unpinWorkspace } = useWorkspaceShell();
   const visibleTabs = tabs.filter((tab) => tab.path === activePath || tab.pinned || tab.workspaceKind === "document");
   const backgroundTabs = tabs.filter((tab) => !visibleTabs.some((entry) => entry.path === tab.path));
+  const backgroundTabLabel = backgroundTabs.length === 1 ? "background tab" : "background tabs";
+  const backgroundPreview = backgroundTabs.slice(0, 3).map((tab) => tab.tabLabel).join(", ");
+  const overflowTitle = backgroundPreview
+    ? `${backgroundTabs.length} ${backgroundTabLabel}: ${backgroundPreview}${backgroundTabs.length > 3 ? ", ..." : ""}`
+    : `${backgroundTabs.length} ${backgroundTabLabel}`;
 
   return (
     <div className="workspace-tabs-shell">
@@ -333,9 +338,9 @@ function WorkspaceTabs() {
           </div>
         ))}
         {backgroundTabs.length ? (
-          <div className="workspace-tab workspace-tab-overflow" title={`${backgroundTabs.length} additional workspaces are open`}>
+          <div className="workspace-tab workspace-tab-overflow" title={overflowTitle}>
             <span className="workspace-tab-overflow-count">+{backgroundTabs.length}</span>
-            <span className="workspace-tab-overflow-label">more open</span>
+            <span className="workspace-tab-overflow-label">background</span>
           </div>
         ) : null}
       </div>

@@ -74,7 +74,7 @@ pre {
 .suite-app {
   height: 100vh;
   display: grid;
-  grid-template-columns: 310px 1fr;
+  grid-template-columns: 322px 1fr;
   overflow: hidden;
 }
 
@@ -96,10 +96,10 @@ pre {
 .suite-side-section {
   display: grid;
   gap: 0.8rem;
-  padding: 0.72rem;
+  padding: 0.78rem;
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.02);
+  border-radius: 15px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.024), rgba(255, 255, 255, 0.014));
 }
 
 .suite-side-label {
@@ -120,11 +120,11 @@ pre {
 .suite-side-pill {
   display: inline-flex;
   align-items: center;
-  padding: 0.22rem 0.48rem;
+  padding: 0.24rem 0.5rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -285,7 +285,8 @@ pre {
 }
 
 .suite-nav-pin {
-  padding: 0.45rem 0.55rem;
+  min-width: 54px;
+  padding: 0.42rem 0.52rem;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
@@ -307,7 +308,7 @@ pre {
 .suite-shortcut-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.45rem;
+  gap: 0.5rem;
   align-items: center;
 }
 
@@ -352,23 +353,26 @@ pre {
 }
 
 .suite-shortcut-copy strong {
-  font-size: 0.84rem;
+  font-size: 0.82rem;
+  line-height: 1.2;
 }
 
 .suite-shortcut-copy small {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.69rem;
+  letter-spacing: 0.01em;
 }
 
 .suite-shortcut-state {
   margin-left: auto;
-  padding: 0.16rem 0.42rem;
+  padding: 0.14rem 0.4rem;
   border-radius: 999px;
-  background: rgba(63, 185, 80, 0.12);
-  color: #91e0a5;
-  font-size: 0.68rem;
+  background: rgba(63, 185, 80, 0.15);
+  color: #8be8a8;
+  font-size: 0.64rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
+  font-weight: 700;
 }
 
 .suite-content {
@@ -522,6 +526,8 @@ pre {
 
 .workspace-tabs-shell {
   padding: 0.7rem 1.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  background: linear-gradient(180deg, rgba(6, 13, 24, 0.72), rgba(6, 13, 24, 0.34));
 }
 
 .workspace-tabs {
@@ -617,7 +623,9 @@ pre {
 .workspace-tab-overflow {
   gap: 0.35rem;
   padding: 0.55rem 0.78rem;
-  color: var(--muted);
+  color: #b7c8dd;
+  border-color: rgba(77, 155, 255, 0.28);
+  background: rgba(77, 155, 255, 0.09);
 }
 
 .workspace-tab-overflow-count {
@@ -636,9 +644,10 @@ pre {
 
 .workspace-tab-overflow-label {
   white-space: nowrap;
-  font-size: 0.72rem;
+  font-size: 0.69rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  color: #9db4d0;
 }
 
 .page-grid {
