@@ -13,9 +13,11 @@ import {
 } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
 import { NativeBarChart, NativeLineChart, NativeMultiLineChart } from "../components/NativeCharts";
+import { useWorkspaceShell } from "../components/WorkspaceShellContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 export default function OverviewPage() {
+  const { openOrFocusWorkspace } = useWorkspaceShell();
   const [config, setConfig] = useState<UiConfig | null>(null);
   const [stack, setStack] = useState<StackStatus | null>(null);
   const [overview, setOverview] = useState<OverviewDashboard | null>(null);
@@ -74,8 +76,8 @@ export default function OverviewPage() {
     <div className="page-grid overview-dashboard">
       {err && <p className="error">{err}</p>}
       <DashboardToolbar
-        title="SOC overview, но уже наш"
-        subtitle="Нативный dashboard поверх ClickHouse и сервисов стека: диапазон, автообновление и свои графики без Grafana-iframe."
+        title="SOC overview"
+        subtitle="Native command surface over ClickHouse and platform services, with operational pivots and no iframe-first workflow."
         hours={hours}
         autoRefreshSec={autoRefreshSec}
         loading={loading}
@@ -115,6 +117,13 @@ export default function OverviewPage() {
             <strong>{formatCompact(stats?.pending_alerts)}</strong>
           </div>
         </div>
+        <div className="workspace-pane-header">
+          <div className="workspace-pane-copy">
+            <span className="workspace-pane-kicker">Mission control actions</span>
+            <h2>Primary operator pivots</h2>
+            <p className="workspace-pane-subtitle">Jump into the most common daily workflows without leaving the overview surface.</p>
+          </div>
+        </div>
         <div className="btn-row">
           <Link className="tool-btn secondary" to="/infrastructure">
             Open infrastructure
@@ -141,8 +150,14 @@ export default function OverviewPage() {
       </section>
 
       <section className="overview-grid">
-        <article className="card">
-          <h2>Events timeline</h2>
+        <article className="card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Signal pane</span>
+              <h2>Events timeline</h2>
+              <p className="workspace-pane-subtitle">Volume trend for the selected window, optimized for quick posture validation.</p>
+            </div>
+          </div>
           {!overview?.events_per_minute.length ? (
             <p className="meta">Пока нет данных в агрегате `events_per_minute_agg`.</p>
           ) : (
@@ -159,8 +174,14 @@ export default function OverviewPage() {
           )}
         </article>
 
-        <article className="card">
-          <h2>Events by severity</h2>
+        <article className="card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Distribution pane</span>
+              <h2>Events by severity</h2>
+              <p className="workspace-pane-subtitle">Criticality split for the current horizon to spot pressure at a glance.</p>
+            </div>
+          </div>
           {!overview?.severity_breakdown.length ? (
             <p className="meta">Нет severity breakdown за последние {overview?.window_hours ?? hours} часов.</p>
           ) : (
@@ -184,8 +205,14 @@ export default function OverviewPage() {
         </article>
       </section>
 
-      <section className="card">
-        <h2>Severity timeline</h2>
+      <section className="card workspace-pane">
+        <div className="workspace-pane-header">
+          <div className="workspace-pane-copy">
+            <span className="workspace-pane-kicker">Trend pane</span>
+            <h2>Severity timeline</h2>
+            <p className="workspace-pane-subtitle">Rolling severity pressure across the current window for escalation awareness.</p>
+          </div>
+        </div>
         {!overview?.severity_timeline.length ? (
           <p className="meta">Нет severity timeline за выбранный диапазон.</p>
         ) : (
@@ -207,8 +234,14 @@ export default function OverviewPage() {
       </section>
 
       <section className="overview-grid">
-        <article className="card">
-          <h2>Top source IPs</h2>
+        <article className="card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Exposure pane</span>
+              <h2>Top source IPs</h2>
+              <p className="workspace-pane-subtitle">High-traffic and high-threat sources for immediate hunting pivots.</p>
+            </div>
+          </div>
           {!overview?.top_source_ips.length ? (
             <p className="meta">Нет source IP c трафиком за последние {overview?.window_hours ?? hours} часов.</p>
           ) : (
@@ -233,8 +266,14 @@ export default function OverviewPage() {
           )}
         </article>
 
-        <article className="card">
-          <h2>Recent security events</h2>
+        <article className="card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Activity pane</span>
+              <h2>Recent security events</h2>
+              <p className="workspace-pane-subtitle">Fresh security-relevant activity that can be opened directly into hunt workflows.</p>
+            </div>
+          </div>
           {!overview?.recent_security_events.length ? (
             <p className="meta">Нет recent security events в `siem.events`.</p>
           ) : (
@@ -245,7 +284,9 @@ export default function OverviewPage() {
                   key={row.event_id}
                   className="recent-event-card"
                   onClick={() => {
-                    window.location.href = `/events?q=${encodeURIComponent(row.source_ip || row.host || row.source_type)}`;
+                    openOrFocusWorkspace("/events");
+                    window.history.replaceState(null, "", `/events?q=${encodeURIComponent(row.source_ip || row.host || row.source_type)}`);
+                    window.dispatchEvent(new PopStateEvent("popstate"));
                   }}
                 >
                   <header>
@@ -263,8 +304,14 @@ export default function OverviewPage() {
       </section>
 
       <section className="overview-grid">
-        <article className="card">
-          <h2>Top sources</h2>
+        <article className="card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Coverage pane</span>
+              <h2>Top sources</h2>
+              <p className="workspace-pane-subtitle">Source-type contribution to current traffic and security signal mix.</p>
+            </div>
+          </div>
           {!overview?.source_breakdown.length ? (
             <p className="meta">Нет source breakdown по агрегату.</p>
           ) : (
@@ -279,8 +326,14 @@ export default function OverviewPage() {
           )}
         </article>
 
-        <article className="card">
-          <h2>Stack health</h2>
+        <article className="card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Platform pane</span>
+              <h2>Stack health</h2>
+              <p className="workspace-pane-subtitle">Fast health readout for core services before jumping into deeper ops views.</p>
+            </div>
+          </div>
           {!stack ? (
             <p className="meta">Загрузка…</p>
           ) : (
@@ -308,20 +361,26 @@ export default function OverviewPage() {
         </article>
       </section>
 
-      <section className="card">
-        <h2>Deep-dive and fallbacks</h2>
+      <section className="card workspace-pane">
+        <div className="workspace-pane-header">
+          <div className="workspace-pane-copy">
+            <span className="workspace-pane-kicker">Deep-dive pane</span>
+            <h2>Deep-dive surfaces</h2>
+            <p className="workspace-pane-subtitle">Engineering and analytics surfaces kept nearby for validation and advanced analysis.</p>
+          </div>
+        </div>
         <div className="home-grid">
           <Link className="home-card" to="/infrastructure">
             <h2>Native infrastructure</h2>
-            <p>Наш собственный Prometheus-based экран: CPU, RAM, disk, network, containers и component status.</p>
+            <p>Host, network, container and component health in a native operator workflow.</p>
           </Link>
           <Link className="home-card" to="/dashboards">
-            <h2>Embedded dashboards</h2>
-            <p>Grafana остаётся внутри suite как fallback, пока мы переносим dashboard-ы в свой UI.</p>
+            <h2>Analytics hub</h2>
+            <p>Curated daily dashboards in the suite, with Grafana reserved for engineering deep-dives.</p>
           </Link>
           <a className="home-card" href={config?.links.grafana || "#"} target="_blank" rel="noreferrer">
             <h2>Grafana</h2>
-            <p>Explore, сложные инженерные панели и deep-dive по ClickHouse/Loki.</p>
+            <p>Explore mode, engineering panels and raw deep-dive views for ClickHouse, Loki and service internals.</p>
           </a>
           <a
             className="home-card"
@@ -329,12 +388,12 @@ export default function OverviewPage() {
             target="_blank"
             rel="noreferrer"
           >
-            <h2>Legacy overview dashboard</h2>
-            <p>Старый Grafana-обзор как резерв, пока мы наращиваем свой нативный экран.</p>
+            <h2>Reference overview</h2>
+            <p>Legacy Grafana overview kept as a comparison and fallback surface during native migration.</p>
           </a>
           <a className="home-card" href={config?.links.prometheus || "#"} target="_blank" rel="noreferrer">
             <h2>Prometheus</h2>
-            <p>Проверка PromQL, target health и инженерные deep-dive метрики.</p>
+            <p>PromQL validation, target health and engineering metrics for deep operational validation.</p>
           </a>
         </div>
       </section>

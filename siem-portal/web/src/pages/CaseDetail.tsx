@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { addComment, getCase, linkAlert, linkEvent, patchCase, type CaseDetail as CaseDetailT } from "../api";
 import { useActorState } from "../components/PageLayout";
+import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
+import { useWorkspaceShell } from "../components/WorkspaceShellContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 const STATUSES = ["new", "triaged", "investigating", "contained", "resolved", "closed"];
@@ -9,6 +11,8 @@ const RESOLUTIONS = ["true_positive", "false_positive", "benign", "informational
 
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { updateWorkspaceMeta } = useWorkspaceShell();
   const [data, setData] = useState<CaseDetailT | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const { actor, setActor } = useActorState();
@@ -17,30 +21,139 @@ export default function CaseDetail() {
   const [eventNote, setEventNote] = useState("");
   const [alertFp, setAlertFp] = useState("");
 
-  const load = () => {
+  const load = useCallback(() => {
     if (!id) return;
     setErr(null);
     getCase(id)
       .then(setData)
       .catch((e) => setErr(String(e)));
-  };
+  }, [id]);
 
   useEffect(() => {
     load();
-  }, [id]);
+  }, [load]);
+
+  useEffect(() => {
+    if (!id || !data) return;
+    updateWorkspaceMeta(`/cases/${id}`, {
+      label: data.display_key,
+      tabLabel: data.display_key,
+      title: `${data.display_key} - Case detail`,
+      subtitle: data.title || "Case detail workspace",
+      keywords: `${data.display_key} ${data.title} case detail`,
+    });
+  }, [data, id, updateWorkspaceMeta]);
+
+  const savePatch = useCallback(
+    async (patch: Record<string, unknown>) => {
+      if (!id) return;
+      try {
+        await patchCase(id, patch, actor);
+        load();
+      } catch (e) {
+        setErr(String(e));
+      }
+    },
+    [actor, id, load]
+  );
+
+  const pageCommands = useMemo<SuitePageCommand[]>(() => {
+    if (!data) return [];
+
+    const commands: SuitePageCommand[] = [
+      {
+        id: `case-detail:refresh:${data.id}`,
+        title: `Refresh ${data.display_key}`,
+        subtitle: "Reload this case workspace, including timeline and linked artifacts.",
+        section: "Current case",
+        keywords: `${data.display_key} refresh case`,
+        priority: 82,
+        run: load,
+      },
+      {
+        id: `case-detail:copy:${data.id}`,
+        title: `Copy ${data.display_key}`,
+        subtitle: "Copy the current case display key to the clipboard.",
+        section: "Current case",
+        keywords: `${data.display_key} copy`,
+        priority: 70,
+        run: () => navigator.clipboard.writeText(data.display_key),
+      },
+      {
+        id: `case-detail:investigate:${data.id}`,
+        title: "Open investigation workbench",
+        subtitle: "Continue from case detail into the investigation workspace.",
+        section: "Current case",
+        keywords: `${data.display_key} investigate workbench`,
+        priority: 100,
+        run: () => navigate(`/cases/${data.id}/investigate`),
+      },
+    ];
+
+    if (data.status !== "investigating") {
+      commands.push({
+        id: `case-detail:set-investigating:${data.id}`,
+        title: "Set case status to investigating",
+        subtitle: "Move this case into active investigation directly from the palette.",
+        section: "Current case",
+        keywords: `${data.display_key} status investigating`,
+        priority: 95,
+        run: () => void savePatch({ status: "investigating" }),
+      });
+    }
+    if (data.status !== "resolved") {
+      commands.push({
+        id: `case-detail:set-resolved:${data.id}`,
+        title: "Set case status to resolved",
+        subtitle: "Mark the current case as resolved from the palette.",
+        section: "Current case",
+        keywords: `${data.display_key} status resolved`,
+        priority: 88,
+        run: () => void savePatch({ status: "resolved" }),
+      });
+    }
+    if (data.assignee) {
+      commands.push({
+        id: `case-detail:assignee:${data.id}`,
+        title: `Search cases for @${data.assignee}`,
+        subtitle: "Open the queue filtered around the current case assignee.",
+        section: "Current case",
+        keywords: `${data.assignee} assignee cases`,
+        priority: 76,
+        run: () => navigate(`/cases?q=${encodeURIComponent(data.assignee || "")}`),
+      });
+    }
+    if (data.linked_events[0]?.event_id) {
+      commands.push({
+        id: `case-detail:event:${data.id}`,
+        title: "Open linked events in event search",
+        subtitle: "Pivot into native event search using the first linked event identifier.",
+        section: "Linked artifacts",
+        keywords: `${data.linked_events[0].event_id} linked event`,
+        priority: 84,
+        run: () => navigate(`/events?q=${encodeURIComponent(data.linked_events[0].event_id)}`),
+      });
+    }
+    if (data.linked_alerts[0]?.fingerprint) {
+      commands.push({
+        id: `case-detail:alert:${data.id}`,
+        title: "Copy first linked alert fingerprint",
+        subtitle: "Copy the first linked alert fingerprint from this case.",
+        section: "Linked artifacts",
+        keywords: `${data.linked_alerts[0].fingerprint} alert fingerprint`,
+        priority: 72,
+        run: () => navigator.clipboard.writeText(data.linked_alerts[0].fingerprint),
+      });
+    }
+
+    return commands;
+  }, [data, load, navigate, savePatch]);
+
+  usePublishPageCommands(pageCommands);
 
   if (!id) return <p>Некорректный URL</p>;
   if (err) return <p className="error">{err}</p>;
   if (!data) return <p className="meta">Загрузка…</p>;
-
-  const savePatch = async (patch: Record<string, unknown>) => {
-    try {
-      await patchCase(id, patch, actor);
-      load();
-    } catch (e) {
-      setErr(String(e));
-    }
-  };
 
   return (
     <div className="page-grid triage-page">

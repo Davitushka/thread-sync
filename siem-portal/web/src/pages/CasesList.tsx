@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { createCase, listCases, type Case } from "../api";
 import { useActorState } from "../components/PageLayout";
+import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
+import { useWorkspaceShell } from "../components/WorkspaceShellContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 function sevClass(s: string) {
@@ -9,6 +11,8 @@ function sevClass(s: string) {
 }
 
 export default function CasesList() {
+  const navigate = useNavigate();
+  const { openOrFocusWorkspace } = useWorkspaceShell();
   const [cases, setCases] = useState<Case[]>([]);
   const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
@@ -23,7 +27,7 @@ export default function CasesList() {
   const [newSev, setNewSev] = useState("medium");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     setErr(null);
     const params: Record<string, string> = {};
@@ -38,11 +42,11 @@ export default function CasesList() {
       })
       .catch((e) => setErr(String(e)))
       .finally(() => setLoading(false));
-  };
+  }, [status, severity, q]);
 
   useEffect(() => {
     load();
-  }, [status, severity]);
+  }, [load]);
 
   const submitNew = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +56,7 @@ export default function CasesList() {
       setModal(false);
       setNewTitle("");
       setNewDesc("");
-      window.location.href = `/cases/${c.id}`;
+      openOrFocusWorkspace(`/cases/${c.id}`);
     } catch (e) {
       setErr(String(e));
     }
@@ -70,6 +74,92 @@ export default function CasesList() {
       overdue: cases.filter((item) => item.due_at && new Date(item.due_at).getTime() < Date.now() && item.status !== "closed").length,
     };
   }, [cases]);
+
+  const pageCommands = useMemo<SuitePageCommand[]>(() => {
+    const commands: SuitePageCommand[] = [
+      {
+        id: "cases:refresh",
+        title: "Refresh case queue",
+        subtitle: "Reload the current case queue using the active queue filters.",
+        section: "Current case queue",
+        keywords: `cases refresh ${status} ${severity} ${q}`,
+        priority: 80,
+        run: load,
+      },
+      {
+        id: "cases:new",
+        title: "Open new case modal",
+        subtitle: "Open the case creation modal in the current queue workspace.",
+        section: "Current case queue",
+        keywords: "cases create new modal",
+        priority: 95,
+        run: () => setModal(true),
+      },
+    ];
+
+    if (status || severity || q.trim()) {
+      commands.push({
+        id: "cases:clear-filters",
+        title: "Clear case filters",
+        subtitle: "Reset status, severity and text search to show the full case queue.",
+        section: "Current case queue",
+        keywords: "cases clear filters reset",
+        priority: 90,
+        run: () => {
+          setStatus("");
+          setSeverity("");
+          setQ("");
+        },
+      });
+    }
+
+    if (selectedCase) {
+      commands.push(
+        {
+          id: `cases:copy:${selectedCase.id}`,
+          title: `Copy ${selectedCase.display_key}`,
+          subtitle: "Copy the selected case display key to the clipboard.",
+          section: "Selected case",
+          keywords: `${selectedCase.display_key} copy case`,
+          priority: 72,
+          run: () => navigator.clipboard.writeText(selectedCase.display_key),
+        },
+        {
+          id: `cases:detail:${selectedCase.id}`,
+          title: `Open ${selectedCase.display_key} detail`,
+          subtitle: "Open the structured case detail workspace for the selected case.",
+          section: "Selected case",
+          keywords: `${selectedCase.display_key} detail`,
+          priority: 100,
+          run: () => navigate(`/cases/${selectedCase.id}`),
+        },
+        {
+          id: `cases:investigate:${selectedCase.id}`,
+          title: `Investigate ${selectedCase.display_key}`,
+          subtitle: "Open the investigation workbench for the selected case.",
+          section: "Selected case",
+          keywords: `${selectedCase.display_key} investigate workbench`,
+          priority: 98,
+          run: () => navigate(`/cases/${selectedCase.id}/investigate`),
+        }
+      );
+      if (selectedCase.assignee) {
+        commands.push({
+          id: `cases:assignee:${selectedCase.id}`,
+          title: `Search cases for @${selectedCase.assignee}`,
+          subtitle: "Use the selected case assignee as the queue search query.",
+          section: "Selected case",
+          keywords: `${selectedCase.assignee} assignee cases`,
+          priority: 78,
+          run: () => setQ(selectedCase.assignee || ""),
+        });
+      }
+    }
+
+    return commands;
+  }, [load, status, severity, q, selectedCase, navigate]);
+
+  usePublishPageCommands(pageCommands);
 
   return (
     <div className="page-grid triage-page">
@@ -144,8 +234,14 @@ export default function CasesList() {
       </section>
 
       <section className="triage-grid">
-        <section className="card triage-card">
-          <h2>Case queue</h2>
+        <section className="card triage-card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Queue pane</span>
+              <h2>Case queue</h2>
+              <p className="workspace-pane-subtitle">Selection-oriented queue for ownership, due dates and severity pressure.</p>
+            </div>
+          </div>
           {loading ? (
             <p className="meta">Loading…</p>
           ) : !cases.length ? (
@@ -178,8 +274,14 @@ export default function CasesList() {
           )}
         </section>
 
-        <section className="card triage-card">
-          <h2>Case table</h2>
+        <section className="card triage-card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Table pane</span>
+              <h2>Case table</h2>
+              <p className="workspace-pane-subtitle">Structured grid for fast scanning and jumping into detail or investigation.</p>
+            </div>
+          </div>
           {loading ? (
             <p className="meta">Loading…</p>
           ) : (
@@ -223,8 +325,14 @@ export default function CasesList() {
         </section>
 
         <aside className="detail-panel">
-          <section className="card entity-stack">
-            <h2>Selected case</h2>
+          <section className="card entity-stack workspace-pane">
+            <div className="workspace-pane-header">
+              <div className="workspace-pane-copy">
+                <span className="workspace-pane-kicker">Detail pane</span>
+                <h2>Selected case</h2>
+                <p className="workspace-pane-subtitle">Operational summary, tags and fast pivots for the focused case.</p>
+              </div>
+            </div>
             {!selectedCase ? (
               <p className="meta">Выбери кейс слева.</p>
             ) : (

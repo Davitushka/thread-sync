@@ -13,6 +13,8 @@ export type DashboardEntry = {
   status: "native" | "hybrid" | "grafana";
   badge: string;
   spotlight?: string;
+  priority: "daily" | "support" | "bridge" | "deep-dive";
+  audience: "soc" | "platform" | "engineering";
 };
 
 export const DASHBOARD_GROUPS = ["SOC Core", "Platform", "Deep Dive"] as const;
@@ -36,6 +38,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     status: "native",
     badge: "Daily cockpit",
     spotlight: "Native",
+    priority: "daily",
+    audience: "soc",
   },
   {
     id: "detections",
@@ -47,6 +51,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     status: "native",
     badge: "Engine operations",
     spotlight: "Native",
+    priority: "daily",
+    audience: "soc",
   },
   {
     id: "alerts",
@@ -58,6 +64,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     status: "native",
     badge: "Triage queue",
     spotlight: "Native",
+    priority: "daily",
+    audience: "soc",
   },
   {
     id: "workbench",
@@ -68,6 +76,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     path: "/cases",
     status: "native",
     badge: "Investigation flow",
+    priority: "support",
+    audience: "soc",
   },
   {
     id: "infrastructure",
@@ -80,6 +90,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     status: "native",
     badge: "Platform health",
     spotlight: "Native",
+    priority: "support",
+    audience: "platform",
   },
   {
     id: "operations",
@@ -92,6 +104,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     status: "native",
     badge: "Pipeline center",
     spotlight: "Native",
+    priority: "support",
+    audience: "platform",
   },
   {
     id: "validation",
@@ -102,6 +116,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     uid: "siem-validation",
     status: "hybrid",
     badge: "Validation",
+    priority: "bridge",
+    audience: "platform",
   },
   {
     id: "data-quality",
@@ -114,6 +130,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     status: "native",
     badge: "Trust layer",
     spotlight: "Native",
+    priority: "support",
+    audience: "platform",
   },
   {
     id: "clickhouse-data",
@@ -124,6 +142,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     uid: "ch-data-analysis-sql",
     status: "grafana",
     badge: "SQL deep dive",
+    priority: "deep-dive",
+    audience: "engineering",
   },
   {
     id: "clickhouse-query",
@@ -134,6 +154,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     uid: "ch-query-analysis-sql",
     status: "grafana",
     badge: "Query profiling",
+    priority: "deep-dive",
+    audience: "engineering",
   },
   {
     id: "correlator",
@@ -144,6 +166,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     uid: "siem-correlator-metrics",
     status: "grafana",
     badge: "Engine deep dive",
+    priority: "deep-dive",
+    audience: "engineering",
   },
   {
     id: "prometheus",
@@ -154,6 +178,8 @@ export const DASHBOARDS: DashboardEntry[] = [
     uid: "siem-prometheus-stats",
     status: "grafana",
     badge: "Observability backend",
+    priority: "deep-dive",
+    audience: "engineering",
   },
 ];
 

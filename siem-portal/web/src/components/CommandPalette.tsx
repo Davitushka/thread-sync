@@ -3,7 +3,9 @@ import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { listCases, uiConfig, type Case, type UiConfig } from "../api";
 import { shortDateTime } from "../dashboard-utils";
 import { DASHBOARDS, grafanaDashboardUrl } from "../dashboard-catalog";
-import { resolveHeaderMeta, SUITE_NAV_ITEMS } from "../suite-meta";
+import { resolveWorkspaceMeta, SUITE_NAV_GROUPS, SUITE_NAV_ITEMS } from "../suite-meta";
+import { useSuiteCommandContext } from "./SuiteCommandContext";
+import { useWorkspaceShell } from "./WorkspaceShellContext";
 
 type CommandAction =
   | {
@@ -12,6 +14,7 @@ type CommandAction =
       subtitle: string;
       section: string;
       keywords: string;
+      priority?: number;
       run: () => void;
     }
   | {
@@ -20,6 +23,7 @@ type CommandAction =
       subtitle: string;
       section: string;
       keywords: string;
+      priority?: number;
       href: string;
       external?: boolean;
     };
@@ -65,9 +69,23 @@ type Props = {
   actor: string;
 };
 
+const GROUP_LABELS = new Map(SUITE_NAV_GROUPS.map((group) => [group.id, group.label]));
+
 export default function CommandPalette({ actor }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { pageCommands } = useSuiteCommandContext();
+  const {
+    tabs,
+    activePath,
+    activeWorkspace,
+    recentPaths,
+    openOrFocusWorkspace,
+    closeWorkspace,
+    pinWorkspace,
+    unpinWorkspace,
+    reopenRecentWorkspace,
+  } = useWorkspaceShell();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -107,9 +125,7 @@ export default function CommandPalette({ actor }: Props) {
         setOpen((value) => !value);
         return;
       }
-      if (!openRef.current) {
-        return;
-      }
+      if (!openRef.current) return;
       if (event.key === "Escape") {
         event.preventDefault();
         setOpen(false);
@@ -148,71 +164,145 @@ export default function CommandPalette({ actor }: Props) {
   }, [casesLoaded, open]);
 
   const queryValue = normalize(query);
-
-  const currentMeta = useMemo(() => resolveHeaderMeta(location.pathname), [location.pathname]);
   const context = useMemo(() => routeContext(location.pathname, location.search), [location.pathname, location.search]);
+  const activeTab = tabs.find((tab) => tab.path === activePath) ?? null;
+
+  const openWorkspaceUrl = (path: string, fullUrl?: string) => {
+    openOrFocusWorkspace(path);
+    if (fullUrl && fullUrl !== path) {
+      navigate(fullUrl);
+    }
+  };
 
   const actions = useMemo<CommandAction[]>(() => {
     const items: CommandAction[] = [];
+
+    items.push({
+      id: "workspace:current",
+      title: `Workspace: ${activeWorkspace.title}`,
+      subtitle: activeWorkspace.subtitle,
+      section: "Current workspace",
+      keywords: `${location.pathname} ${activeWorkspace.keywords}`,
+      priority: 5,
+      run: () => setOpen(false),
+    });
 
     items.push(
       ...SUITE_NAV_ITEMS.map((item) => ({
         id: `nav:${item.to}`,
         title: `Open ${item.label}`,
         subtitle: item.description,
-        section: "Navigate",
-        keywords: `${item.label} route page ${item.to}`,
-        run: () => {
-          navigate(item.to);
-          setOpen(false);
-        },
+        section: GROUP_LABELS.get(item.groupId) ?? "Explorer",
+        keywords: `${item.keywords} ${item.to}`,
+        priority: item.defaultPinned ? 72 : 60,
+        run: () => openOrFocusWorkspace(item.to),
       }))
     );
 
-    items.push({
-      id: "nav:current",
-      title: `You are in ${currentMeta.title}`,
-      subtitle: currentMeta.subtitle,
-      section: "Context",
-      keywords: `${location.pathname} current route`,
-      run: () => setOpen(false),
-    });
+    items.push(
+      ...tabs.map((tab) => ({
+        id: `tab:${tab.path}`,
+        title: `${tab.path === activePath ? "Focus" : "Switch to"} ${tab.tabLabel}`,
+        subtitle: `${tab.pinned ? "Pinned" : "Open"} tab in ${GROUP_LABELS.get(tab.groupId) ?? "workspace"}.`,
+        section: "Open tabs",
+        keywords: `${tab.tabLabel} ${tab.path} open tab ${tab.groupId}`,
+        priority: tab.path === activePath ? 96 : 90,
+        run: () => openOrFocusWorkspace(tab.path),
+      }))
+    );
 
-    if (context.overview || context.infrastructure || context.operations || context.dataQuality) {
+    if (activeTab) {
       items.push({
-        id: `context:refresh:${location.pathname}`,
-        title: "Refresh current workspace",
-        subtitle: `Reload ${currentMeta.title.toLowerCase()} and keep the current route context.`,
-        section: "On this page",
-        keywords: `refresh reload ${location.pathname}`,
-        run: () => {
-          window.location.reload();
-        },
+        id: `tab:pin:${activePath}`,
+        title: activeTab.pinned ? "Unpin active tab" : "Pin active tab",
+        subtitle: activeTab.pinned
+          ? "Remove the active workspace from the pinned tab set."
+          : "Keep the active workspace pinned in the desktop shell.",
+        section: "Open tabs",
+        keywords: `${activeTab.tabLabel} pin unpin tab`,
+        priority: 97,
+        run: () => (activeTab.pinned ? unpinWorkspace(activePath) : pinWorkspace(activePath)),
       });
+
+      if (activeTab.closable && !activeTab.pinned) {
+        items.push({
+          id: `tab:close:${activePath}`,
+          title: "Close active tab",
+          subtitle: "Close the active workspace and focus the nearest remaining tab.",
+          section: "Open tabs",
+          keywords: `${activeTab.tabLabel} close tab`,
+          priority: 94,
+          run: () => closeWorkspace(activePath),
+        });
+      }
     }
+
+    items.push(
+      ...recentPaths
+        .filter((path) => path !== activePath)
+        .slice(0, 6)
+        .map((path) => {
+          const meta = resolveWorkspaceMeta(path);
+          return {
+            id: `recent:${path}`,
+            title: `Reopen ${meta.tabLabel}`,
+            subtitle: `Restore the recent workspace for ${meta.title.toLowerCase()}.`,
+            section: "Recent workspaces",
+            keywords: `${meta.keywords} ${path} recent reopen`,
+            priority: 74,
+            run: () => reopenRecentWorkspace(path),
+          };
+        })
+    );
+
+    items.push(
+      ...pageCommands.flatMap((command) => {
+        const base = {
+          id: command.id,
+          title: command.title,
+          subtitle: command.subtitle,
+          section: command.section || "Current page",
+          keywords: command.keywords || "",
+          priority: command.priority ?? 90,
+        };
+        if (command.href) {
+          return [{ ...base, href: command.href, external: command.external }];
+        }
+        if (command.run) {
+          return [{ ...base, run: () => void command.run?.() }];
+        }
+        return [];
+      })
+    );
+
+    items.push({
+      id: `context:refresh:${location.pathname}`,
+      title: "Refresh current workspace",
+      subtitle: `Reload ${activeWorkspace.title.toLowerCase()} and keep the current route context.`,
+      section: "Current workspace",
+      keywords: `refresh reload ${location.pathname}`,
+      priority: 68,
+      run: () => window.location.reload(),
+    });
 
     if (context.overview) {
       items.push({
         id: "context:overview-ops",
         title: "Open operations center",
         subtitle: "Pivot from the SOC overview to the native pipeline operations workspace.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "overview operations center pipeline",
-        run: () => {
-          navigate("/operations");
-          setOpen(false);
-        },
+        priority: 82,
+        run: () => openOrFocusWorkspace("/operations"),
       });
       items.push({
         id: "context:overview-quality",
         title: "Open data quality",
         subtitle: "Jump from the overview into the trust layer for completeness and ingest lag.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "overview data quality trust",
-        run: () => {
-          navigate("/data-quality");
-          setOpen(false);
-        },
+        priority: 81,
+        run: () => openOrFocusWorkspace("/data-quality"),
       });
     }
 
@@ -221,12 +311,10 @@ export default function CommandPalette({ actor }: Props) {
         id: "context:infra-ops",
         title: "Switch to operations center",
         subtitle: "Move from host-level health to pipeline and service flow monitoring.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "infrastructure operations pipeline",
-        run: () => {
-          navigate("/operations");
-          setOpen(false);
-        },
+        priority: 80,
+        run: () => openOrFocusWorkspace("/operations"),
       });
     }
 
@@ -235,19 +323,18 @@ export default function CommandPalette({ actor }: Props) {
         id: "context:ops-quality",
         title: "Open data quality view",
         subtitle: "Pivot from throughput and uptime into trust/completeness signals.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "operations data quality trust",
-        run: () => {
-          navigate("/data-quality");
-          setOpen(false);
-        },
+        priority: 80,
+        run: () => openOrFocusWorkspace("/data-quality"),
       });
       items.push({
         id: "context:ops-prom",
         title: "Open Prometheus for operations deep-dive",
         subtitle: "Use raw PromQL when the native operations charts are not enough.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "operations prometheus promql",
+        priority: 70,
         href: config?.links.prometheus || "#",
         external: true,
       });
@@ -258,23 +345,19 @@ export default function CommandPalette({ actor }: Props) {
         id: "context:quality-events",
         title: "Inspect raw events behind quality issues",
         subtitle: "Jump into native event search to validate source IP completeness and lag suspicions.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "data quality events inspect",
-        run: () => {
-          navigate("/events");
-          setOpen(false);
-        },
+        priority: 80,
+        run: () => openOrFocusWorkspace("/events"),
       });
       items.push({
         id: "context:quality-ops",
         title: "Return to operations center",
         subtitle: "Move back to service uptime and throughput after trust analysis.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "data quality operations",
-        run: () => {
-          navigate("/operations");
-          setOpen(false);
-        },
+        priority: 79,
+        run: () => openOrFocusWorkspace("/operations"),
       });
     }
 
@@ -283,24 +366,20 @@ export default function CommandPalette({ actor }: Props) {
         id: "context:events-clear",
         title: "Clear event search filters",
         subtitle: "Reset the current event route back to the base search screen.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "events clear filters search",
-        run: () => {
-          navigate("/events");
-          setOpen(false);
-        },
+        priority: 76,
+        run: () => openWorkspaceUrl("/events"),
       });
       if (context.eventQuery) {
         items.push({
           id: "context:events-repeat",
           title: `Repeat current event search for "${context.eventQuery}"`,
           subtitle: "Keep the current route query but jump directly back into the search view.",
-          section: "On this page",
+          section: "Current workspace",
           keywords: `events query ${context.eventQuery}`,
-          run: () => {
-            navigate(`/events?q=${encodeURIComponent(context.eventQuery)}`);
-            setOpen(false);
-          },
+          priority: 75,
+          run: () => openWorkspaceUrl("/events", `/events?q=${encodeURIComponent(context.eventQuery)}`),
         });
       }
     }
@@ -310,12 +389,10 @@ export default function CommandPalette({ actor }: Props) {
         id: "context:alerts-events",
         title: "Pivot from alerts to event search",
         subtitle: "Move from triage inbox to raw event hunt for validation and context.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "alerts events pivot",
-        run: () => {
-          navigate("/events");
-          setOpen(false);
-        },
+        priority: 76,
+        run: () => openOrFocusWorkspace("/events"),
       });
     }
 
@@ -324,25 +401,10 @@ export default function CommandPalette({ actor }: Props) {
         id: "context:detections-alerts",
         title: "Open alert inbox from detections",
         subtitle: "Move from firing rules to the triage queue.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: "detections alerts triage",
-        run: () => {
-          navigate("/alerts");
-          setOpen(false);
-        },
-      });
-    }
-
-    if (context.cases) {
-      items.push({
-        id: "context:cases-new",
-        title: "Open case queue and create a new case",
-        subtitle: "Use the queue workspace with the case modal and actor context.",
-        section: "On this page",
-        keywords: "cases create new",
-        run: () => {
-          setOpen(false);
-        },
+        priority: 76,
+        run: () => openOrFocusWorkspace("/alerts"),
       });
     }
 
@@ -351,12 +413,10 @@ export default function CommandPalette({ actor }: Props) {
         id: `context:case-investigate:${context.caseDetail.params.id}`,
         title: "Open investigation workbench",
         subtitle: "Continue from case detail into the investigation workspace.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: `case ${context.caseDetail.params.id} investigate`,
-        run: () => {
-          navigate(`/cases/${context.caseDetail?.params.id}/investigate`);
-          setOpen(false);
-        },
+        priority: 84,
+        run: () => openOrFocusWorkspace(`/cases/${context.caseDetail?.params.id}/investigate`),
       });
     }
 
@@ -365,12 +425,10 @@ export default function CommandPalette({ actor }: Props) {
         id: `context:investigation-back:${context.investigation.params.id}`,
         title: "Back to case detail",
         subtitle: "Return from investigation to structured case management.",
-        section: "On this page",
+        section: "Current workspace",
         keywords: `investigation case detail ${context.investigation.params.id}`,
-        run: () => {
-          navigate(`/cases/${context.investigation?.params.id}`);
-          setOpen(false);
-        },
+        priority: 84,
+        run: () => openOrFocusWorkspace(`/cases/${context.investigation?.params.id}`),
       });
     }
 
@@ -382,10 +440,8 @@ export default function CommandPalette({ actor }: Props) {
           subtitle: `${entry.badge}. ${entry.description}`,
           section: "Dashboards",
           keywords: `${entry.group} ${entry.status} ${entry.badge}`,
-          run: () => {
-            navigate(entry.path);
-            setOpen(false);
-          },
+          priority: 62,
+          run: () => openOrFocusWorkspace(entry.path || "/dashboards"),
         });
       } else if (entry.kind === "grafana" && entry.uid && config?.links.grafana) {
         const href = grafanaDashboardUrl(config.links.grafana, entry.uid, "now-24h", false);
@@ -395,6 +451,7 @@ export default function CommandPalette({ actor }: Props) {
           subtitle: `${entry.badge}. ${entry.description}`,
           section: "Dashboards",
           keywords: `${entry.group} grafana ${entry.uid}`,
+          priority: 58,
           href,
           external: true,
         });
@@ -408,6 +465,7 @@ export default function CommandPalette({ actor }: Props) {
         subtitle: "Jump into the full dashboard catalog and advanced exploration.",
         section: "External tools",
         keywords: "grafana dashboards root",
+        priority: 56,
         href: config.links.grafana,
         external: true,
       });
@@ -419,6 +477,7 @@ export default function CommandPalette({ actor }: Props) {
         subtitle: "Inspect raw metrics and PromQL output directly.",
         section: "External tools",
         keywords: "prometheus metrics query",
+        priority: 56,
         href: config.links.prometheus,
         external: true,
       });
@@ -430,6 +489,7 @@ export default function CommandPalette({ actor }: Props) {
         subtitle: "Check silences, routes and raw alert payloads.",
         section: "External tools",
         keywords: "alertmanager silences routing",
+        priority: 56,
         href: config.links.alertmanager,
         external: true,
       });
@@ -441,6 +501,7 @@ export default function CommandPalette({ actor }: Props) {
         subtitle: "Inspect the standalone case-management backend.",
         section: "External tools",
         keywords: "case management service backend",
+        priority: 56,
         href: config.links.case_management,
         external: true,
       });
@@ -449,13 +510,11 @@ export default function CommandPalette({ actor }: Props) {
     items.push({
       id: "action:new-case",
       title: "Go to case queue and create a new case",
-      subtitle: `Current actor: ${actor || "analyst"}. Use the case modal from the queue view.`,
+      subtitle: `Current actor: ${actor || "analyst"}. Open the response workspace and use the case modal.`,
       section: "Quick actions",
       keywords: `new case create ${actor}`,
-      run: () => {
-        navigate("/cases");
-        setOpen(false);
-      },
+      priority: 73,
+      run: () => openOrFocusWorkspace("/cases"),
     });
 
     items.push({
@@ -464,13 +523,13 @@ export default function CommandPalette({ actor }: Props) {
       subtitle: queryValue ? `Search later for "${queryValue}" with native pivots.` : "Start from native event search and investigation pivots.",
       section: "Quick actions",
       keywords: "event search hunt clickhouse",
+      priority: 72,
       run: () => {
         if (queryValue) {
-          navigate(`/events?q=${encodeURIComponent(queryValue)}`);
+          openWorkspaceUrl("/events", `/events?q=${encodeURIComponent(queryValue)}`);
         } else {
-          navigate("/events");
+          openOrFocusWorkspace("/events");
         }
-        setOpen(false);
       },
     });
 
@@ -481,10 +540,8 @@ export default function CommandPalette({ actor }: Props) {
         subtitle: `${item.title} · ${item.status} · ${item.severity} · updated ${shortDateTime(item.updated_at)}`,
         section: "Recent cases",
         keywords: `${item.display_key} ${item.title} ${item.severity} ${item.status} ${item.assignee ?? ""}`,
-        run: () => {
-          navigate(`/cases/${item.id}`);
-          setOpen(false);
-        },
+        priority: 78,
+        run: () => openOrFocusWorkspace(`/cases/${item.id}`),
       });
       items.push({
         id: `case-investigate:${item.id}`,
@@ -492,22 +549,21 @@ export default function CommandPalette({ actor }: Props) {
         subtitle: `Open the investigation workbench for ${item.title}.`,
         section: "Recent cases",
         keywords: `${item.display_key} investigation workbench`,
-        run: () => {
-          navigate(`/cases/${item.id}/investigate`);
-          setOpen(false);
-        },
+        priority: 77,
+        run: () => openOrFocusWorkspace(`/cases/${item.id}/investigate`),
       });
     }
 
     return items;
   }, [
+    activePath,
+    activeTab,
+    activeWorkspace,
     actor,
     config,
     context.alerts,
     context.caseDetail,
-    context.cases,
     context.dataQuality,
-    context.dashboards,
     context.detections,
     context.eventQuery,
     context.events,
@@ -515,21 +571,33 @@ export default function CommandPalette({ actor }: Props) {
     context.investigation,
     context.operations,
     context.overview,
-    currentMeta.subtitle,
-    currentMeta.title,
     location.pathname,
+    location.search,
     navigate,
+    openOrFocusWorkspace,
+    pageCommands,
+    pinWorkspace,
     queryValue,
     recentCases,
+    recentPaths,
+    reopenRecentWorkspace,
+    closeWorkspace,
+    unpinWorkspace,
+    tabs,
   ]);
 
   const filtered = useMemo(() => {
     return actions
       .map((action) => ({ action, score: scoreCommand(queryValue, action) }))
       .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score || a.action.title.localeCompare(b.action.title))
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          (b.action.priority ?? 0) - (a.action.priority ?? 0) ||
+          a.action.title.localeCompare(b.action.title)
+      )
       .map((item) => item.action)
-      .slice(0, 18);
+      .slice(0, 20);
   }, [actions, queryValue]);
 
   useEffect(() => {
@@ -556,6 +624,7 @@ export default function CommandPalette({ actor }: Props) {
           setOpen(false);
         } else {
           current.run();
+          setOpen(false);
         }
       }
     };
@@ -572,7 +641,7 @@ export default function CommandPalette({ actor }: Props) {
         <div className="command-palette-head">
           <div>
             <strong>Unified command palette</strong>
-            <p>Keyboard-first navigation, pivots and external tool access across the suite.</p>
+            <p>Keyboard-first navigation, workspace control and operational pivots across the suite.</p>
           </div>
           <span className="command-kbd">Esc</span>
         </div>
@@ -583,7 +652,7 @@ export default function CommandPalette({ actor }: Props) {
             ref={inputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="overview, alerts, grafana, case 42, investigate..."
+            placeholder="overview, tabs, close tab, alerts, case SOC-001..."
           />
         </label>
 
@@ -591,6 +660,7 @@ export default function CommandPalette({ actor }: Props) {
           <span className="token">Ctrl+K open</span>
           <span className="token">Enter run</span>
           <span className="token">Arrows move</span>
+          <span className="token">{tabs.length} tabs</span>
           {casesError ? <span className="token">Recent cases unavailable</span> : null}
         </div>
 
@@ -610,6 +680,7 @@ export default function CommandPalette({ actor }: Props) {
                       setOpen(false);
                     } else {
                       item.run();
+                      setOpen(false);
                     }
                   }}
                 >
@@ -627,7 +698,7 @@ export default function CommandPalette({ actor }: Props) {
           ) : (
             <div className="command-empty">
               <strong>No matching commands</strong>
-              <p>Try route names, tools, dashboards, or a case identifier.</p>
+              <p>Try workspace names, tabs, dashboards, external tools, or a case identifier.</p>
             </div>
           )}
         </div>

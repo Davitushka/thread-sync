@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { getCase, getInvestigation, type CaseDetail, type Investigation, type LinkedAlert, type LinkedEvent, type TimelineEntry } from "../api";
+import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
+import { useWorkspaceShell } from "../components/WorkspaceShellContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 function sevClass(s: string) {
@@ -62,6 +64,8 @@ async function copyText(text: string) {
 
 export default function InvestigationWorkbench() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { updateWorkspaceMeta } = useWorkspaceShell();
   const [data, setData] = useState<CaseDetail | null>(null);
   const [inv, setInv] = useState<Investigation | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -84,6 +88,104 @@ export default function InvestigationWorkbench() {
 
   const feed = useMemo(() => (data ? buildFeed(data) : []), [data]);
   const grafanaBase = useMemo(() => grafanaOrigin(inv), [inv]);
+
+  useEffect(() => {
+    if (!id || !data) return;
+    updateWorkspaceMeta(`/cases/${id}/investigate`, {
+      label: `${data.display_key} investigation`,
+      tabLabel: `${data.display_key} Investigate`,
+      title: `${data.display_key} - Investigation`,
+      subtitle: data.title || "Investigation workbench",
+      keywords: `${data.display_key} ${data.title} investigation`,
+    });
+  }, [data, id, updateWorkspaceMeta]);
+
+  const pageCommands = useMemo<SuitePageCommand[]>(() => {
+    if (!data) return [];
+
+    const commands: SuitePageCommand[] = [
+      {
+        id: `investigation:case:${data.id}`,
+        title: `Open ${data.display_key} case detail`,
+        subtitle: "Return to the structured case workspace from investigation mode.",
+        section: "Current investigation",
+        keywords: `${data.display_key} case detail`,
+        priority: 92,
+        run: () => navigate(`/cases/${data.id}`),
+      },
+      {
+        id: `investigation:copy:${data.id}`,
+        title: `Copy ${data.display_key}`,
+        subtitle: "Copy the active case display key to the clipboard.",
+        section: "Current investigation",
+        keywords: `${data.display_key} copy`,
+        priority: 70,
+        run: () => navigator.clipboard.writeText(data.display_key),
+      },
+    ];
+
+    if (inv?.runbook_url) {
+      commands.push({
+        id: `investigation:runbook:${data.id}`,
+        title: "Open attached runbook",
+        subtitle: "Open the investigation runbook in a separate tab.",
+        section: "Current investigation",
+        keywords: `${data.display_key} runbook`,
+        priority: 95,
+        href: inv.runbook_url,
+        external: true,
+      });
+    }
+    if (inv?.grafana?.siem_overview) {
+      commands.push({
+        id: `investigation:grafana:${data.id}`,
+        title: "Open SIEM dashboard",
+        subtitle: "Open the linked investigation Grafana overview in a separate tab.",
+        section: "Current investigation",
+        keywords: `${data.display_key} grafana siem dashboard`,
+        priority: 88,
+        href: inv.grafana.siem_overview,
+        external: true,
+      });
+    }
+    if (inv?.suggested_clickhouse_queries?.[0]?.sql) {
+      commands.push({
+        id: `investigation:copy-sql:${data.id}`,
+        title: `Copy SQL: ${inv.suggested_clickhouse_queries[0].title}`,
+        subtitle: "Copy the first suggested ClickHouse query for quick analyst pivots.",
+        section: "ClickHouse pivots",
+        keywords: `${inv.suggested_clickhouse_queries[0].title} sql clickhouse`,
+        priority: 86,
+        run: () => void copyText(inv.suggested_clickhouse_queries[0].sql),
+      });
+    }
+    if (data.linked_alerts[0]?.fingerprint) {
+      commands.push({
+        id: `investigation:alert-fp:${data.id}`,
+        title: "Copy first linked alert fingerprint",
+        subtitle: "Copy the first linked alert fingerprint from this investigation.",
+        section: "Alert context",
+        keywords: `${data.linked_alerts[0].fingerprint} alert fingerprint`,
+        priority: 74,
+        run: () => navigator.clipboard.writeText(data.linked_alerts[0].fingerprint),
+      });
+    }
+    if (data.linked_events[0]?.event_id) {
+      commands.push({
+        id: `investigation:event:${data.id}`,
+        title: "Search first linked event",
+        subtitle: "Pivot into native event search using the first linked event identifier.",
+        section: "Alert context",
+        keywords: `${data.linked_events[0].event_id} event search`,
+        priority: 82,
+        run: () => navigate(`/events?q=${encodeURIComponent(data.linked_events[0].event_id)}`),
+      });
+    }
+
+    return commands;
+  }, [data, inv, navigate]);
+
+  usePublishPageCommands(pageCommands);
 
   if (!id) return <p>Некорректный URL</p>;
   if (err && !data) return <p className="error">{err}</p>;

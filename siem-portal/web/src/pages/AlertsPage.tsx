@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { createCase, getAlertsOverview, linkAlert, type AlertsOverview } from "../api";
 import { NativeBarChart } from "../components/NativeCharts";
 import { useActorState } from "../components/PageLayout";
+import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 function severity(value?: string) {
@@ -10,6 +11,7 @@ function severity(value?: string) {
 }
 
 export default function AlertsPage() {
+  const navigate = useNavigate();
   const { actor, setActor } = useActorState();
   const [data, setData] = useState<AlertsOverview | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -20,17 +22,20 @@ export default function AlertsPage() {
   const [sourceFilter, setSourceFilter] = useState("");
   const [q, setQ] = useState("");
 
-  const load = () =>
-    getAlertsOverview()
-      .then((payload) => {
-        setData(payload);
-        setSelected((current) => current ?? payload.alerts[0]?.fingerprint ?? null);
-      })
-      .catch((e) => setErr(String(e)));
+  const load = useCallback(
+    () =>
+      getAlertsOverview()
+        .then((payload) => {
+          setData(payload);
+          setSelected((current) => current ?? payload.alerts[0]?.fingerprint ?? null);
+        })
+        .catch((e) => setErr(String(e))),
+    []
+  );
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   const filteredAlerts = useMemo(() => {
     const rows = data?.alerts ?? [];
@@ -60,7 +65,7 @@ export default function AlertsPage() {
     return Array.from(new Set((data?.alerts ?? []).map((alert) => alert.source))).sort((a, b) => a.localeCompare(b));
   }, [data]);
 
-  const promote = async () => {
+  const promote = useCallback(async () => {
     if (!selectedAlert) return;
     setCreating(selectedAlert.fingerprint);
     setErr(null);
@@ -96,7 +101,99 @@ export default function AlertsPage() {
     } finally {
       setCreating(null);
     }
-  };
+  }, [actor, load, selectedAlert]);
+
+  const pageCommands = useMemo<SuitePageCommand[]>(() => {
+    const commands: SuitePageCommand[] = [
+      {
+        id: "alerts:refresh",
+        title: "Refresh alert inbox",
+        subtitle: "Reload the native alert queue and keep the current selection when possible.",
+        section: "Current alert inbox",
+        keywords: "alerts refresh reload",
+        priority: 80,
+        run: load,
+      },
+    ];
+
+    if (severityFilter || stateFilter || sourceFilter || q.trim()) {
+      commands.push({
+        id: "alerts:clear-filters",
+        title: "Clear alert filters",
+        subtitle: "Reset severity, state, source and search filters back to the full inbox.",
+        section: "Current alert inbox",
+        keywords: "alerts clear filters reset",
+        priority: 85,
+        run: () => {
+          setSeverityFilter("");
+          setStateFilter("");
+          setSourceFilter("");
+          setQ("");
+        },
+      });
+    }
+
+    if (selectedAlert) {
+      commands.push(
+        {
+          id: `alerts:promote:${selectedAlert.fingerprint}`,
+          title: `Promote ${selectedAlert.name} to case`,
+          subtitle: "Create a case from the selected alert and link the alert artifact automatically.",
+          section: "Selected alert",
+          keywords: `${selectedAlert.name} promote case ${selectedAlert.rule_id ?? ""}`,
+          priority: 100,
+          run: promote,
+        },
+        {
+          id: `alerts:copy:${selectedAlert.fingerprint}`,
+          title: "Copy selected alert fingerprint",
+          subtitle: "Copy the selected alert fingerprint to the clipboard for pivots or sharing.",
+          section: "Selected alert",
+          keywords: `${selectedAlert.fingerprint} copy fingerprint`,
+          priority: 75,
+          run: () => navigator.clipboard.writeText(selectedAlert.fingerprint),
+        }
+      );
+
+      if (selectedAlert.source_ip) {
+        commands.push({
+          id: `alerts:ip:${selectedAlert.fingerprint}`,
+          title: `Search events for ${selectedAlert.source_ip}`,
+          subtitle: "Pivot into native event search using the selected alert source IP.",
+          section: "Selected alert",
+          keywords: `${selectedAlert.source_ip} events ip alert`,
+          priority: 95,
+          run: () => navigate(`/events?source_ip=${encodeURIComponent(selectedAlert.source_ip || "")}`),
+        });
+      }
+      if (selectedAlert.rule_id) {
+        commands.push({
+          id: `alerts:rule:${selectedAlert.fingerprint}`,
+          title: `Search events for rule ${selectedAlert.rule_id}`,
+          subtitle: "Pivot into native event search using the selected alert rule identifier.",
+          section: "Selected alert",
+          keywords: `${selectedAlert.rule_id} rule events alert`,
+          priority: 90,
+          run: () => navigate(`/events?q=${encodeURIComponent(selectedAlert.rule_id || "")}`),
+        });
+      }
+      if (selectedAlert.user_id) {
+        commands.push({
+          id: `alerts:user:${selectedAlert.fingerprint}`,
+          title: `Search events for user ${selectedAlert.user_id}`,
+          subtitle: "Pivot into native event search using the selected alert user identifier.",
+          section: "Selected alert",
+          keywords: `${selectedAlert.user_id} user events alert`,
+          priority: 90,
+          run: () => navigate(`/events?user_id=${encodeURIComponent(selectedAlert.user_id || "")}`),
+        });
+      }
+    }
+
+    return commands;
+  }, [load, severityFilter, stateFilter, sourceFilter, q, selectedAlert, promote, navigate]);
+
+  usePublishPageCommands(pageCommands);
 
   return (
     <div className="page-grid triage-page">
@@ -190,8 +287,14 @@ export default function AlertsPage() {
       </section>
 
       <section className="triage-grid">
-        <article className="card triage-card">
-          <h2>Severity mix</h2>
+        <article className="card triage-card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Analytics pane</span>
+              <h2>Severity mix</h2>
+              <p className="workspace-pane-subtitle">Live severity pressure and top emitting sources for the current inbox.</p>
+            </div>
+          </div>
           {!data?.severity_breakdown.length ? (
             <p className="meta">Нет данных severity breakdown.</p>
           ) : (
@@ -224,11 +327,12 @@ export default function AlertsPage() {
           )}
         </article>
 
-        <article className="card triage-card">
-          <div className="dashboard-hero">
-            <div>
+        <article className="card triage-card workspace-pane">
+          <div className="workspace-pane-header">
+            <div className="workspace-pane-copy">
+              <span className="workspace-pane-kicker">Inbox pane</span>
               <h2>Alert queue</h2>
-              <p className="meta">Показывает {filteredAlerts.length} alert rows после фильтрации.</p>
+              <p className="workspace-pane-subtitle">Showing {filteredAlerts.length} alert rows after the current filter set.</p>
             </div>
           </div>
           {!filteredAlerts.length ? (
@@ -263,8 +367,14 @@ export default function AlertsPage() {
         </article>
 
         <aside className="detail-panel">
-          <section className="card triage-card detail-section">
-            <h2>Selected alert</h2>
+          <section className="card triage-card detail-section workspace-pane">
+            <div className="workspace-pane-header">
+              <div className="workspace-pane-copy">
+                <span className="workspace-pane-kicker">Detail pane</span>
+                <h2>Selected alert</h2>
+                <p className="workspace-pane-subtitle">Focused alert context, labels and direct promotion or pivot actions.</p>
+              </div>
+            </div>
             {!selectedAlert ? (
               <p className="meta">Выбери alert row слева.</p>
             ) : (
