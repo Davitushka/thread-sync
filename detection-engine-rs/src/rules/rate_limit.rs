@@ -8,7 +8,7 @@ use crate::alert::{Alert, AlertSeverity};
 use crate::event::Event;
 use crate::state_store::StateStore;
 
-use super::{format_duration, Rule, StatefulRule};
+use super::{Rule, StatefulRule, format_duration};
 
 const KNOWN_BOTS: &[&str] = &[
     "googlebot",
@@ -97,5 +97,52 @@ impl StatefulRule for RateLimitEvasionRule {
             fired_at: Utc::now(),
             context,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::rules::test_utils::{MockStateStore, event_with, set_metadata};
+
+    #[tokio::test]
+    async fn fires_on_threshold_for_supported_source() {
+        let rule = RateLimitEvasionRule {
+            threshold: 2,
+            window: Duration::from_secs(60),
+        };
+        let store = Arc::new(MockStateStore::default());
+        let event = event_with(|e| {
+            e.source_type = "dotnet".into();
+            e.source_ip = Some("10.10.10.10".into());
+        });
+
+        assert!(rule.evaluate(&event, store.as_ref()).await.is_none());
+        let alert = rule
+            .evaluate(&event, store.as_ref())
+            .await
+            .expect("expected alert");
+        assert_eq!(alert.rule_id, "rate_limit_evasion");
+        assert_eq!(alert.severity, AlertSeverity::Medium);
+    }
+
+    #[tokio::test]
+    async fn ignores_known_bots() {
+        let rule = RateLimitEvasionRule {
+            threshold: 1,
+            window: Duration::from_secs(60),
+        };
+        let store = Arc::new(MockStateStore::default());
+        let event = event_with(|e| {
+            e.source_type = "dotnet".into();
+            set_metadata(e, "UserAgent", json!("GoogleBot/2.1"));
+        });
+
+        let alert = rule.evaluate(&event, store.as_ref()).await;
+        assert!(alert.is_none());
     }
 }

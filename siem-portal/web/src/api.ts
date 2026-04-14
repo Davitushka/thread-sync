@@ -1,12 +1,28 @@
 const ABSOLUTE_URL_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
-const RAW_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.trim() || "/api/v1";
+const RAW_ROUTER_BASE = (import.meta.env.BASE_URL as string | undefined)?.trim() || "/";
+
+function normalizeRouterBase(base: string): string {
+  const trimmed = base.trim();
+  if (!trimmed || trimmed === "/") {
+    return "/";
+  }
+  const withLeading = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withLeading.replace(/\/+$/, "") || "/";
+}
+
+function defaultApiBaseForRouter(base: string): string {
+  return base === "/" ? "/api/v1" : `${base}/api/v1`;
+}
+
+const DEFAULT_API_BASE = defaultApiBaseForRouter(normalizeRouterBase(RAW_ROUTER_BASE));
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.trim() || DEFAULT_API_BASE;
 
 function normalizeBasePath(base: string): string {
   if (ABSOLUTE_URL_RE.test(base)) {
     return base.replace(/\/+$/, "");
   }
   const trimmed = base.replace(/^\/+/, "").replace(/\/+$/, "");
-  return trimmed ? `/${trimmed}` : "/api/v1";
+  return trimmed ? `/${trimmed}` : DEFAULT_API_BASE;
 }
 
 function joinRequestPath(base: string, path: string): string {

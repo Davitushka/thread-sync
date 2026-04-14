@@ -112,7 +112,7 @@ pub fn section_nav_button(
 }
 
 pub fn stack_action_card(ui: &mut egui::Ui, p: &ThemePalette, title: &str, url: &str, description: &str) {
-    let frame = egui::Frame::none()
+    let frame = egui::Frame::new()
         .fill(p.card_fill)
         .stroke(egui::Stroke::new(1.0, p.card_stroke))
         .corner_radius(egui::CornerRadius::same(u8_radius(p.radius_card)))

@@ -124,27 +124,27 @@ pub fn palette(is_dark: bool) -> ThemePalette {
 }
 
 pub fn sidebar_panel_frame(p: &ThemePalette) -> Frame {
-    Frame::none()
+    Frame::new()
         .fill(p.bg_sidebar)
         .inner_margin(Margin::same(20))
         .stroke(Stroke::new(1.0, p.stroke_sidebar))
 }
 
 pub fn top_bar_panel_frame(p: &ThemePalette) -> Frame {
-    Frame::none()
+    Frame::new()
         .fill(p.bg_top_bar)
         .stroke(Stroke::new(1.0, p.stroke_top_bar))
         .inner_margin(Margin::symmetric(16, 10))
 }
 
 pub fn status_panel_frame(p: &ThemePalette) -> Frame {
-    Frame::none()
+    Frame::new()
         .fill(p.bg_status)
         .inner_margin(Margin::symmetric(16, 7))
 }
 
 pub fn elevated_card_frame(p: &ThemePalette) -> Frame {
-    Frame::none()
+    Frame::new()
         .fill(p.card_fill)
         .corner_radius(CornerRadius::same(u8_radius(p.radius_card)))
         .stroke(Stroke::new(1.0, p.card_stroke))

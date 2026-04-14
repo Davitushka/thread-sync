@@ -21,6 +21,12 @@ use wry::WebViewBuilder;
 
 const DEFAULT_PORTAL_URL: &str = "http://127.0.0.1:8091/";
 
+fn report_if_err<T, E: std::fmt::Display>(result: Result<T, E>, action: &str) {
+    if let Err(err) = result {
+        eprintln!("siem-operator: {action}: {err}");
+    }
+}
+
 fn normalize_portal_url(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -658,7 +664,10 @@ fn error_screen_html(url: &str, message: &str) -> String {
 fn start_portal_bootstrap(url: String, proxy: EventLoopProxy<UserEvent>) {
     std::thread::spawn(move || {
         let result = ensure_portal_available(&url).map_err(|err| err.to_string());
-        let _ = proxy.send_event(UserEvent::PortalBootstrapFinished(result));
+        report_if_err(
+            proxy.send_event(UserEvent::PortalBootstrapFinished(result)),
+            "failed to post bootstrap result event",
+        );
     });
 }
 
@@ -683,15 +692,24 @@ pub fn run_portal_webview() -> wry::Result<()> {
         ))
         .with_ipc_handler(move |req| match req.body().as_str() {
             "retry" => {
-                let _ = ipc_proxy.send_event(UserEvent::RetryPortalBootstrap);
+                report_if_err(
+                    ipc_proxy.send_event(UserEvent::RetryPortalBootstrap),
+                    "failed to post retry event",
+                );
             }
             "open-external" => {
-                let _ = ipc_proxy.send_event(UserEvent::OpenPortalInBrowser);
+                report_if_err(
+                    ipc_proxy.send_event(UserEvent::OpenPortalInBrowser),
+                    "failed to post open-external event",
+                );
             }
             _ => {}
         })
         .with_document_title_changed_handler(move |title| {
-            let _ = title_proxy.send_event(UserEvent::UpdateTitle(title));
+            report_if_err(
+                title_proxy.send_event(UserEvent::UpdateTitle(title)),
+                "failed to post title-update event",
+            );
         });
 
     #[cfg(any(
@@ -734,12 +752,15 @@ pub fn run_portal_webview() -> wry::Result<()> {
                         managed_portal = child;
                         portal_loaded = true;
                         window.set_title(&operator_window_title(Some("Unified Suite")));
-                        let _ = webview.load_url(&url);
+                        report_if_err(webview.load_url(&url), "failed to load portal URL");
                     }
                     Err(message) => {
                         portal_loaded = false;
                         window.set_title(&operator_window_title(Some("Portal unavailable")));
-                        let _ = webview.load_html(&error_screen_html(&url, &message));
+                        report_if_err(
+                            webview.load_html(&error_screen_html(&url, &message)),
+                            "failed to render portal error screen",
+                        );
                     }
                 }
             }
@@ -754,14 +775,17 @@ pub fn run_portal_webview() -> wry::Result<()> {
                 portal_loaded = false;
                 boot_in_progress = true;
                 window.set_title(&operator_window_title(Some("Launching Unified Suite")));
-                let _ = webview.load_html(&loading_screen_html(
-                    &url,
-                    "Retrying portal health check and local auto-start sequence.",
-                ));
+                report_if_err(
+                    webview.load_html(&loading_screen_html(
+                        &url,
+                        "Retrying portal health check and local auto-start sequence.",
+                    )),
+                    "failed to render loading screen on retry",
+                );
                 start_portal_bootstrap(url.clone(), proxy.clone());
             }
             Event::UserEvent(UserEvent::OpenPortalInBrowser) => {
-                let _ = webbrowser::open(&url);
+                report_if_err(webbrowser::open(&url), "failed to open portal in browser");
             }
             Event::UserEvent(UserEvent::UpdateTitle(title)) => {
                 window.set_title(&operator_window_title(Some(&title)));
@@ -787,9 +811,12 @@ pub fn run_portal_webview() -> wry::Result<()> {
                         ));
                 if reload_pressed {
                     if portal_loaded {
-                        let _ = webview.reload();
+                        report_if_err(webview.reload(), "failed to reload webview");
                     } else if !boot_in_progress {
-                        let _ = proxy.send_event(UserEvent::RetryPortalBootstrap);
+                        report_if_err(
+                            proxy.send_event(UserEvent::RetryPortalBootstrap),
+                            "failed to post retry event from keyboard shortcut",
+                        );
                     }
                 }
             }

@@ -1600,11 +1600,11 @@ impl OperatorApp {
 
     fn show_sidebar(&mut self, ctx: &egui::Context) {
         let p = self.theme_palette();
-        egui::SidePanel::left("nav")
+        egui::Panel::left("nav")
             .resizable(true)
-            .default_width(230.0)
-            .min_width(200.0)
-            .max_width(300.0)
+            .default_size(230.0)
+            .min_size(200.0)
+            .max_size(300.0)
             .frame(theme::sidebar_panel_frame(&p))
             .show(ctx, |ui| {
                 let footer_reserved = 102.0;
@@ -1715,8 +1715,8 @@ impl OperatorApp {
 
     fn show_status_bar(&self, ctx: &egui::Context) {
         let p = self.theme_palette();
-        egui::TopBottomPanel::bottom("status")
-            .exact_height(34.0)
+        egui::Panel::bottom("status")
+            .exact_size(34.0)
             .frame(theme::status_panel_frame(&p))
             .show(ctx, |ui| {
                 ui.horizontal_wrapped(|ui| {
@@ -1772,8 +1772,8 @@ impl OperatorApp {
 
     fn show_top_toolbar(&mut self, ctx: &egui::Context) {
         let p = self.theme_palette();
-        egui::TopBottomPanel::top("web_toolbar")
-            .exact_height(76.0)
+        egui::Panel::top("web_toolbar")
+            .exact_size(76.0)
             .frame(theme::top_bar_panel_frame(&p))
             .show(ctx, |ui| {
                 ui.vertical(|ui| {

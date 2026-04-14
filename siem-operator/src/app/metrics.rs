@@ -18,7 +18,7 @@ pub(super) fn kpi_card(
     value: &str,
     accent: egui::Color32,
 ) {
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(p.card_fill)
         .corner_radius(egui::CornerRadius::same(u8_radius(p.radius_card)))
         .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.75)))
@@ -41,7 +41,7 @@ pub(super) fn sparkline_card(
     values: &[f32],
     color: egui::Color32,
 ) {
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(p.card_fill)
         .corner_radius(egui::CornerRadius::same(u8_radius(p.radius_card)))
         .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.65)))

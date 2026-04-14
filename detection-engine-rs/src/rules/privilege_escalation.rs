@@ -188,3 +188,60 @@ impl StatefulRule for PrivilegeEscalationRule {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use super::*;
+    use crate::rules::test_utils::{MockStateStore, event_with, set_metadata};
+
+    #[test]
+    fn alerts_on_forbidden_admin_access() {
+        let rule = PrivilegeEscalationRule::new();
+        let event = event_with(|e| {
+            e.event_type = "auth".into();
+            e.url_path = Some("/api/admin/users".into());
+            e.status_code = Some(403);
+        });
+
+        let alert = rule.match_event(&event).expect("expected 403 admin alert");
+        assert_eq!(alert.rule_id, "privilege_escalation_attempt");
+        assert_eq!(alert.severity, AlertSeverity::High);
+    }
+
+    #[test]
+    fn alerts_on_role_bypass_for_non_admin() {
+        let rule = PrivilegeEscalationRule::new();
+        let event = event_with(|e| {
+            e.url_path = Some("/api/admin/roles".into());
+            e.status_code = Some(200);
+            set_metadata(e, "UserRole", json!("analyst"));
+        });
+
+        let alert = rule
+            .match_event(&event)
+            .expect("expected role bypass alert");
+        assert_eq!(alert.severity, AlertSeverity::Critical);
+    }
+
+    #[tokio::test]
+    async fn stateful_alert_fires_when_threshold_hit() {
+        let rule = PrivilegeEscalationRule { threshold: 2 };
+        let store = Arc::new(MockStateStore::default());
+        let event = event_with(|e| {
+            e.url_path = Some("/api/admin/settings".into());
+            e.status_code = Some(403);
+            e.source_ip = Some("172.16.10.1".into());
+        });
+
+        assert!(rule.evaluate(&event, store.as_ref()).await.is_none());
+        let alert = rule
+            .evaluate(&event, store.as_ref())
+            .await
+            .expect("expected threshold alert");
+        assert_eq!(alert.severity, AlertSeverity::Critical);
+    }
+}

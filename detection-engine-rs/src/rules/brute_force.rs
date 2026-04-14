@@ -8,7 +8,7 @@ use crate::alert::{Alert, AlertSeverity};
 use crate::event::Event;
 use crate::state_store::StateStore;
 
-use super::{format_duration, Rule, StatefulRule};
+use super::{Rule, StatefulRule, format_duration};
 
 const AUTH_PATHS: &[&str] = &[
     "/api/auth",
@@ -97,5 +97,50 @@ impl StatefulRule for BruteForceRule {
             fired_at: Utc::now(),
             context,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::rules::test_utils::{MockStateStore, event_with};
+
+    #[tokio::test]
+    async fn fires_when_threshold_is_reached_on_auth_failures() {
+        let rule = BruteForceRule {
+            threshold: 3,
+            window: Duration::from_secs(120),
+        };
+        let store = Arc::new(MockStateStore::default());
+        let event = event_with(|e| {
+            e.status_code = Some(401);
+            e.url_path = Some("/api/auth/login".into());
+            e.source_ip = Some("192.168.0.10".into());
+        });
+
+        assert!(rule.evaluate(&event, store.as_ref()).await.is_none());
+        assert!(rule.evaluate(&event, store.as_ref()).await.is_none());
+
+        let alert = rule
+            .evaluate(&event, store.as_ref())
+            .await
+            .expect("expected alert on threshold");
+        assert_eq!(alert.rule_id, "brute_force_api");
+        assert_eq!(alert.severity, AlertSeverity::High);
+    }
+
+    #[tokio::test]
+    async fn ignores_non_auth_or_non_failure_events() {
+        let rule = BruteForceRule::new();
+        let store = Arc::new(MockStateStore::default());
+        let event = event_with(|e| {
+            e.status_code = Some(200);
+            e.url_path = Some("/api/orders".into());
+        });
+
+        let alert = rule.evaluate(&event, store.as_ref()).await;
+        assert!(alert.is_none());
     }
 }

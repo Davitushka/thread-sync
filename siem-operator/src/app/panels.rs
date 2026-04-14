@@ -163,7 +163,7 @@ impl OperatorApp {
     }
 
     pub(super) fn show_detections_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
@@ -267,7 +267,7 @@ impl OperatorApp {
             });
         ui.add_space(8.0);
         let mut open_investigation: Option<String> = None;
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -305,7 +305,7 @@ impl OperatorApp {
     }
 
     pub(super) fn show_investigations_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
@@ -374,7 +374,7 @@ impl OperatorApp {
             }
         }
         ui.separator();
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -413,7 +413,7 @@ impl OperatorApp {
     }
 
     pub(super) fn show_stack_control_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
@@ -482,7 +482,7 @@ impl OperatorApp {
             });
         }
         ui.add_space(8.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))

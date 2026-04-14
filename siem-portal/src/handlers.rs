@@ -476,12 +476,7 @@ async fn proxy_json_request(
 }
 
 fn join_case_management(state: &AppState, path: &str) -> Result<Url, StatusCode> {
-    let base: Url = state
-        .cfg
-        .case_management
-        .parse()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    base.join(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    join_service_url(&state.cfg.case_management, path)
 }
 
 fn forwarded_actor(headers: &HeaderMap) -> Option<String> {
@@ -547,4 +542,41 @@ fn cache_control_for_asset(path: &str) -> &'static str {
         return "public, max-age=31536000, immutable";
     }
     "public, max-age=3600"
+}
+
+fn join_service_url(base: &str, path: &str) -> Result<Url, StatusCode> {
+    let base: Url = base.parse().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    base.join(path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn forwarded_actor_trims_and_filters_empty() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-soc-actor", HeaderValue::from_static("  analyst-1  "));
+        assert_eq!(forwarded_actor(&headers), Some("analyst-1".to_string()));
+
+        headers.insert("x-soc-actor", HeaderValue::from_static("   "));
+        assert_eq!(forwarded_actor(&headers), None);
+    }
+
+    #[test]
+    fn join_service_url_handles_trailing_slash() {
+        let url = join_service_url("http://127.0.0.1:8088/", "/api/v1/cases").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:8088/api/v1/cases");
+    }
+
+    #[test]
+    fn cache_control_policy_is_stable() {
+        assert_eq!(cache_control_for_asset("index.html"), "no-store, max-age=0");
+        assert_eq!(
+            cache_control_for_asset("assets/main-abcdef.js"),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(cache_control_for_asset("favicon.ico"), "public, max-age=3600");
+    }
 }

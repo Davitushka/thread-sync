@@ -28,11 +28,7 @@ const NOSQL_SIGNATURES: &[&str] = &[
     r"(?i)/\*.*\*/",
 ];
 
-const FP_PATTERNS: &[&str] = &[
-    r"(?i)health.check",
-    r"(?i)swagger",
-    r"(?i)actuator",
-];
+const FP_PATTERNS: &[&str] = &[r"(?i)health.check", r"(?i)swagger", r"(?i)actuator"];
 
 pub struct SQLInjectionRule {
     sql_patterns: Vec<Regex>,
@@ -51,10 +47,7 @@ impl SQLInjectionRule {
                 .iter()
                 .map(|s| Regex::new(s).unwrap())
                 .collect(),
-            false_positives: FP_PATTERNS
-                .iter()
-                .map(|s| Regex::new(s).unwrap())
-                .collect(),
+            false_positives: FP_PATTERNS.iter().map(|s| Regex::new(s).unwrap()).collect(),
         }
     }
 }
@@ -109,9 +102,7 @@ impl Rule for SQLInjectionRule {
             return None;
         }
 
-        let severity = if event.source_type == "postgresql"
-            || event.status_code == Some(500)
-        {
+        let severity = if event.source_type == "postgresql" || event.status_code == Some(500) {
             AlertSeverity::Critical
         } else {
             AlertSeverity::High
@@ -120,14 +111,8 @@ impl Rule for SQLInjectionRule {
         let matched_short: Vec<String> = matched.iter().map(|m| truncate(m, 40)).collect();
 
         let mut context = HashMap::new();
-        context.insert(
-            "matched_patterns".into(),
-            serde_json::json!(matched_short),
-        );
-        context.insert(
-            "source_type".into(),
-            serde_json::json!(&event.source_type),
-        );
+        context.insert("matched_patterns".into(), serde_json::json!(matched_short));
+        context.insert("source_type".into(), serde_json::json!(&event.source_type));
         context.insert(
             "url_path".into(),
             serde_json::json!(Event::str_val(&event.url_path)),
@@ -153,5 +138,38 @@ impl Rule for SQLInjectionRule {
             fired_at: Utc::now(),
             context,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::test_utils::event_with;
+
+    #[test]
+    fn detects_sqli_pattern_in_dotnet_logs() {
+        let rule = SQLInjectionRule::new();
+        let event = event_with(|e| {
+            e.source_type = "dotnet".into();
+            e.message = "query failed: ' OR 1=1 --".into();
+            e.url_path = Some("/api/auth/login".into());
+            e.status_code = Some(500);
+        });
+
+        let alert = rule.match_event(&event).expect("expected sqli alert");
+        assert_eq!(alert.rule_id, "sql_injection_attempt");
+        assert_eq!(alert.severity, AlertSeverity::Critical);
+    }
+
+    #[test]
+    fn skips_false_positive_path() {
+        let rule = SQLInjectionRule::new();
+        let event = event_with(|e| {
+            e.message = "health.check endpoint ping".into();
+            e.url_path = Some("/health".into());
+        });
+
+        let alert = rule.match_event(&event);
+        assert!(alert.is_none());
     }
 }
