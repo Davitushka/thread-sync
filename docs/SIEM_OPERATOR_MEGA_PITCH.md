@@ -5,11 +5,102 @@
 
 ---
 
+## Оглавление
+
+- [Executive Summary (1-page)](#exec-summary)
+- [0) Супер-короткий тезис](#sec-0)
+- [1) Что изменилось после апдейта (главное)](#sec-1)
+- [2) Архитектура запуска: один бинарь, два режима](#sec-2)
+- [3) Устойчивый bootstrap и автозапуск portal](#sec-3)
+- [4) Recovery UX (не бросает пользователя при сбое)](#sec-4)
+- [5) OperatorApp как полноценный control-plane state](#sec-5)
+- [6) Интеграционная устойчивость: proxy + direct](#sec-6)
+- [7) Role-gated critical actions (RBAC-style guardrail)](#sec-7)
+- [8) Audit trail и ответственность действий](#sec-8)
+- [9) Auto-refresh без гонок](#sec-9)
+- [10) Persisted state с change-detection](#sec-10)
+- [11) Case lifecycle: полный рабочий цикл](#sec-11)
+- [12) Auto-triage rules](#sec-12)
+- [13) Timeline, playbook и отчетность](#sec-13)
+- [14) Docker Stack Control в operator UI](#sec-14)
+- [15) Observability snapshot + metrics series](#sec-15)
+- [16) SIEM Portal как интеграционный API-хаб (очень сильный апдейт)](#sec-16)
+- [17) handlers.rs: богатый proxy/data-access слой](#sec-17)
+- [18) EventSearchService: реально серьезный блок](#sec-18)
+- [19) DetectionsPage (web): прокачанная аналитика и command-driven UX](#sec-19)
+- [20) Что говорить про зрелость системы](#sec-20)
+- [21) Если спросят "у кого подсмотрел"](#sec-21)
+- [22) Честный и сильный ответ про позиционирование](#sec-22)
+- [23) Готовый длинный монолог (можно читать 10-15 минут)](#sec-23)
+- [24) Готовая "добивающая" фраза](#sec-24)
+- [25) Быстрые ссылки на код (для отправки человеку)](#sec-25)
+- [26) Расшифровка диапазонов: кусок кода + что делает](#sec-26)
+- [27) Глубокий разбор с большим кодом (детально, что именно делает)](#sec-27)
+- [28) Скрипты атак, поток данных и дашборды](#sec-28)
+- [29) Полный обзор проекта (результат полного сканирования репозитория)](#sec-29)
+- [30) Дополнительный разбор проекта (подробно, без мусора)](#sec-30)
+- [31) Полный проект: что есть, как связано, откуда мышление и что читать](#sec-31)
+
+
+<a id="exec-summary"></a>
+
+## Executive Summary (1-page)
+
+`siem-lite` — это многослойная SIEM-платформа с рабочим циклом от генерации/сбора событий до детекции, кейс-менеджмента и аналитических интерфейсов.  
+Проект включает web-контур (`siem-portal`), desktop-контур (`siem-operator`), ingestion/normalization (`rust-parser`), detection engine (`detection-engine-rs`), alerting (`Alertmanager`) и storage/analytics (`ClickHouse` + Prometheus/Grafana/Loki).
+
+### Что система делает end-to-end
+
+1. Источники и генераторы (`stress`, `log-generator`, инфраструктурные логи) отправляют события в ingest-поток.  
+2. `rust-parser` нормализует данные, маскирует PII, обогащает GeoIP/ASN и публикует в очередь.  
+3. Поток читают:
+   - ClickHouse (историческое хранилище + аналитика),
+   - correlator (детекции и корреляции).
+4. Correlator отправляет алерты в Alertmanager; alert/webhook интегрируется с case-management.  
+5. `siem-portal` агрегирует данные из ClickHouse/Prometheus/Alertmanager/case-management/correlator и отдает unified API для UI.  
+6. `siem-operator` предоставляет desktop-оболочку с WebView и нативным fallback.
+
+### Что реализовано особенно сильно
+
+- Устойчивый запуск operator: WebView + native fallback, health-aware bootstrap, recovery UX.  
+- Единый operational workflow: detections -> events -> cases -> timeline -> reports.  
+- Role-gated critical actions и audit trail в операторском UI.  
+- Fallback-логика интеграций (proxy + direct источники для части API).  
+- Насыщенный portal/BFF слой с proxy-эндпоинтами и поиском событий/контекста сущностей.  
+- Реалистичный pipeline тестирования: сиды, stress-сценарии, pipeline/grafana/alerting тесты.
+
+### Технологический стек (кратко)
+
+- UI: React + TypeScript + ECharts, desktop `wry/tao` + `egui`.  
+- Backend: Rust (`axum`, сервисные API и BFF).  
+- Data: ClickHouse, Kafka-compatible queue, Redis state.  
+- Observability: Prometheus, Grafana, Loki.  
+- Deployment: Docker Compose (основной runtime), Kubernetes манифесты (kustomize).
+
+### Текущие ограничения (честно)
+
+- Часть настроек и security defaults ориентирована на dev и требует hardening для production.  
+- Часть rule-management логики жестко сидит в коде движка (не все управляется полностью динамически).  
+- Compose-контур выглядит более зрелым, чем k8s-контур в деталях эксплуатации.
+
+### Где смотреть детали
+
+- Полная архитектура: `docs/ARCHITECTURE.md`  
+- Стек и ограничения: `docs/STACK.md`, `docs/RISKS_AND_ROADMAP.md`  
+- Unified Portal: `docs/SIEM_PORTAL.md`  
+- Полный тех-разбор в этом файле: разделы ниже (`28`, `29`).
+
+---
+
+<a id="sec-0"></a>
+
 ## 0) Супер-короткий тезис
 
 Я сделал не просто UI, а **операционный SOC-контур**: устойчивый запуск, recovery UX, роль/подтверждение критичных действий, аудит, triage, case lifecycle, event pivoting, observability и stack control.
 
 ---
+
+<a id="sec-1"></a>
 
 ## 1) Что изменилось после апдейта (главное)
 
@@ -21,6 +112,8 @@
 - в `siem-operator` сохранена и углублена модель устойчивости (webview+native, автозапуск, fallback источники, RBAC, timeline, auto-triage, docker control).
 
 ---
+
+<a id="sec-2"></a>
 
 ## 2) Архитектура запуска: один бинарь, два режима
 
@@ -39,6 +132,8 @@
 - операционный инструмент остается живым в большем числе сред.
 
 ---
+
+<a id="sec-3"></a>
 
 ## 3) Устойчивый bootstrap и автозапуск portal
 
@@ -59,6 +154,8 @@
 
 ---
 
+<a id="sec-4"></a>
+
 ## 4) Recovery UX (не бросает пользователя при сбое)
 
 В webview-shell заложен сценарий восстановления:
@@ -75,6 +172,8 @@
 "Даже в деградации UI ведет пользователя к действию, а не к тупику".
 
 ---
+
+<a id="sec-5"></a>
 
 ## 5) OperatorApp как полноценный control-plane state
 
@@ -94,6 +193,8 @@
 
 ---
 
+<a id="sec-6"></a>
+
 ## 6) Интеграционная устойчивость: proxy + direct
 
 В операторе остается грамотная стратегия:
@@ -107,6 +208,8 @@
 Это то, что реально повышает живучесть в production-like условиях.
 
 ---
+
+<a id="sec-7"></a>
 
 ## 7) Role-gated critical actions (RBAC-style guardrail)
 
@@ -122,6 +225,8 @@
 
 ---
 
+<a id="sec-8"></a>
+
 ## 8) Audit trail и ответственность действий
 
 Каждое значимое действие получает:
@@ -136,6 +241,8 @@
 
 ---
 
+<a id="sec-9"></a>
+
 ## 9) Auto-refresh без гонок
 
 В апдейте это по-прежнему сильная инженерная точка:
@@ -149,6 +256,8 @@
 
 ---
 
+<a id="sec-10"></a>
+
 ## 10) Persisted state с change-detection
 
 Состояние сохраняется только при реальных изменениях snapshot.
@@ -158,6 +267,8 @@
 - `file:///C:/Users/Admin/Проекты/siem-lite/siem-operator/src/app/state.rs`
 
 ---
+
+<a id="sec-11"></a>
 
 ## 11) Case lifecycle: полный рабочий цикл
 
@@ -174,6 +285,8 @@
 
 ---
 
+<a id="sec-12"></a>
+
 ## 12) Auto-triage rules
 
 Есть прагматичная автоматизация:
@@ -186,6 +299,8 @@
 - диапазон: `mod.rs#L1368-L1387`
 
 ---
+
+<a id="sec-13"></a>
 
 ## 13) Timeline, playbook и отчетность
 
@@ -201,6 +316,8 @@
 
 ---
 
+<a id="sec-14"></a>
+
 ## 14) Docker Stack Control в operator UI
 
 Доступны stack actions из интерфейса:
@@ -211,6 +328,8 @@
 - команды в palette: `file:///C:/Users/Admin/Проекты/siem-lite/siem-operator/src/app/panels.rs` (`panels.rs#L67-L76`)
 
 ---
+
+<a id="sec-15"></a>
 
 ## 15) Observability snapshot + metrics series
 
@@ -225,6 +344,8 @@ Operator тянет состояние через portal proxy:
 - диапазон: `mod.rs#L3594-L3814` (fetch + обработка rx)
 
 ---
+
+<a id="sec-16"></a>
 
 ## 16) SIEM Portal как интеграционный API-хаб (очень сильный апдейт)
 
@@ -242,6 +363,8 @@ Operator тянет состояние через portal proxy:
 
 ---
 
+<a id="sec-17"></a>
+
 ## 17) handlers.rs: богатый proxy/data-access слой
 
 `handlers.rs` подтверждает, что portal выступает API-шлюзом:
@@ -257,6 +380,8 @@ Operator тянет состояние через portal proxy:
 - диапазон: `handlers.rs#L100-L289`
 
 ---
+
+<a id="sec-18"></a>
 
 ## 18) EventSearchService: реально серьезный блок
 
@@ -275,6 +400,8 @@ Operator тянет состояние через portal proxy:
 
 ---
 
+<a id="sec-19"></a>
+
 ## 19) DetectionsPage (web): прокачанная аналитика и command-driven UX
 
 На фронте детекций есть:
@@ -290,6 +417,8 @@ Operator тянет состояние через portal proxy:
 - диапазон: `DetectionsPage.tsx#L14-L20`, `L37-L51`, `L76-L87`, `L127-L150`, `L196-L275`
 
 ---
+
+<a id="sec-20"></a>
 
 ## 20) Что говорить про зрелость системы
 
@@ -308,6 +437,8 @@ Operator тянет состояние через portal proxy:
 
 ---
 
+<a id="sec-21"></a>
+
 ## 21) Если спросят "у кого подсмотрел"
 
 Правильная формулировка:
@@ -320,6 +451,8 @@ Operator тянет состояние через portal proxy:
 
 ---
 
+<a id="sec-22"></a>
+
 ## 22) Честный и сильный ответ про позиционирование
 
 Важно:
@@ -329,6 +462,8 @@ Operator тянет состояние через portal proxy:
 Такой ответ добавляет доверия.
 
 ---
+
+<a id="sec-23"></a>
 
 ## 23) Готовый длинный монолог (можно читать 10-15 минут)
 
@@ -348,11 +483,15 @@ Operator тянет состояние через portal proxy:
 
 ---
 
+<a id="sec-24"></a>
+
 ## 24) Готовая "добивающая" фраза
 
 "Я сделал не просто интерфейс, а отказоустойчивый SOC-operating layer: от health-aware старта и recovery UX до role-gated critical действий, audit trail, triage automation, event pivoting и полного case lifecycle с observability и stack control."
 
 ---
+
+<a id="sec-25"></a>
 
 ## 25) Быстрые ссылки на код (для отправки человеку)
 
@@ -373,6 +512,8 @@ Operator тянет состояние через portal proxy:
 - Detections web page:
   - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/web/src/pages/DetectionsPage.tsx`
 ---
+
+<a id="sec-26"></a>
 
 ## 26) Расшифровка диапазонов: кусок кода + что делает
 
@@ -591,6 +732,8 @@ const pageCommands = useMemo<SuitePageCommand[]>(() => { /* pivots to events/ale
 Что делает: формирует командно-ориентированный UX детекций с фильтрами и pivot.
 
 ---
+
+<a id="sec-27"></a>
 
 ## 27) Глубокий разбор с большим кодом (детально, что именно делает)
 
@@ -1110,6 +1253,8 @@ const pageCommands = useMemo<SuitePageCommand[]>(() => {
 
 ---
 
+<a id="sec-28"></a>
+
 ## 28) Скрипты атак, поток данных и дашборды
 
 Этот раздел описывает, как в проекте формируются события, где появляются атакующие паттерны, как они проходят обработку и как превращаются в графики и аналитические экраны.
@@ -1230,3 +1375,239 @@ const pageCommands = useMemo<SuitePageCommand[]>(() => {
   - `file:///C:/Users/Admin/Проекты/siem-lite/docs/ARCHITECTURE.md`
 
 ---
+
+<a id="sec-29"></a>
+
+## 29) Полный обзор проекта (результат полного сканирования репозитория)
+
+Ниже сводка по всему `siem-lite` в формате технического паспорта системы.
+
+### 29.1 Основные сервисы и их роли
+
+- `rust-parser/`  
+  Ingestion API (`/parse`, `/alerts/ingest`), нормализация, PII masking, enrichment (GeoIP/ASN), публикация в Kafka/Redpanda.
+- `detection-engine-rs/`  
+  Корреляция и детекция (stateful + stateless), consumer событийного потока, state store в Redis, отправка в Alertmanager.
+- `siem-portal/`  
+  Unified SOC suite (web + Rust BFF/proxy к Prometheus/Alertmanager/case-management/correlator + event search в ClickHouse).
+- `case-management-rs/` + `case-management/web/`  
+  Lifecycle кейсов: API, timeline, investigate, алертные вебхуки, UI.
+- `intel-connector/`  
+  Подключение внешнего threat intel (MISP/HTTP/file), запись в ClickHouse + опциональный Redis sync.
+- `siem-operator/`  
+  Desktop-оболочка: WebView режим + нативный fallback.
+- `deploy/docker/`, `deploy/k8s/`  
+  Два контура деплоя (Compose и Kubernetes).
+
+### 29.2 End-to-end поток данных
+
+1. Источники/генераторы событий отправляют данные в ingest-контур (`vector`/HTTP).  
+2. Parser нормализует и обогащает события.  
+3. События попадают в очередь (`siem.events`).  
+4. Из очереди данные расходятся в:
+   - ClickHouse (хранение + аналитика),
+   - correlator (детекция).
+5. Correlator отправляет алерты в Alertmanager.  
+6. Alertmanager маршрутизирует уведомления и вебхуки.  
+7. Portal и operator UI читают агрегаты/метрики/поиск/кейсы через API-слой.
+
+### 29.3 UI слой (что где используется)
+
+- Web UI: `React + TypeScript + Vite + ECharts` (`siem-portal/web`).  
+- Case UI: отдельный React фронт (`case-management/web`).  
+- Desktop UI: `wry/tao` (WebView) + `egui/eframe` fallback (`siem-operator`).
+
+### 29.4 Backend/API слой
+
+- `siem-parser` API: ingest + health/ready/metrics.  
+- `correlator` API: health/ready/metrics + detection stats/rules.  
+- `case-management` API: кейсы + timeline + investigation + webhooks.  
+- `siem-portal` API/BFF:
+  - proxy к Prometheus/Alertmanager/cases/correlator,
+  - dashboard endpoints,
+  - events search/detail/entity context.
+
+### 29.5 Detection/Storage/Observability
+
+- Detection:
+  - корреляционные правила,
+  - stateful окна через Redis (TTL-модель),
+  - интеграция с Alertmanager.
+- Storage:
+  - ClickHouse таблицы событий/алертов/intel,
+  - materialized views и агрегаты.
+- Observability:
+  - Prometheus + Loki + Grafana,
+  - сервисные healthchecks и dashboard-валидации.
+
+### 29.6 Deployment и эксплуатация
+
+- `Docker Compose` выглядит как основной рабочий контур:
+  - профили (`admin`, `intel`, `seed`, `tools`),
+  - health-driven startup,
+  - env/secrets.
+- `Kubernetes` контур:
+  - kustomize base,
+  - deployment/statefulset/service/hpa/network policy.
+
+### 29.7 Тесты, скрипты, сиды
+
+- CI включает:
+  - Rust проверки,
+  - compose validation,
+  - pipeline contracts,
+  - Grafana/pipeline тесты.
+- Есть отдельные директории:
+  - `tests/pipeline`,
+  - `tests/alerting`,
+  - `tests/grafana`,
+  - `scripts/seed-data`,
+  - `stress` / `log-generator`.
+
+### 29.8 Ключевые сильные стороны
+
+- Четкое разделение слоев (ingest/processing/detection/alerting/visualization).  
+- Хороший операционный UX: runbook, сиды, healthchecks, stack-control.  
+- Сильная интеграция портала как единого API-хаба для UI.  
+- Реальный SOC workflow: detections -> events -> cases -> investigation.
+
+### 29.9 Ограничения и риски (что честно проговаривать)
+
+- Часть default-настроек рассчитана на dev-среду и требует hardening для prod.  
+- Runtime rule management ограничен (часть правил привязана к коду движка).  
+- Compose-контур местами более зрелый, чем k8s-манифесты.  
+- Некоторые roadmap-элементы в docs описаны шире, чем текущая реализация.
+
+### 29.10 Ссылки на ключевые узлы проекта
+
+- Архитектура:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/docs/ARCHITECTURE.md`
+- Стек:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/docs/STACK.md`
+- Parser:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/rust-parser/src/main.rs`
+- Detection engine:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/detection-engine-rs/src/engine.rs`
+  - `file:///C:/Users/Admin/Проекты/siem-lite/detection-engine-rs/src/state_store.rs`
+- Portal API:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/main.rs`
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/handlers.rs`
+- Event search:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/event_search.rs`
+- Overview/detections:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/overview.rs`
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/detections.rs`
+- Deployment:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/deploy/docker/docker-compose.yml`
+  - `file:///C:/Users/Admin/Проекты/siem-lite/deploy/k8s/kustomization.yaml`
+
+---
+
+<a id="sec-30"></a>
+
+## 30) Дополнительный разбор проекта (подробно, без мусора)
+
+### 30.1 Как связаны компоненты в ежедневной работе
+
+- `stress` и `log-generator` создают управляемый поток, чтобы можно было проверять систему не только на статичных данных.
+- `rust-parser` приводит вход к единому формату и отправляет в очередь, убирая хаос с разными типами логов.
+- `detection-engine-rs` выделяет подозрительные паттерны и формирует сигналы для Alertmanager.
+- `siem-portal` собирает данные из storage + metrics + case-management и отдает единый API для UI.
+- `siem-operator` дает desktop-контур управления и fallback, чтобы работать даже при проблемах основного UX-пути.
+
+### 30.2 Почему pipeline выглядит зрелым
+
+- Есть не только ingest и storage, но и операционные контуры: healthchecks, runbook, тесты, сиды, диагностика.
+- Есть замкнутый SOC-flow: от события до кейса, timeline и отчета.
+- Есть explainability: через event search, entity context, rule breakdown и audit trail.
+- Есть устойчивость: fallback-маршруты, retry-механики, ограничение критичных действий ролями.
+
+### 30.3 Где именно проект дает практическую пользу
+
+- Для аналитика: меньше ручного "копания" по разным системам, больше связанного контекста в одном месте.
+- Для инженерной команды: проще воспроизводить сценарии, проверять регрессии и объяснять архитектурные решения.
+- Для презентации/защиты: можно показать полный путь данных, а не только UI.
+- Для эксплуатации: есть инструменты наблюдения и восстановления, а не только happy-path логика.
+
+### 30.4 Какие улучшения логичны следующими итерациями
+
+- Усилить production hardening на уровне auth/secrets/network policies.
+- Развить управление правилами детекции как отдельный lifecycle (версионирование, review, rollback).
+- Добавить больше quality-метрик детекций (noisy rules, false positives, coverage).
+- Усилить e2e сценарии и replay-наборы для стабильного regression контроля.
+- Выравнять зрелость k8s-контура до уровня compose-контура по операционным деталям.
+
+---
+
+<a id="sec-31"></a>
+
+## 31) Полный проект: что есть, как связано, откуда мышление и что читать
+
+Этот раздел закрывает документ «с нуля до полки»: если читать только его, всё равно можно понять контур `siem-lite` и то, какие идеи лежат за кодом.
+
+### 31.1 Карта репозитория (что за папка и зачем)
+
+- **`siem-portal`** — HTTP API и BFF: ClickHouse, Prometheus, Alertmanager, кейсы, коррелятор, health. Здесь же тяжёлая логика поиска событий (`event_search.rs`), обзоры и детекции в веб-UI.
+- **`siem-operator`** — десктопная оболочка (egui + WebView): запуск портала, стек Docker, алерты, кейсы, аудит, роли, устойчивый bootstrap и recovery.
+- **`rust-parser`** — нормализация и обогащение входящих логов перед очередью/хранилищем.
+- **`detection-engine-rs`** — движок правил/состояний для сигналов в сторону алертинга.
+- **`correlator`** — корреляция и связка сигналов (отдельный сервис в контуре).
+- **`stress` / `log-generator`** — генерация нагрузки и тестовых сценариев для проверки пайплайна.
+- **`deploy/docker` и `deploy/k8s`** — воспроизводимый стенд и задел под оркестрацию.
+- **`docs/`** — архитектура, схема данных, runbook, риски; этот mega pitch — расширенная защитная/презентационная версия того же знания.
+
+### 31.2 Поток данных «как в бою»
+
+1. Событие попадает в ingest (генератор, агент или тестовый поток).
+2. Парсер приводит поля к общей модели, режет чувствительное, добавляет контекст (GeoIP и т.д.).
+3. Хранилище и аналитика (ClickHouse) принимают нормализованный поток; метрики идут в Prometheus; логи сервисов — в Loki по мере настройки стека.
+4. Детекторы и коррелятор производят сигналы; Alertmanager маршрутизирует уведомления.
+5. Портал склеивает ответы бэкендов в единые экраны; оператор даёт тот же цикл из десктопа с дополнительным control-plane (стек, health, fallback).
+
+### 31.3 Как мы говорим про код без «магии»
+
+- Сначала **контракт данных** (`docs/SCHEMA.md`, типы в Rust) — что считается событием, кейсом, алертом.
+- Потом **границы сервисов** (`docs/ARCHITECTURE.md`, `STACK`) — кто кого вызывает и где хранится истина.
+- Затем **операционный слой** (`RUNBOOK`, healthchecks) — как система ведёт себя при сбоях.
+- Наконец **UX SOC** — triage, роли, аудит, таймлайн: это не «красивости», а снижение ошибок оператора и время реакции.
+
+Именно такой порядок отражён в основном тексте pitch: от запуска оператора к порталу и глубоким кускам `handlers.rs` / `event_search.rs`.
+
+### 31.4 Откуда взялись идеи (честно: не «один учебник», а смесь практик)
+
+- **Платформенное мышление** (микросервисы, BFF, observability) — обычный инженерный фон: разделение ответственности, единая точка для UI, метрики как часть продукта.
+- **SOC-процесс** — инцидент → кейс → расследование → отчёт; разделение ролей и аудит критичных действий — из практики IR/SOC, а не из одной строки кода.
+- **Надёжность клиента** — bootstrap, recovery, proxy/direct fallback — из опыта построения десктопных и edge-приложений, где сеть и локальный стек не гарантированы.
+
+### 31.5 Книги и материалы в духе проекта (не обязательно читать всё)
+
+**Инженерия и архитектура**
+
+- *Designing Data-Intensive Applications* (Martin Kleppmann) — хранилища, потоки, консистентность; полезно для части ClickHouse + очередь + «почему так разделены сервисы».
+- *Release It!* (Michael Nygard) — устойчивость, таймауты, деградация, circuit breaker mindset (у нас это отражено в proxy/direct и health-контуре).
+- *Site Reliability Engineering* (Google, бесплатно онлайн) — SLO, runbook-культура, наблюдаемость как обязанность, не опция.
+
+**Безопасность и SOC**
+
+- *The Practice of Network Security Monitoring* (Richard Bejtlich) — сетевой мониторинг и мышление «сбор → анализ → реагирование».
+- *Security Operations Center: Building, Operating, and Maintaining your SOC* (Joseph Muniz и соавт.) — организация процесса, triage, эскалации (рядом с нашим case lifecycle).
+- *Incident Response & Computer Forensics, 3rd ed.* (Jason T. Luttgens и др.) — формальные этапы расследования, цепочка доказательств, отчётность.
+
+**Rust и системное качество**
+
+- *The Rust Programming Language* (официальная книга) — основа для чтения `siem-portal`, `siem-operator`, парсера и движка.
+- *Rust for Rustaceans* (Jon Gjengset) — когда захочется углубиться в async, типы и «почему так написано» в серьёзных сервисах.
+
+**Документация стека (то, к чему реально обращались по ходу кода)**
+
+- Документация **ClickHouse**, **Prometheus**, **Alertmanager**, **Grafana**, **Docker Compose** — конфиги и запросы в репозитории напрямую опираются на эти первоисточники.
+
+### 31.6 Как использовать этот документ на защите
+
+- Первые 10–15 минут — **Executive Summary + разделы 2–11** (запуск, состояние, роли, аудит, кейсы).
+- Демонстрация — **портал + оператор** с отсылкой к `event_search` и `handlers`.
+- Вопросы «почему не монолит» — **разделы 29–30 + 31.1–31.2**.
+- Вопросы «что читали» — **31.4–31.5** без притворства, что всё из одной книги: это нормальная инженерная гигиена.
+
+---
+
