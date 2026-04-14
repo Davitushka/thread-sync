@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { uiConfig, type UiConfig } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
+import DashboardToolbar from "../components/DashboardToolbar";
 import { ObservabilityGaugePanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import {
   DASHBOARDS,
@@ -14,6 +15,7 @@ import { formatCompact } from "../dashboard-utils";
 
 export default function DashboardsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig] = useState<UiConfig | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [group, setGroup] = useState<(typeof DASHBOARD_GROUPS)[number]>("SOC Core");
@@ -26,7 +28,33 @@ export default function DashboardsPage() {
       .catch((e) => setErr(String(e)));
   }, []);
 
+  useEffect(() => {
+    const groupParam = searchParams.get("group");
+    const selectedParam = searchParams.get("selected");
+    const rangeParam = searchParams.get("range");
+    if (groupParam && DASHBOARD_GROUPS.includes(groupParam as (typeof DASHBOARD_GROUPS)[number])) {
+      setGroup(groupParam as (typeof DASHBOARD_GROUPS)[number]);
+    }
+    if (selectedParam && DASHBOARDS.some((item) => item.id === selectedParam)) {
+      setSelectedId(selectedParam);
+    }
+    if (rangeParam && DASHBOARD_TIME_RANGES.some((range) => range.value === rangeParam)) {
+      setTimeRange(rangeParam);
+    }
+  }, [searchParams]);
+
   const items = useMemo(() => DASHBOARDS.filter((item) => item.group === group), [group]);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    next.set("group", group);
+    next.set("selected", selectedId);
+    next.set("range", timeRange);
+    const nextString = next.toString();
+    if (nextString !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [group, searchParams, selectedId, setSearchParams, timeRange]);
 
   useEffect(() => {
     if (!items.some((item) => item.id === selectedId)) {
@@ -86,16 +114,12 @@ export default function DashboardsPage() {
   return (
     <div className="page-grid dashboard-page">
       {err && <p className="error">{err}</p>}
-
-      <section className="card hero-card">
-        <div className="dashboard-hero">
-          <div>
-            <h2>Analytics command center</h2>
-            <p className="meta">
-              Daily analyst workspaces stay native first. Grafana is still present, but now positioned as a deep-dive layer rather than the default shell.
-            </p>
-          </div>
-          <div className="btn-row">
+      <DashboardToolbar
+        title="Analytics command center"
+        subtitle="Native analyst workspaces first, Grafana retained as a deep-dive tier when the investigation needs plugin depth or embedded engineering views."
+        className="dashboard-toolbar-card"
+        actions={
+          <div className="toolbar-inline-actions">
             <button type="button" className="secondary" onClick={() => openEntry(current)}>
               Open selected workspace
             </button>
@@ -103,7 +127,8 @@ export default function DashboardsPage() {
               Open Grafana root
             </a>
           </div>
-        </div>
+        }
+      >
         <div className="summary-grid">
           <div className="summary-card">
             <span>Daily surfaces</span>
@@ -126,7 +151,13 @@ export default function DashboardsPage() {
             <strong>{deepDiveCount || grafanaCount}</strong>
           </div>
         </div>
-      </section>
+        <div className="toolbar-status-row">
+          <span>Current surface</span>
+          <strong>{current.title}</strong>
+          <span>Time range</span>
+          <strong>{DASHBOARD_TIME_RANGES.find((range) => range.value === timeRange)?.label || timeRange}</strong>
+        </div>
+      </DashboardToolbar>
 
       <AdaptivePaneLayout
         storageKey="dashboards-command-center"

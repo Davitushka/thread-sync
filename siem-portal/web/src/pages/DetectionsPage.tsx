@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getDetectionsOverview, type DetectionsOverview } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
+import DashboardToolbar from "../components/DashboardToolbar";
 import { ObservabilityBarPanel, ObservabilityGaugePanel } from "../components/echarts/ObservabilityCharts";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { formatCompact } from "../dashboard-utils";
@@ -24,6 +25,7 @@ function stateTone(value?: string) {
 
 export default function DetectionsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<DetectionsOverview | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
@@ -31,6 +33,22 @@ export default function DetectionsPage() {
   const [stateFilter, setStateFilter] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const applyDetectionState = useCallback(
+    (patch: Partial<{ severity: string; state: string; q: string; selected: string }>, replace = true) => {
+      const nextSeverity = patch.severity ?? severityFilter;
+      const nextState = patch.state ?? stateFilter;
+      const nextQ = patch.q ?? q;
+      const nextSelected = patch.selected ?? selectedRuleId ?? "";
+      const next = new URLSearchParams();
+      if (nextSeverity) next.set("severity", nextSeverity);
+      if (nextState) next.set("state", nextState);
+      if (nextQ.trim()) next.set("q", nextQ.trim());
+      if (nextSelected) next.set("selected", nextSelected);
+      setSearchParams(next, { replace });
+    },
+    [q, selectedRuleId, setSearchParams, severityFilter, stateFilter]
+  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -47,6 +65,13 @@ export default function DetectionsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setSeverityFilter(searchParams.get("severity") ?? "");
+    setStateFilter(searchParams.get("state") ?? "");
+    setQ(searchParams.get("q") ?? "");
+    setSelectedRuleId(searchParams.get("selected"));
+  }, [searchParams]);
 
   const filteredRows = useMemo(() => {
     const rows = data?.firing_rows ?? [];
@@ -87,6 +112,13 @@ export default function DetectionsPage() {
     }
   }, [catalogRules, selectedRuleId]);
 
+  useEffect(() => {
+    if (!catalogRules.length || !selectedRule) return;
+    if (selectedRuleId !== selectedRule.id) {
+      applyDetectionState({ selected: selectedRule.id }, true);
+    }
+  }, [applyDetectionState, catalogRules.length, selectedRule, selectedRuleId]);
+
   const matchingRowsForRule = useMemo(() => {
     if (!selectedRule) return [];
     return filteredRows.filter((row) => row.rule === selectedRule.title || row.rule === selectedRule.id);
@@ -110,6 +142,15 @@ export default function DetectionsPage() {
   const ruleActivation = data?.stats.rules_count
     ? (data.stats.firing_count / Math.max(data.stats.rules_count, 1)) * 100
     : 0;
+  const activeFilterChips = useMemo(
+    () =>
+      [
+        severityFilter ? { key: "severity", label: "Severity", value: severityFilter, clear: () => applyDetectionState({ severity: "" }, false) } : null,
+        stateFilter ? { key: "state", label: "State", value: stateFilter, clear: () => applyDetectionState({ state: "" }, false) } : null,
+        q.trim() ? { key: "search", label: "Search", value: q.trim(), clear: () => applyDetectionState({ q: "" }, false) } : null,
+      ].filter(Boolean) as Array<{ key: string; label: string; value: string; clear: () => void }>,
+    [applyDetectionState, q, severityFilter, stateFilter]
+  );
 
   const pageCommands = useMemo<SuitePageCommand[]>(() => {
     const commands: SuitePageCommand[] = [
@@ -132,11 +173,7 @@ export default function DetectionsPage() {
         section: "Current detection view",
         keywords: "detections clear filters reset",
         priority: 85,
-        run: () => {
-          setSeverityFilter("");
-          setStateFilter("");
-          setQ("");
-        },
+        run: () => applyDetectionState({ severity: "", state: "", q: "", selected: "" }, false),
       });
     }
 
@@ -194,7 +231,7 @@ export default function DetectionsPage() {
     }
 
     return commands;
-  }, [load, severityFilter, stateFilter, q, selectedRule, matchingRowsForRule, navigate]);
+  }, [applyDetectionState, load, severityFilter, stateFilter, q, selectedRule, matchingRowsForRule, navigate]);
 
   usePublishPageCommands(pageCommands);
 
@@ -202,18 +239,15 @@ export default function DetectionsPage() {
     <div className="page-grid triage-page">
       {err && <p className="error">{err}</p>}
 
-      <section className="card hero-card triage-card">
-        <div className="dashboard-hero">
-          <div>
-            <h2>Detection engine ops</h2>
-            <p className="meta">
-              Нативный engine-focused экран: firing rows, noisy rules, correlator catalog и pivots для triage.
-            </p>
-          </div>
-          <div className="dense-inline-actions">
-            <button type="button" className="secondary" onClick={load}>
-              {loading ? "Refreshing..." : "Refresh"}
-            </button>
+      <DashboardToolbar
+        title="Detection command center"
+        subtitle="Engine pressure, noisy rules, firing backlog, and native pivots into alerts, events, and casework."
+        loading={loading}
+        onRefresh={load}
+        refreshButtonLabel="Refresh detections"
+        className="triage-toolbar"
+        actions={
+          <div className="toolbar-inline-actions">
             <Link className="tool-btn secondary" to="/alerts">
               Open alerts
             </Link>
@@ -221,35 +255,34 @@ export default function DetectionsPage() {
               Open events
             </Link>
           </div>
-        </div>
-
-        <div className="triage-kpi-grid">
-          <div className="triage-kpi">
+        }
+      >
+        <div className="summary-grid">
+          <div className="summary-card">
             <span>Rules</span>
             <strong>{formatCompact(data?.stats.rules_count)}</strong>
           </div>
-          <div className="triage-kpi">
+          <div className="summary-card">
             <span>Pending alerts</span>
             <strong>{formatCompact(data?.stats.pending_alerts)}</strong>
           </div>
-          <div className="triage-kpi">
+          <div className="summary-card">
             <span>Forward queue</span>
             <strong>{formatCompact(data?.stats.alert_capacity)}</strong>
           </div>
-          <div className="triage-kpi">
+          <div className="summary-card">
             <span>Firing rows</span>
             <strong>{formatCompact(data?.stats.firing_count)}</strong>
           </div>
-          <div className="triage-kpi">
+          <div className="summary-card">
             <span>Critical firing</span>
             <strong>{formatCompact(data?.stats.critical_firing)}</strong>
           </div>
         </div>
-
         <div className="triage-filterbar">
           <label>
             Severity
-            <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}>
+            <select value={severityFilter} onChange={(e) => applyDetectionState({ severity: e.target.value }, false)}>
               <option value="">All</option>
               <option value="critical">critical</option>
               <option value="error">error</option>
@@ -259,7 +292,7 @@ export default function DetectionsPage() {
           </label>
           <label>
             State
-            <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+            <select value={stateFilter} onChange={(e) => applyDetectionState({ state: e.target.value }, false)}>
               <option value="">All</option>
               <option value="firing">firing</option>
               <option value="pending">pending</option>
@@ -268,10 +301,25 @@ export default function DetectionsPage() {
           </label>
           <label>
             Search
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="rule / state / signal" />
+            <input value={q} onChange={(e) => applyDetectionState({ q: e.target.value }, false)} placeholder="rule / state / signal" />
           </label>
         </div>
-      </section>
+        {!!activeFilterChips.length && (
+          <div className="toolbar-chip-row">
+            {activeFilterChips.map((chip) => (
+              <button key={chip.key} type="button" className="token token-action" onClick={chip.clear}>
+                {chip.label}:{chip.value} x
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="toolbar-status-row">
+          <span>Visible firing rows</span>
+          <strong>{formatCompact(filteredRows.length)}</strong>
+          <span>Focused rule</span>
+          <strong>{selectedRule?.title || "No selection"}</strong>
+        </div>
+      </DashboardToolbar>
 
       <section className="dashboard-gauge-grid">
         <ObservabilityGaugePanel
@@ -362,7 +410,24 @@ export default function DetectionsPage() {
             </div>
           </div>
           {!filteredRows.length ? (
-            <p className="meta">Нет detection rows под выбранные фильтры.</p>
+            <div className="surface-empty-state">
+              <h3>No firing rows match the current filter set</h3>
+              <p>Clear the active chips or refresh the engine snapshot to restore detection pressure in the queue.</p>
+              <div className="surface-empty-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    applyDetectionState({ severity: "", state: "", q: "", selected: "" }, false);
+                  }}
+                >
+                  Clear filters
+                </button>
+                <button type="button" className="secondary" onClick={load}>
+                  Refresh detections
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="enterprise-table-shell">
               <table className="compact-table enterprise-table">
@@ -389,7 +454,7 @@ export default function DetectionsPage() {
                         ]
                           .filter(Boolean)
                           .join(" ")}
-                        onClick={() => linked && setSelectedRuleId(linked.id)}
+                        onClick={() => linked && applyDetectionState({ selected: linked.id })}
                       >
                         <td>
                           <span className={`priority-pill priority-${priority.tone}`}>{priority.label}</span>
@@ -424,7 +489,10 @@ export default function DetectionsPage() {
             </div>
           </div>
           {!catalogRules.length ? (
-            <p className="meta">Rules endpoint пуст или текущие фильтры скрыли весь каталог.</p>
+            <div className="surface-empty-state">
+              <h3>Rule catalog is empty for this view</h3>
+              <p>The rule catalog is either unavailable or fully filtered out by the current search posture.</p>
+            </div>
           ) : (
             <div className="queue-list">
               {catalogRules.slice(0, 12).map((rule) => {
@@ -441,7 +509,7 @@ export default function DetectionsPage() {
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    onClick={() => setSelectedRuleId(rule.id)}
+                    onClick={() => applyDetectionState({ selected: rule.id })}
                   >
                     <header>
                       <div>
@@ -478,7 +546,10 @@ export default function DetectionsPage() {
               </div>
             </div>
             {!selectedRule ? (
-              <p className="meta">Выбери rule из catalog или firing queue.</p>
+              <div className="surface-empty-state">
+                <h3>No rule selected</h3>
+                <p>Choose a rule from the catalog or firing queue to inspect guidance, pivots, and matching signals.</p>
+              </div>
             ) : (
               <>
                 <div className="dashboard-hero">
@@ -535,7 +606,7 @@ export default function DetectionsPage() {
                 <div>
                   <p className="meta">Matching firing rows</p>
                   {!matchingRowsForRule.length ? (
-                    <p className="meta">Нет firing rows для выбранного правила.</p>
+                    <p className="meta">No current firing rows match the selected rule after the active filters.</p>
                   ) : (
                     <div className="queue-list queue-list-dense">
                       {matchingRowsForRule.map((row, idx) => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { addComment, getCase, linkAlert, linkEvent, patchCase, type CaseDetail as CaseDetailT } from "../api";
+import DashboardToolbar from "../components/DashboardToolbar";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
@@ -151,32 +152,39 @@ export default function CaseDetail() {
 
   usePublishPageCommands(pageCommands);
 
-  if (!id) return <p>Некорректный URL</p>;
+  if (!id) return <p>Invalid case URL.</p>;
   if (err) return <p className="error">{err}</p>;
-  if (!data) return <p className="meta">Загрузка…</p>;
+  if (!data) return <p className="meta">Loading case workspace...</p>;
 
   return (
-    <div className="page-grid triage-page">
-      <section className="card hero-card entity-stack">
-        <div className="dashboard-hero">
-          <div>
-            <p className="meta" style={{ margin: 0 }}>
-              <Link to="/cases">Cases</Link>
-            </p>
-            <h1 style={{ margin: "0.35rem 0 0.25rem" }}>
-              {data.display_key} — {data.title}
-            </h1>
-            <p className="meta" style={{ margin: 0 }}>
-              Полноценный case workspace: management, timeline, linked alerts/events и переход в investigation.
-            </p>
-          </div>
-          <div className="dense-inline-actions">
+    <div className="page-grid casework-page">
+      <DashboardToolbar
+        title={`${data.display_key} - Case detail`}
+        subtitle="Structured case workspace for management, linked evidence, timeline context, and investigation handoff."
+        onRefresh={load}
+        refreshButtonLabel="Refresh case"
+        className="casework-toolbar"
+        actions={
+          <div className="toolbar-inline-actions">
             <Link className="tool-btn secondary" to={`/cases/${id}/investigate`}>
               Investigation workbench
             </Link>
           </div>
+        }
+      >
+        <div className="case-hero-title">
+          <div className="case-hero-crumbs meta">
+            <Link to="/cases">Cases</Link>
+            <span>/</span>
+            <span>{data.display_key}</span>
+          </div>
+          <div className="casework-kpis">
+            <span className={`badge sev-${data.severity}`}>{data.severity}</span>
+            <span className="kpi-pill">{data.status}</span>
+            {data.assignee ? <span className="kpi-pill">@{data.assignee}</span> : null}
+            <span className="kpi-pill">Priority {data.priority}</span>
+          </div>
         </div>
-
         <div className="summary-grid">
           <div className="summary-card">
             <span>Status</span>
@@ -203,7 +211,7 @@ export default function CaseDetail() {
             <strong>{data.due_at ? shortDateTime(data.due_at) : "—"}</strong>
           </div>
         </div>
-      </section>
+      </DashboardToolbar>
 
       <section className="entity-layout">
         <div className="entity-stack">
@@ -267,7 +275,7 @@ export default function CaseDetail() {
             >
               <label className="dense-field">
                 Add comment
-                <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} style={{ width: "100%" }} />
+                <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} className="w-full" />
               </label>
               <div className="btn-row tight">
                 <button type="submit">Add comment</button>
@@ -277,7 +285,7 @@ export default function CaseDetail() {
 
           <section className="card entity-stack">
             <h2>Linked artifacts</h2>
-            <div className="entity-layout" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}>
+            <div className="entity-layout artifact-grid-two">
               <div className="entity-stack">
                 <h2>Events</h2>
                 <form
@@ -294,11 +302,11 @@ export default function CaseDetail() {
                     }
                   }}
                 >
-                  <label className="dense-field" style={{ marginBottom: "0.5rem" }}>
+                  <label className="dense-field dense-field-stack">
                     Event ID
                     <input value={eventId} onChange={(e) => setEventId(e.target.value)} placeholder="event_id UUID" />
                   </label>
-                  <label className="dense-field" style={{ marginBottom: "0.5rem" }}>
+                  <label className="dense-field dense-field-stack">
                     Note
                     <input value={eventNote} onChange={(e) => setEventNote(e.target.value)} placeholder="note" />
                   </label>
@@ -334,7 +342,7 @@ export default function CaseDetail() {
                     }
                   }}
                 >
-                  <label className="dense-field" style={{ marginBottom: "0.5rem" }}>
+                  <label className="dense-field dense-field-stack">
                     Fingerprint
                     <input value={alertFp} onChange={(e) => setAlertFp(e.target.value)} placeholder="fingerprint" />
                   </label>

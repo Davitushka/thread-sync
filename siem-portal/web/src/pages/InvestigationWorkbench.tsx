@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getCase, getInvestigation, type CaseDetail, type Investigation, type LinkedAlert, type LinkedEvent, type TimelineEntry } from "../api";
+import DashboardToolbar from "../components/DashboardToolbar";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
@@ -48,17 +49,17 @@ function formatSla(due?: string): string {
   if (!due) return "—";
   const d = new Date(due);
   const diff = d.getTime() - Date.now();
-  if (diff < 0) return `просрочено (${d.toLocaleString()})`;
+  if (diff < 0) return `overdue (${d.toLocaleString()})`;
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
-  return `до ${d.toLocaleString()} (~${h}ч ${m}м)`;
+  return `due ${d.toLocaleString()} (~${h}h ${m}m)`;
 }
 
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    window.prompt("Копирование:", text);
+    window.prompt("Copy value:", text);
   }
 }
 
@@ -187,28 +188,33 @@ export default function InvestigationWorkbench() {
 
   usePublishPageCommands(pageCommands);
 
-  if (!id) return <p>Некорректный URL</p>;
+  if (!id) return <p>Invalid investigation URL.</p>;
   if (err && !data) return <p className="error">{err}</p>;
-  if (!data) return <p className="meta">Загрузка расследования…</p>;
+  if (!data) return <p className="meta">Loading investigation workspace...</p>;
 
   const g = inv?.grafana;
 
   return (
-    <div className="workbench">
-      <section className="card hero-card entity-stack">
-        <div className="dashboard-hero">
-          <div>
-            <p className="meta" style={{ margin: 0 }}>
-              <Link to="/cases">Cases</Link>
-              {" / "}
-              <Link to={`/cases/${id}`}>Card</Link>
-            </p>
-            <h1 style={{ margin: "0.35rem 0 0.25rem", fontSize: "1.45rem" }}>
-              {data.display_key} — {data.title}
-            </h1>
-            <p className="meta" style={{ margin: 0 }}>
-              Рабочее место аналитика: unified feed, case context и controlled pivots в данные.
-            </p>
+    <div className="page-grid casework-page workbench">
+      <DashboardToolbar
+        title={`${data.display_key} - Investigation`}
+        subtitle="Unified investigation workspace with a merged evidence feed, analyst pivots, and guided movement into external deep-dive tools."
+        className="casework-toolbar"
+        actions={
+          <div className="toolbar-inline-actions">
+            <Link className="tool-btn secondary" to={`/cases/${id}`}>
+              Open case detail
+            </Link>
+          </div>
+        }
+      >
+        <div className="case-hero-title">
+          <div className="case-hero-crumbs meta">
+            <Link to="/cases">Cases</Link>
+            <span>/</span>
+            <Link to={`/cases/${id}`}>{data.display_key}</Link>
+            <span>/</span>
+            <span>Investigation</span>
           </div>
           <div className="workbench-kpis">
             <span className={sevClass(data.severity)}>{data.severity}</span>
@@ -217,7 +223,6 @@ export default function InvestigationWorkbench() {
             <span className="kpi-pill">SLA: {formatSla(data.due_at)}</span>
           </div>
         </div>
-
         <div className="summary-grid">
           <div className="summary-card">
             <span>Linked alerts</span>
@@ -236,9 +241,9 @@ export default function InvestigationWorkbench() {
             <strong>{inv?.runbook_url ? "attached" : "—"}</strong>
           </div>
         </div>
-      </section>
+      </DashboardToolbar>
 
-      {invErr && <p className="error workbench-banner">Сводка расследования: {invErr}</p>}
+      {invErr && <p className="error workbench-banner">Investigation summary unavailable: {invErr}</p>}
 
       <div className="workbench-grid">
         <div className="entity-stack">
@@ -295,7 +300,10 @@ export default function InvestigationWorkbench() {
           <section className="card workbench-feed">
             <h2>Unified feed</h2>
             {feed.length === 0 ? (
-              <p className="meta">Пока пусто.</p>
+              <div className="surface-empty-state">
+                <h3>No investigation feed yet</h3>
+                <p>Timeline entries, linked alerts, and linked events will accumulate here as the case advances.</p>
+              </div>
             ) : (
               <ul className="feed-list">
                 {feed.map((item, idx) => (
@@ -334,7 +342,10 @@ export default function InvestigationWorkbench() {
           <div className="card entity-stack">
             <h2>Alert context</h2>
             {data.linked_alerts.length === 0 ? (
-              <p className="meta">Нет привязанных алертов.</p>
+              <div className="surface-empty-state">
+                <h3>No linked alerts</h3>
+                <p>Attach alerts from the case workspace when you need rule context, label evidence, or response history here.</p>
+              </div>
             ) : (
               <div className="queue-list">
                 {data.linked_alerts.map((a) => (
@@ -359,7 +370,10 @@ export default function InvestigationWorkbench() {
           <div className="card entity-stack">
             <h2>ClickHouse pivots</h2>
             {!inv?.suggested_clickhouse_queries?.length ? (
-              <p className="meta">Нет предложений.</p>
+              <div className="surface-empty-state">
+                <h3>No suggested pivots</h3>
+                <p>Suggested ClickHouse queries will appear here when the investigation summary returns evidence-driven pivots.</p>
+              </div>
             ) : (
               <div className="query-card-list">
                 {inv.suggested_clickhouse_queries.map((q, i) => (

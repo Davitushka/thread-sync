@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { createCase, listCases, type Case } from "../api";
+import DashboardToolbar from "../components/DashboardToolbar";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
@@ -12,6 +13,7 @@ function sevClass(s: string) {
 
 export default function CasesList() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { openOrFocusWorkspace } = useWorkspaceShell();
   const [cases, setCases] = useState<Case[]>([]);
   const [total, setTotal] = useState(0);
@@ -26,6 +28,29 @@ export default function CasesList() {
   const [newDesc, setNewDesc] = useState("");
   const [newSev, setNewSev] = useState("medium");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const applyQueueState = useCallback(
+    (patch: Partial<{ status: string; severity: string; q: string; selected: string }>, replace = true) => {
+      const nextStatus = patch.status ?? status;
+      const nextSeverity = patch.severity ?? severity;
+      const nextQ = patch.q ?? q;
+      const nextSelected = patch.selected ?? selectedId ?? "";
+      const next = new URLSearchParams();
+      if (nextStatus) next.set("status", nextStatus);
+      if (nextSeverity) next.set("severity", nextSeverity);
+      if (nextQ.trim()) next.set("q", nextQ.trim());
+      if (nextSelected) next.set("selected", nextSelected);
+      setSearchParams(next, { replace });
+    },
+    [q, selectedId, setSearchParams, severity, status]
+  );
+
+  useEffect(() => {
+    setStatus(searchParams.get("status") ?? "");
+    setSeverity(searchParams.get("severity") ?? "");
+    setQ(searchParams.get("q") ?? "");
+    setSelectedId(searchParams.get("selected"));
+  }, [searchParams]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -67,6 +92,13 @@ export default function CasesList() {
     [cases, selectedId]
   );
 
+  useEffect(() => {
+    if (!cases.length || !selectedCase) return;
+    if (selectedId !== selectedCase.id) {
+      applyQueueState({ selected: selectedCase.id }, true);
+    }
+  }, [applyQueueState, cases.length, selectedCase, selectedId]);
+
   const counts = useMemo(() => {
     return {
       investigating: cases.filter((item) => item.status === "investigating").length,
@@ -74,6 +106,16 @@ export default function CasesList() {
       overdue: cases.filter((item) => item.due_at && new Date(item.due_at).getTime() < Date.now() && item.status !== "closed").length,
     };
   }, [cases]);
+  const activeFilterChips = useMemo(
+    () =>
+      [
+        status ? { key: "status", label: "Status", value: status, clear: () => applyQueueState({ status: "" }, false) } : null,
+        severity ? { key: "severity", label: "Severity", value: severity, clear: () => applyQueueState({ severity: "" }, false) } : null,
+        q.trim() ? { key: "search", label: "Search", value: q.trim(), clear: () => applyQueueState({ q: "" }, false) } : null,
+        actor.trim() ? { key: "actor", label: "Analyst", value: actor.trim(), clear: () => setActor("") } : null,
+      ].filter(Boolean) as Array<{ key: string; label: string; value: string; clear: () => void }>,
+    [actor, applyQueueState, q, setActor, severity, status]
+  );
 
   const pageCommands = useMemo<SuitePageCommand[]>(() => {
     const commands: SuitePageCommand[] = [
@@ -105,11 +147,7 @@ export default function CasesList() {
         section: "Current case queue",
         keywords: "cases clear filters reset",
         priority: 90,
-        run: () => {
-          setStatus("");
-          setSeverity("");
-          setQ("");
-        },
+        run: () => applyQueueState({ status: "", severity: "", q: "", selected: "" }, false),
       });
     }
 
@@ -151,35 +189,34 @@ export default function CasesList() {
           section: "Selected case",
           keywords: `${selectedCase.assignee} assignee cases`,
           priority: 78,
-          run: () => setQ(selectedCase.assignee || ""),
+          run: () => applyQueueState({ q: selectedCase.assignee || "" }, false),
         });
       }
     }
 
     return commands;
-  }, [load, status, severity, q, selectedCase, navigate]);
+  }, [applyQueueState, load, status, severity, q, selectedCase, navigate]);
 
   usePublishPageCommands(pageCommands);
 
   return (
-    <div className="page-grid triage-page">
+    <div className="page-grid casework-page">
       {err && <p className="error">{err}</p>}
-      <section className="card hero-card entity-stack">
-        <div className="dashboard-hero">
-          <div>
-            <h2>Case operations</h2>
-            <p className="meta">Единая очередь кейсов через portal BFF: triage, ownership и переход в investigation.</p>
-          </div>
-          <div className="dense-inline-actions">
-            <button type="button" className="secondary" onClick={load}>
-              Refresh
-            </button>
+      <DashboardToolbar
+        title="Case command center"
+        subtitle="Unified response queue for ownership, severity, due pressure, and movement into case detail or investigation."
+        loading={loading}
+        onRefresh={load}
+        refreshButtonLabel="Refresh case queue"
+        className="casework-toolbar"
+        actions={
+          <div className="toolbar-inline-actions">
             <button type="button" onClick={() => setModal(true)}>
               New case
             </button>
           </div>
-        </div>
-
+        }
+      >
         <div className="summary-grid">
           <div className="summary-card">
             <span>Total returned</span>
@@ -198,11 +235,10 @@ export default function CasesList() {
             <strong>{formatCompact(counts.overdue)}</strong>
           </div>
         </div>
-
         <div className="triage-filterbar">
           <label>
             Status
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            <select value={status} onChange={(e) => applyQueueState({ status: e.target.value }, false)}>
               <option value="">All</option>
               <option value="new">new</option>
               <option value="triaged">triaged</option>
@@ -214,7 +250,7 @@ export default function CasesList() {
           </label>
           <label>
             Severity
-            <select value={severity} onChange={(e) => setSeverity(e.target.value)}>
+            <select value={severity} onChange={(e) => applyQueueState({ severity: e.target.value }, false)}>
               <option value="">All</option>
               <option value="critical">critical</option>
               <option value="high">high</option>
@@ -224,14 +260,29 @@ export default function CasesList() {
           </label>
           <label>
             Search
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="title / assignee / tag" />
+            <input value={q} onChange={(e) => applyQueueState({ q: e.target.value }, false)} placeholder="title / assignee / tag" />
           </label>
           <label>
             Analyst
             <input value={actor} onChange={(e) => setActor(e.target.value)} />
           </label>
         </div>
-      </section>
+        {!!activeFilterChips.length && (
+          <div className="toolbar-chip-row">
+            {activeFilterChips.map((chip) => (
+              <button key={chip.key} type="button" className="token token-action" onClick={chip.clear}>
+                {chip.label}:{chip.value} x
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="toolbar-status-row">
+          <span>Queue rows</span>
+          <strong>{formatCompact(cases.length)}</strong>
+          <span>Focused case</span>
+          <strong>{selectedCase?.display_key || "No selection"}</strong>
+        </div>
+      </DashboardToolbar>
 
       <section className="triage-grid">
         <section className="card triage-card workspace-pane">
@@ -245,7 +296,24 @@ export default function CasesList() {
           {loading ? (
             <p className="meta">Loading…</p>
           ) : !cases.length ? (
-            <p className="meta">Нет кейсов под выбранные фильтры.</p>
+            <div className="surface-empty-state">
+              <h3>No cases match the current queue view</h3>
+              <p>Clear one of the active chips or create a new case to repopulate the response queue.</p>
+              <div className="surface-empty-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    applyQueueState({ status: "", severity: "", q: "", selected: "" }, false);
+                  }}
+                >
+                  Clear filters
+                </button>
+                <button type="button" onClick={() => setModal(true)}>
+                  New case
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="queue-list">
               {cases.map((c) => (
@@ -253,7 +321,7 @@ export default function CasesList() {
                   type="button"
                   key={c.id}
                   className={selectedCase?.id === c.id ? "queue-item active" : "queue-item"}
-                  onClick={() => setSelectedId(c.id)}
+                  onClick={() => applyQueueState({ selected: c.id })}
                 >
                   <header>
                     <div>
@@ -301,7 +369,7 @@ export default function CasesList() {
                   {cases.map((c) => (
                     <tr
                       key={c.id}
-                      onClick={() => setSelectedId(c.id)}
+                      onClick={() => applyQueueState({ selected: c.id })}
                       className={selectedCase?.id === c.id ? "selectable-row active" : "selectable-row"}
                     >
                       <td>
@@ -334,7 +402,10 @@ export default function CasesList() {
               </div>
             </div>
             {!selectedCase ? (
-              <p className="meta">Выбери кейс слева.</p>
+              <div className="surface-empty-state">
+                <h3>No case selected</h3>
+                <p>Select a queue row to inspect ownership, due pressure, and jump into detail or investigation.</p>
+              </div>
             ) : (
               <>
                 <div className="summary-grid">
@@ -387,11 +458,11 @@ export default function CasesList() {
             <form onSubmit={submitNew}>
               <label className="dense-field" style={{ marginBottom: "0.75rem" }}>
                 Title
-                <input required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} style={{ width: "100%" }} />
+                <input required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full" />
               </label>
               <label className="dense-field" style={{ marginBottom: "0.75rem" }}>
                 Description
-                <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} rows={3} style={{ width: "100%" }} />
+                <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} rows={3} className="w-full" />
               </label>
               <label className="dense-field" style={{ marginBottom: "0.75rem" }}>
                 Severity

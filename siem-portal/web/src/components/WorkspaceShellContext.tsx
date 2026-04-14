@@ -13,6 +13,7 @@ import {
   DEFAULT_EXPANDED_GROUPS,
   DEFAULT_PINNED_PATHS,
   DEFAULT_WORKSPACE_PATHS,
+  isKnownWorkspacePath,
   resolveWorkspaceMeta,
   type ResolvedWorkspaceMeta,
   type ShellGroupId,
@@ -101,15 +102,15 @@ function readPersistedState(): PersistedShellState {
         openPaths: DEFAULT_WORKSPACE_PATHS,
         pinnedPaths: DEFAULT_PINNED_PATHS,
         expandedGroups: DEFAULT_EXPANDED_GROUPS,
-        recentPaths: unique(parsed.recentPaths ?? []).slice(0, RECENT_LIMIT),
+        recentPaths: unique((parsed.recentPaths ?? []).filter(isKnownWorkspacePath)).slice(0, RECENT_LIMIT),
       };
     }
     return {
       version: STORAGE_VERSION,
-      openPaths: unique(parsed.openPaths ?? DEFAULT_WORKSPACE_PATHS),
-      pinnedPaths: unique(parsed.pinnedPaths ?? DEFAULT_PINNED_PATHS),
+      openPaths: unique((parsed.openPaths ?? DEFAULT_WORKSPACE_PATHS).filter(isKnownWorkspacePath)),
+      pinnedPaths: unique((parsed.pinnedPaths ?? DEFAULT_PINNED_PATHS).filter(isKnownWorkspacePath)),
       expandedGroups: unique((parsed.expandedGroups as ShellGroupId[] | undefined) ?? DEFAULT_EXPANDED_GROUPS),
-      recentPaths: unique(parsed.recentPaths ?? []).slice(0, RECENT_LIMIT),
+      recentPaths: unique((parsed.recentPaths ?? []).filter(isKnownWorkspacePath)).slice(0, RECENT_LIMIT),
     };
   } catch {
     return {
@@ -141,12 +142,13 @@ function buildTab(path: string, pinnedPaths: string[]): WorkspaceTab {
 export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const normalizedLocationPath = isKnownWorkspacePath(location.pathname) ? location.pathname : "/";
   const initial = useRef(readPersistedState());
   const [pinnedPaths, setPinnedPaths] = useState<string[]>(() => initial.current.pinnedPaths);
   const [expandedGroups, setExpandedGroups] = useState<ShellGroupId[]>(() => initial.current.expandedGroups);
   const [recentPaths, setRecentPaths] = useState<string[]>(() => initial.current.recentPaths);
   const [tabs, setTabs] = useState<WorkspaceTab[]>(() => {
-    const basePaths = unique([...initial.current.openPaths, location.pathname]);
+    const basePaths = unique([...initial.current.openPaths, normalizedLocationPath]);
     return basePaths.map((path) => buildTab(path, initial.current.pinnedPaths));
   });
   const metaOverridesRef = useRef<Record<string, WorkspaceMetaOverride>>({});
@@ -304,9 +306,16 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    ensureTab(location.pathname);
-    touchRecentPath(location.pathname);
-  }, [ensureTab, location.pathname, touchRecentPath]);
+    if (location.pathname === normalizedLocationPath) {
+      return;
+    }
+    navigate(normalizedLocationPath, { replace: true });
+  }, [location.pathname, navigate, normalizedLocationPath]);
+
+  useEffect(() => {
+    ensureTab(normalizedLocationPath);
+    touchRecentPath(normalizedLocationPath);
+  }, [ensureTab, normalizedLocationPath, touchRecentPath]);
 
   useEffect(() => {
     setTabs((current) =>
@@ -320,16 +329,19 @@ export function WorkspaceShellProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const persisted: PersistedShellState = {
       version: STORAGE_VERSION,
-      openPaths: unique(tabs.map((tab) => tab.path)),
-      pinnedPaths,
+      openPaths: unique(tabs.map((tab) => tab.path).filter(isKnownWorkspacePath)),
+      pinnedPaths: unique(pinnedPaths.filter(isKnownWorkspacePath)),
       expandedGroups,
-      recentPaths,
+      recentPaths: unique(recentPaths.filter(isKnownWorkspacePath)).slice(0, RECENT_LIMIT),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   }, [tabs, pinnedPaths, expandedGroups, recentPaths]);
 
-  const activeTab = tabs.find((tab) => tab.path === location.pathname) ?? tabs[0] ?? null;
-  const activeWorkspace = resolveWorkspaceMeta(location.pathname, metaOverridesRef.current[location.pathname]);
+  const activeTab = tabs.find((tab) => tab.path === normalizedLocationPath) ?? tabs[0] ?? null;
+  const activeWorkspace = resolveWorkspaceMeta(
+    normalizedLocationPath,
+    metaOverridesRef.current[normalizedLocationPath]
+  );
 
   const tabEntries = useMemo<WorkspaceEntry[]>(
     () =>

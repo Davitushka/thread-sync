@@ -12,6 +12,7 @@ import {
   type EventSearchResponse,
 } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
+import DashboardToolbar from "../components/DashboardToolbar";
 import { ObservabilityBarPanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
@@ -199,6 +200,7 @@ export default function EventsPage() {
 
   const selectedEntityValue = selected?.event.source_ip || selected?.event.user_id || selected?.event.host;
   const logRows = results?.rows ?? [];
+  const hasActiveQuery = Object.keys(activeQueryParams).length > 0;
   const streamLabels = useMemo(
     () =>
       logRows.map((row) => {
@@ -400,18 +402,15 @@ export default function EventsPage() {
 
   return (
     <div className="page-grid triage-page">
-      <section className="card hero-card triage-card">
-        <div className="dashboard-hero">
-          <div>
-            <h2>Signal workspace</h2>
-            <p className="meta">
-              Native ClickHouse log exploration with a denser operator rhythm: bounded windows, event-family pivots, and context panels that behave closer to a serious Grafana/Loki workspace.
-            </p>
-          </div>
-          <div className="dense-inline-actions">
-            <button type="button" className="secondary" onClick={() => void fetchResults(activeQueryParams)}>
-              {loading ? "Refreshing..." : "Refresh current query"}
-            </button>
+      <DashboardToolbar
+        title="Signal workspace"
+        subtitle="Native ClickHouse hunting surface with bounded windows, event-family pivots, and context panes that behave like a serious Grafana or Loki workflow."
+        loading={loading}
+        onRefresh={() => void (hasActiveQuery ? fetchResults(activeQueryParams) : load())}
+        refreshButtonLabel={hasActiveQuery ? "Refresh current query" : "Run search"}
+        className="triage-toolbar"
+        actions={
+          <div className="toolbar-inline-actions">
             <button
               type="button"
               className="secondary"
@@ -429,7 +428,8 @@ export default function EventsPage() {
               Detection ops
             </Link>
           </div>
-        </div>
+        }
+      >
         <form className="triage-filterbar triage-filterbar-wide" onSubmit={load}>
           <label>
             Analyst
@@ -492,7 +492,7 @@ export default function EventsPage() {
           ))}
         </div>
         {!!activeFilterChips.length && (
-          <div className="filter-chip-row">
+          <div className="toolbar-chip-row">
             {activeFilterChips.map((chip) => (
               <button
                 key={chip.key}
@@ -505,7 +505,13 @@ export default function EventsPage() {
             ))}
           </div>
         )}
-        {results && (
+        <div className="toolbar-status-row">
+          <span>Workspace window</span>
+          <strong>{results ? formatFilterWindow(results.meta.filters.start, results.meta.filters.end) : "No committed query"}</strong>
+          <span>Focused entity</span>
+          <strong>{selectedEntityValue || "Awaiting selection"}</strong>
+        </div>
+        {results ? (
           <div className="summary-grid">
             <div className="summary-card">
               <span>Log lines</span>
@@ -532,9 +538,14 @@ export default function EventsPage() {
               <strong>{topEventTypes[0]?.[0] ?? "—"}</strong>
             </div>
           </div>
+        ) : (
+          <div className="surface-empty-state">
+            <h3>No search committed yet</h3>
+            <p>Set a bounded window or a focused entity, then run the query to populate the stream, context, and quick pivots.</p>
+          </div>
         )}
         {err && <p className="error">{err}</p>}
-      </section>
+      </DashboardToolbar>
 
       {!!logRows.length && (
         <section className="observability-grid observability-grid-primary">
@@ -596,9 +607,15 @@ export default function EventsPage() {
             </div>
           </div>
           {!results ? (
-            <p className="meta">Нажми Search, чтобы загрузить события.</p>
+            <div className="surface-empty-state">
+              <h3>Search is ready</h3>
+              <p>Run the first query to load stream rows, event detail, and correlated entity activity.</p>
+            </div>
           ) : !results.rows.length ? (
-            <p className="meta">По текущим фильтрам ничего не найдено.</p>
+            <div className="surface-empty-state">
+              <h3>No events matched</h3>
+              <p>The current filters produced an empty result set. Broaden the window, remove a chip, or pivot to a different entity.</p>
+            </div>
           ) : (
             <div className="log-stream">
               {results.rows.map((row) => {
@@ -668,7 +685,10 @@ export default function EventsPage() {
             </div>
           </div>
           {!selected ? (
-            <p className="meta">Открой строку из log stream, чтобы увидеть детальный разбор события.</p>
+            <div className="surface-empty-state">
+              <h3>No event selected</h3>
+              <p>Open a row from the log stream to inspect the record, copy identifiers, and promote evidence into casework.</p>
+            </div>
           ) : (
             <>
               <div className="dashboard-hero">
@@ -779,7 +799,10 @@ export default function EventsPage() {
               </div>
             </div>
             {!context ? (
-              <p className="meta">Открой событие с `source_ip`, `user_id` или `host`, чтобы получить контекст.</p>
+              <div className="surface-empty-state">
+                <h3>No entity context yet</h3>
+                <p>Open an event with `source_ip`, `user_id`, or `host` to build a correlated context pane for the active hunt.</p>
+              </div>
             ) : (
               <>
                 <div className="summary-grid">

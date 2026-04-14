@@ -1,5 +1,30 @@
+const ABSOLUTE_URL_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.trim() || "/api/v1";
+
+function normalizeBasePath(base: string): string {
+  if (ABSOLUTE_URL_RE.test(base)) {
+    return base.replace(/\/+$/, "");
+  }
+  const trimmed = base.replace(/^\/+/, "").replace(/\/+$/, "");
+  return trimmed ? `/${trimmed}` : "/api/v1";
+}
+
+function joinRequestPath(base: string, path: string): string {
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${suffix}`;
+}
+
+function normalizeRequestPath(path: string): string {
+  if (ABSOLUTE_URL_RE.test(path)) {
+    return path;
+  }
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+const API_BASE = normalizeBasePath(RAW_API_BASE);
+
 const api = (path: string, init?: RequestInit) =>
-  fetch(`/api/v1${path}`, {
+  fetch(joinRequestPath(API_BASE, path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -8,7 +33,7 @@ const api = (path: string, init?: RequestInit) =>
   });
 
 const suite = (path: string, init?: RequestInit) =>
-  fetch(path, {
+  fetch(normalizeRequestPath(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -579,19 +604,19 @@ export async function getDetectionsOverview(): Promise<DetectionsOverview> {
 
 export async function searchEvents(params: Record<string, string>): Promise<EventSearchResponse> {
   const q = new URLSearchParams(params);
-  const r = await suite(`/api/v1/events/search?${q.toString()}`);
+  const r = await api(`/events/search?${q.toString()}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
 export async function getEvent(id: string): Promise<EventDetail> {
-  const r = await suite(`/api/v1/events/${id}`);
+  const r = await api(`/events/${id}`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
 export async function getEntityContext(kind: string, value: string): Promise<EntityContext> {
-  const r = await suite(`/api/v1/entities/${encodeURIComponent(kind)}/${encodeURIComponent(value)}/context`);
+  const r = await api(`/entities/${encodeURIComponent(kind)}/${encodeURIComponent(value)}/context`);
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

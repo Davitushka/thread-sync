@@ -518,6 +518,7 @@ fn embedded_asset_response(path: &str) -> Response {
     } else {
         path.trim_start_matches('/')
     };
+    let cache_control = cache_control_for_asset(lookup);
     match PortalAsset::get(lookup) {
         Some(file) => {
             let mime = mime_guess::from_path(lookup)
@@ -526,7 +527,7 @@ fn embedded_asset_response(path: &str) -> Response {
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
-                .header(header::CACHE_CONTROL, "public, max-age=3600")
+                .header(header::CACHE_CONTROL, cache_control)
                 .body(Body::from(file.data.to_vec()))
                 .unwrap()
         }
@@ -536,4 +537,14 @@ fn embedded_asset_response(path: &str) -> Response {
             .body(Body::from("asset not found"))
             .unwrap(),
     }
+}
+
+fn cache_control_for_asset(path: &str) -> &'static str {
+    if path == "index.html" {
+        return "no-store, max-age=0";
+    }
+    if path.starts_with("assets/") {
+        return "public, max-age=31536000, immutable";
+    }
+    "public, max-age=3600"
 }

@@ -1,14 +1,10 @@
-import { Suspense, lazy } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Suspense, lazy, type ReactNode } from "react";
+import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { SuiteTopbar, useActorState } from "./components/PageLayout";
 import CommandPalette from "./components/CommandPalette";
 import ShellIcon from "./components/ShellIcon";
 import { SuiteCommandProvider } from "./components/SuiteCommandContext";
 import { WorkspaceShellProvider, useWorkspaceShell } from "./components/WorkspaceShellContext";
-import EventsPage from "./pages/EventsPage";
-import CasesList from "./pages/CasesList";
-import CaseDetail from "./pages/CaseDetail";
-import InvestigationWorkbench from "./pages/InvestigationWorkbench";
 import { SUITE_NAV_GROUPS, resolveNavSelection } from "./suite-meta";
 
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
@@ -19,6 +15,10 @@ const ValidationPage = lazy(() => import("./pages/ValidationPage"));
 const DashboardsPage = lazy(() => import("./pages/DashboardsPage"));
 const AlertsPage = lazy(() => import("./pages/AlertsPage"));
 const DetectionsPage = lazy(() => import("./pages/DetectionsPage"));
+const EventsPage = lazy(() => import("./pages/EventsPage"));
+const CasesList = lazy(() => import("./pages/CasesList"));
+const CaseDetail = lazy(() => import("./pages/CaseDetail"));
+const InvestigationWorkbench = lazy(() => import("./pages/InvestigationWorkbench"));
 
 function WorkspaceLoadingFallback({
   title,
@@ -35,6 +35,48 @@ function WorkspaceLoadingFallback({
           <h2>{title}</h2>
           <p className="workspace-pane-subtitle">{subtitle}</p>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceRoute({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <Suspense fallback={<WorkspaceLoadingFallback title={title} subtitle={subtitle} />}>
+      {children}
+    </Suspense>
+  );
+}
+
+function UnknownRouteFallback() {
+  const location = useLocation();
+
+  return (
+    <section className="card workspace-pane workspace-route-miss">
+      <div className="workspace-pane-header">
+        <div className="workspace-pane-copy">
+          <span className="workspace-pane-kicker">Route handoff</span>
+          <h2>Workspace not found</h2>
+          <p className="workspace-pane-subtitle">
+            The suite booted correctly, but there is no registered workspace for <code>{location.pathname}</code>.
+          </p>
+        </div>
+      </div>
+      <div className="workspace-route-miss-actions">
+        <Link className="tool-btn" to="/">
+          Return to overview
+        </Link>
+        <Link className="tool-btn secondary" to="/cases">
+          Open case queue
+        </Link>
       </div>
     </section>
   );
@@ -313,127 +355,146 @@ function AppShell({ actor }: { actor: string }) {
             <Route
               path="/"
               element={
-                <Suspense
-                  fallback={
-                    <WorkspaceLoadingFallback
-                      title="SOC overview"
-                      subtitle="Loading the native overview command surface and signal panels."
-                    />
-                  }
+                <WorkspaceRoute
+                  title="SOC overview"
+                  subtitle="Loading the native overview command surface and signal panels."
                 >
                   <OverviewPage />
-                </Suspense>
+                </WorkspaceRoute>
               }
             />
             <Route
               path="/infrastructure"
               element={
-                <Suspense
-                  fallback={
-                    <WorkspaceLoadingFallback
-                      title="Infrastructure"
-                      subtitle="Loading the ECharts pilot screen and platform metrics."
-                    />
-                  }
+                <WorkspaceRoute
+                  title="Infrastructure"
+                  subtitle="Loading the ECharts pilot screen and platform metrics."
                 >
                   <InfrastructurePage />
-                </Suspense>
+                </WorkspaceRoute>
               }
             />
             <Route
               path="/operations"
               element={
-                <Suspense
-                  fallback={
-                    <WorkspaceLoadingFallback
-                      title="Operations center"
-                      subtitle="Loading the ECharts operations workspace and pipeline telemetry."
-                    />
-                  }
+                <WorkspaceRoute
+                  title="Operations center"
+                  subtitle="Loading the ECharts operations workspace and pipeline telemetry."
                 >
                   <OperationsPage />
-                </Suspense>
+                </WorkspaceRoute>
               }
             />
             <Route
               path="/data-quality"
               element={
-                <Suspense
-                  fallback={
-                    <WorkspaceLoadingFallback
-                      title="Data quality"
-                      subtitle="Loading the ECharts trust layer and ingest quality metrics."
-                    />
-                  }
+                <WorkspaceRoute
+                  title="Data quality"
+                  subtitle="Loading the ECharts trust layer and ingest quality metrics."
                 >
                   <DataQualityPage />
-                </Suspense>
+                </WorkspaceRoute>
               }
             />
             <Route
               path="/validation"
               element={
-                <Suspense
-                  fallback={
-                    <WorkspaceLoadingFallback
-                      title="Validation workspace"
-                      subtitle="Loading trust checks, validation gauges and pipeline health signals."
-                    />
-                  }
+                <WorkspaceRoute
+                  title="Validation workspace"
+                  subtitle="Loading trust checks, validation gauges and pipeline health signals."
                 >
                   <ValidationPage />
-                </Suspense>
+                </WorkspaceRoute>
               }
             />
             <Route
               path="/dashboards"
               element={
-                <Suspense
-                  fallback={
-                    <WorkspaceLoadingFallback
-                      title="Dashboards hub"
-                      subtitle="Loading the analytics command center and surface catalog."
-                    />
-                  }
+                <WorkspaceRoute
+                  title="Dashboards hub"
+                  subtitle="Loading the analytics command center and surface catalog."
                 >
                   <DashboardsPage />
-                </Suspense>
+                </WorkspaceRoute>
               }
             />
             <Route
               path="/alerts"
               element={
-                <Suspense
-                  fallback={
-                    <WorkspaceLoadingFallback
-                      title="Alerts console"
-                      subtitle="Loading the native alert inbox and analytics surfaces."
-                    />
-                  }
+                <WorkspaceRoute
+                  title="Alerts console"
+                  subtitle="Loading the native alert inbox and analytics surfaces."
                 >
                   <AlertsPage />
-                </Suspense>
+                </WorkspaceRoute>
               }
             />
             <Route
               path="/detections"
               element={
-                <Suspense
-                  fallback={
-                    <WorkspaceLoadingFallback
-                      title="Detections console"
-                      subtitle="Loading the engine pressure view, firing queue and rule telemetry."
-                    />
-                  }
+                <WorkspaceRoute
+                  title="Detections console"
+                  subtitle="Loading the engine pressure view, firing queue and rule telemetry."
                 >
                   <DetectionsPage />
-                </Suspense>
+                </WorkspaceRoute>
               }
             />
-            <Route path="/events" element={<EventsPage />} />
-            <Route path="/cases" element={<CasesList />} />
-            <Route path="/cases/:id" element={<CaseDetail />} />
-            <Route path="/cases/:id/investigate" element={<InvestigationWorkbench />} />
+            <Route
+              path="/events"
+              element={
+                <WorkspaceRoute
+                  title="Event search"
+                  subtitle="Loading native event pivots, filters and entity context."
+                >
+                  <EventsPage />
+                </WorkspaceRoute>
+              }
+            />
+            <Route
+              path="/cases"
+              element={
+                <WorkspaceRoute
+                  title="Case operations"
+                  subtitle="Loading the active response queue, ownership data and case actions."
+                >
+                  <CasesList />
+                </WorkspaceRoute>
+              }
+            />
+            <Route
+              path="/cases/:id"
+              element={
+                <WorkspaceRoute
+                  title="Case detail"
+                  subtitle="Loading linked artifacts, timeline context and response workflow."
+                >
+                  <CaseDetail />
+                </WorkspaceRoute>
+              }
+            />
+            <Route
+              path="/cases/:id/investigate"
+              element={
+                <WorkspaceRoute
+                  title="Investigation workbench"
+                  subtitle="Loading investigation pivots, linked evidence and analyst context."
+                >
+                  <InvestigationWorkbench />
+                </WorkspaceRoute>
+              }
+            />
+            <Route
+              path="*"
+              element={
+                <WorkspaceRoute
+                  title="Workspace handoff"
+                  subtitle="Resolving the requested route and offering the nearest valid workspace."
+                >
+                  <UnknownRouteFallback />
+                </WorkspaceRoute>
+              }
+            />
           </Routes>
         </main>
       </div>

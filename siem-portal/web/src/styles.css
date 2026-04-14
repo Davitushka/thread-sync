@@ -665,8 +665,17 @@ pre {
   max-width: 1600px;
 }
 
+.validation-page,
+.dashboard-page {
+  max-width: 1600px;
+}
+
 .triage-page {
   max-width: 1720px;
+}
+
+.casework-page {
+  max-width: 1680px;
 }
 
 .command-center-layout,
@@ -774,6 +783,10 @@ pre {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.75rem;
   align-items: end;
+}
+
+.triage-filterbar-wide {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
 .triage-filterbar label,
@@ -1369,12 +1382,39 @@ pre {
   background: linear-gradient(180deg, rgba(77, 155, 255, 0.1), rgba(17, 25, 39, 0.95));
 }
 
+.dashboard-toolbar-card {
+  display: grid;
+  gap: 1rem;
+}
+
 .dashboard-hero {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
+}
+
+.dashboard-hero h1,
+.dashboard-hero h2 {
+  margin: 0;
+}
+
+.dashboard-hero p.meta {
+  margin: 0.3rem 0 0;
+}
+
+.dashboard-toolbar-side {
+  display: grid;
+  justify-items: end;
+  gap: 0.75rem;
+}
+
+.dashboard-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .dashboard-controls {
@@ -1390,6 +1430,72 @@ pre {
   gap: 0.25rem;
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.dashboard-toolbar-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.toolbar-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.toolbar-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.toolbar-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.toolbar-status-row strong {
+  color: var(--text);
+}
+
+.w-full {
+  width: 100%;
+}
+
+.dense-field-stack {
+  margin-bottom: 0.5rem;
+}
+
+.artifact-grid-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.surface-empty-state {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.surface-empty-state h3 {
+  margin: 0;
+}
+
+.surface-empty-state p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.surface-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .toolbar {
@@ -2213,10 +2319,6 @@ tr:hover td {
   color: var(--accent);
 }
 
-.dashboard-page {
-  max-width: 1600px;
-}
-
 .dashboard-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2505,6 +2607,39 @@ tr:hover td {
 
 .dashboard-note {
   margin-bottom: 0.9rem;
+}
+
+.workspace-route-miss {
+  display: grid;
+  gap: 1rem;
+}
+
+.workspace-route-miss-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.case-hero-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.case-hero-title {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.casework-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.workbench {
+  max-width: 1680px;
 }
 
 .dashboard-frame {

@@ -21,16 +21,28 @@ use wry::WebViewBuilder;
 
 const DEFAULT_PORTAL_URL: &str = "http://127.0.0.1:8091/";
 
+fn normalize_portal_url(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_PORTAL_URL.to_string();
+    }
+    let Ok(mut url) = Url::parse(trimmed) else {
+        return trimmed.to_string();
+    };
+    if matches!(url.host_str(), Some("localhost") | Some("::1") | Some("[::1]")) {
+        let _ = url.set_host(Some("127.0.0.1"));
+    }
+    if url.path().is_empty() {
+        url.set_path("/");
+    }
+    url.to_string()
+}
+
 /// URL портала для окна WebView (`--web`).
 pub fn portal_url() -> String {
     let raw = std::env::var("SIEM_OPERATOR_PORTAL_URL")
         .unwrap_or_else(|_| DEFAULT_PORTAL_URL.to_string());
-    let s = raw.trim().to_string();
-    if s.is_empty() {
-        DEFAULT_PORTAL_URL.to_string()
-    } else {
-        s
-    }
+    normalize_portal_url(&raw)
 }
 
 /// Нативный клиент на egui (все вкладки и логика).
@@ -52,12 +64,29 @@ pub fn run_egui_operator() -> eframe::Result<()> {
     )
 }
 
-fn portal_health_url(raw: &str) -> Option<String> {
-    let mut url = Url::parse(raw).ok()?;
-    url.set_path("/health");
-    url.set_query(None);
-    url.set_fragment(None);
-    Some(url.to_string())
+fn portal_health_urls(raw: &str) -> Vec<String> {
+    let Ok(url) = Url::parse(raw) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut primary = url.clone();
+    primary.set_path("/health");
+    primary.set_query(None);
+    primary.set_fragment(None);
+    out.push(primary.to_string());
+    if matches!(url.host_str(), Some("localhost") | Some("::1") | Some("[::1]")) {
+        let mut fallback = url;
+        if fallback.set_host(Some("127.0.0.1")).is_ok() {
+            fallback.set_path("/health");
+            fallback.set_query(None);
+            fallback.set_fragment(None);
+            let candidate = fallback.to_string();
+            if !out.contains(&candidate) {
+                out.push(candidate);
+            }
+        }
+    }
+    out
 }
 
 fn portal_is_local(raw: &str) -> bool {
@@ -82,20 +111,23 @@ fn portal_autostart_enabled() -> bool {
 }
 
 fn portal_ready(raw: &str, timeout: Duration) -> bool {
-    let Some(health_url) = portal_health_url(raw) else {
+    let health_urls = portal_health_urls(raw);
+    if health_urls.is_empty() {
         return false;
-    };
+    }
     let Ok(client) = reqwest::blocking::Client::builder()
         .timeout(timeout)
         .build()
     else {
         return false;
     };
-    client
-        .get(health_url)
-        .send()
-        .map(|resp| resp.status().is_success())
-        .unwrap_or(false)
+    health_urls.into_iter().any(|health_url| {
+        client
+            .get(health_url)
+            .send()
+            .map(|resp| resp.status().is_success())
+            .unwrap_or(false)
+    })
 }
 
 fn wait_for_portal(raw: &str, timeout: Duration) -> bool {

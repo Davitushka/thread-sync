@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { createCase, getAlertsOverview, linkAlert, type AlertsOverview } from "../api";
+import DashboardToolbar from "../components/DashboardToolbar";
 import { ObservabilityBarPanel, ObservabilityGaugePanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
@@ -12,6 +13,7 @@ function severity(value?: string) {
 
 export default function AlertsPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { actor, setActor } = useActorState();
   const [data, setData] = useState<AlertsOverview | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -21,6 +23,24 @@ export default function AlertsPage() {
   const [stateFilter, setStateFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [q, setQ] = useState("");
+
+  const applyInboxState = useCallback(
+    (patch: Partial<{ severity: string; state: string; source: string; q: string; selected: string }>, replace = true) => {
+      const nextSeverity = patch.severity ?? severityFilter;
+      const nextState = patch.state ?? stateFilter;
+      const nextSource = patch.source ?? sourceFilter;
+      const nextQ = patch.q ?? q;
+      const nextSelected = patch.selected ?? selected ?? "";
+      const next = new URLSearchParams();
+      if (nextSeverity) next.set("severity", nextSeverity);
+      if (nextState) next.set("state", nextState);
+      if (nextSource) next.set("source", nextSource);
+      if (nextQ.trim()) next.set("q", nextQ.trim());
+      if (nextSelected) next.set("selected", nextSelected);
+      setSearchParams(next, { replace });
+    },
+    [q, selected, setSearchParams, severityFilter, sourceFilter, stateFilter]
+  );
 
   const load = useCallback(
     () =>
@@ -36,6 +56,14 @@ export default function AlertsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setSeverityFilter(searchParams.get("severity") ?? "");
+    setStateFilter(searchParams.get("state") ?? "");
+    setSourceFilter(searchParams.get("source") ?? "");
+    setQ(searchParams.get("q") ?? "");
+    setSelected(searchParams.get("selected"));
+  }, [searchParams]);
 
   const filteredAlerts = useMemo(() => {
     const rows = data?.alerts ?? [];
@@ -61,9 +89,27 @@ export default function AlertsPage() {
     [filteredAlerts, selected]
   );
 
+  useEffect(() => {
+    if (!filteredAlerts.length || !selectedAlert) return;
+    if (selected !== selectedAlert.fingerprint) {
+      applyInboxState({ selected: selectedAlert.fingerprint }, true);
+    }
+  }, [applyInboxState, filteredAlerts.length, selected, selectedAlert]);
+
   const sources = useMemo(() => {
     return Array.from(new Set((data?.alerts ?? []).map((alert) => alert.source))).sort((a, b) => a.localeCompare(b));
   }, [data]);
+  const activeFilterChips = useMemo(
+    () =>
+      [
+        actor.trim() ? { key: "actor", label: "Analyst", value: actor.trim(), clear: () => setActor("") } : null,
+        severityFilter ? { key: "severity", label: "Severity", value: severityFilter, clear: () => applyInboxState({ severity: "" }, false) } : null,
+        stateFilter ? { key: "state", label: "State", value: stateFilter, clear: () => applyInboxState({ state: "" }, false) } : null,
+        sourceFilter ? { key: "source", label: "Source", value: sourceFilter, clear: () => applyInboxState({ source: "" }, false) } : null,
+        q.trim() ? { key: "search", label: "Search", value: q.trim(), clear: () => applyInboxState({ q: "" }, false) } : null,
+      ].filter(Boolean) as Array<{ key: string; label: string; value: string; clear: () => void }>,
+    [actor, applyInboxState, q, setActor, severityFilter, sourceFilter, stateFilter]
+  );
 
   const totalAlerts = data?.totals.total ?? 0;
   const activeShare = totalAlerts ? ((data?.totals.active ?? 0) / totalAlerts) * 100 : 0;
@@ -149,12 +195,7 @@ export default function AlertsPage() {
         section: "Current alert inbox",
         keywords: "alerts clear filters reset",
         priority: 85,
-        run: () => {
-          setSeverityFilter("");
-          setStateFilter("");
-          setSourceFilter("");
-          setQ("");
-        },
+        run: () => applyInboxState({ severity: "", state: "", source: "", q: "", selected: "" }, false),
       });
     }
 
@@ -216,7 +257,7 @@ export default function AlertsPage() {
     }
 
     return commands;
-  }, [load, severityFilter, stateFilter, sourceFilter, q, selectedAlert, promote, navigate]);
+  }, [applyInboxState, load, severityFilter, stateFilter, sourceFilter, q, selectedAlert, promote, navigate]);
 
   usePublishPageCommands(pageCommands);
 
@@ -224,18 +265,15 @@ export default function AlertsPage() {
     <div className="page-grid triage-page">
       {err && <p className="error">{err}</p>}
 
-      <section className="card hero-card triage-card">
-        <div className="dashboard-hero">
-          <div>
-            <h2>Dense alert inbox</h2>
-            <p className="meta">
-              Нативный triage-экран поверх Alertmanager: плотная очередь, detail pane и быстрые переходы в кейсы.
-            </p>
-          </div>
-          <div className="dense-inline-actions">
-            <button type="button" className="secondary" onClick={load}>
-              Refresh
-            </button>
+      <DashboardToolbar
+        title="Alert command center"
+        subtitle="Native Alertmanager triage workspace with queue pressure, direct pivots, and structured response handoff."
+        loading={creating != null}
+        onRefresh={load}
+        refreshButtonLabel="Refresh inbox"
+        className="triage-toolbar"
+        actions={
+          <div className="toolbar-inline-actions">
             <Link className="tool-btn secondary" to="/cases">
               Open cases
             </Link>
@@ -243,39 +281,38 @@ export default function AlertsPage() {
               Pivot to events
             </Link>
           </div>
-        </div>
-
-        <div className="triage-kpi-grid">
-          <div className="triage-kpi">
+        }
+      >
+        <div className="summary-grid">
+          <div className="summary-card">
             <span>Total alerts</span>
             <strong>{formatCompact(data?.totals.total)}</strong>
           </div>
-          <div className="triage-kpi">
+          <div className="summary-card">
             <span>Active</span>
             <strong>{formatCompact(data?.totals.active)}</strong>
           </div>
-          <div className="triage-kpi">
+          <div className="summary-card">
             <span>Critical</span>
             <strong>{formatCompact(data?.totals.critical)}</strong>
           </div>
-          <div className="triage-kpi">
+          <div className="summary-card">
             <span>Silenced</span>
             <strong>{formatCompact(data?.totals.silenced)}</strong>
           </div>
-          <div className="triage-kpi">
+          <div className="summary-card">
             <span>Unique sources</span>
             <strong>{formatCompact(data?.totals.unique_sources)}</strong>
           </div>
         </div>
-
-        <div className="triage-filterbar">
+        <div className="triage-filterbar triage-filterbar-wide">
           <label>
             Analyst
             <input value={actor} onChange={(e) => setActor(e.target.value)} />
           </label>
           <label>
             Severity
-            <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}>
+            <select value={severityFilter} onChange={(e) => applyInboxState({ severity: e.target.value }, false)}>
               <option value="">All</option>
               <option value="critical">critical</option>
               <option value="high">high</option>
@@ -286,7 +323,7 @@ export default function AlertsPage() {
           </label>
           <label>
             State
-            <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+            <select value={stateFilter} onChange={(e) => applyInboxState({ state: e.target.value }, false)}>
               <option value="">All</option>
               <option value="active">active</option>
               <option value="silenced">silenced</option>
@@ -295,7 +332,7 @@ export default function AlertsPage() {
           </label>
           <label>
             Source
-            <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+            <select value={sourceFilter} onChange={(e) => applyInboxState({ source: e.target.value }, false)}>
               <option value="">All</option>
               {sources.map((source) => (
                 <option key={source} value={source}>
@@ -306,10 +343,25 @@ export default function AlertsPage() {
           </label>
           <label>
             Search
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="alert name / source / fingerprint" />
+            <input value={q} onChange={(e) => applyInboxState({ q: e.target.value }, false)} placeholder="alert name / source / fingerprint" />
           </label>
         </div>
-      </section>
+        {!!activeFilterChips.length && (
+          <div className="toolbar-chip-row">
+            {activeFilterChips.map((chip) => (
+              <button key={chip.key} type="button" className="token token-action" onClick={chip.clear}>
+                {chip.label}:{chip.value} x
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="toolbar-status-row">
+          <span>Inbox rows</span>
+          <strong>{formatCompact(filteredAlerts.length)}</strong>
+          <span>Focused workspace</span>
+          <strong>{selectedAlert?.name || "No selection"}</strong>
+        </div>
+      </DashboardToolbar>
 
       <section className="dashboard-gauge-grid">
         <ObservabilityGaugePanel
@@ -397,7 +449,7 @@ export default function AlertsPage() {
             valueFormatter={(value) => formatCompact(value)}
             axisFormatter={(value) => formatCompact(value)}
             kicker="Analytics pane"
-            onRowClick={({ label }) => setSeverityFilter(label)}
+            onRowClick={({ label }) => applyInboxState({ severity: label })}
             footer={<p className="meta stat-subtle">This is the quickest read on how much of the queue needs immediate analyst attention.</p>}
           />
           <ObservabilityBarPanel
@@ -407,7 +459,7 @@ export default function AlertsPage() {
             valueFormatter={(value) => formatCompact(value)}
             axisFormatter={(value) => formatCompact(value)}
             kicker="Analytics pane"
-            onRowClick={({ label }) => setSourceFilter(label)}
+            onRowClick={({ label }) => applyInboxState({ source: label })}
             footer={<p className="meta stat-subtle">Useful for seeing whether one platform or tenant is dominating alert production.</p>}
           />
         </div>
@@ -421,7 +473,24 @@ export default function AlertsPage() {
             </div>
           </div>
           {!filteredAlerts.length ? (
-            <p className="meta">Нет alert rows под выбранные фильтры.</p>
+            <div className="surface-empty-state">
+              <h3>No alerts match the current queue filter</h3>
+              <p>Reset one of the active filters or refresh the inbox to repopulate the triage queue.</p>
+              <div className="surface-empty-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    applyInboxState({ severity: "", state: "", source: "", q: "", selected: "" }, false);
+                  }}
+                >
+                  Clear filters
+                </button>
+                <button type="button" className="secondary" onClick={load}>
+                  Refresh inbox
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="queue-list">
               {filteredAlerts.map((alert) => (
@@ -429,7 +498,7 @@ export default function AlertsPage() {
                   type="button"
                   key={alert.fingerprint}
                   className={alert.fingerprint === selectedAlert?.fingerprint ? "queue-item active" : "queue-item"}
-                  onClick={() => setSelected(alert.fingerprint)}
+                  onClick={() => applyInboxState({ selected: alert.fingerprint })}
                 >
                   <header>
                     <div>
@@ -461,7 +530,10 @@ export default function AlertsPage() {
               </div>
             </div>
             {!selectedAlert ? (
-              <p className="meta">Выбери alert row слева.</p>
+              <div className="surface-empty-state">
+                <h3>No alert selected</h3>
+                <p>Select a queue row to inspect labels, promote the alert into casework, or pivot directly into events.</p>
+              </div>
             ) : (
               <>
                 <div className="dashboard-hero">
