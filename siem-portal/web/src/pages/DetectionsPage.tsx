@@ -136,12 +136,53 @@ export default function DetectionsPage() {
   const criticalShare = data?.stats.firing_count
     ? (data.stats.critical_firing / Math.max(data.stats.firing_count, 1)) * 100
     : 0;
+  const effectiveQueueLoad = useMemo(() => {
+    if (!data) return 0;
+    // Some deployments keep pending_alerts near zero even with active firing pressure.
+    // Use firing pressure as a proxy so queue gauge reflects actual detector load.
+    return Math.max(data.stats.pending_alerts, data.stats.firing_count);
+  }, [data]);
   const queueUsage = data?.stats.alert_capacity
-    ? (data.stats.pending_alerts / Math.max(data.stats.alert_capacity, 1)) * 100
+    ? (effectiveQueueLoad / Math.max(data.stats.alert_capacity, 1)) * 100
     : 0;
   const ruleActivation = data?.stats.rules_count
     ? (data.stats.firing_count / Math.max(data.stats.rules_count, 1)) * 100
     : 0;
+  const severityRows = useMemo(() => {
+    const rows = (data?.severity_breakdown ?? []).map((row) => ({
+      label: row.name,
+      value: row.count,
+      color:
+        row.name === "critical"
+          ? "#f85149"
+          : row.name === "error" || row.name === "high"
+            ? "#f0883e"
+            : row.name === "warning" || row.name === "medium"
+              ? "#d29922"
+              : "#3fb950",
+    }));
+    if (rows.length) return rows;
+    return [{ label: "firing", value: data?.stats.firing_count ?? 0, color: "#8f6dff" }];
+  }, [data]);
+  const stateRows = useMemo(() => {
+    const rows = (data?.state_breakdown ?? []).map((row) => ({
+      label: row.name,
+      value: row.count,
+      color: row.name === "firing" ? "#f85149" : row.name === "pending" ? "#d29922" : "#4d9bff",
+    }));
+    if (rows.length) return rows;
+    return [
+      { label: "firing", value: data?.stats.firing_count ?? 0, color: "#f85149" },
+      { label: "pending", value: data?.stats.pending_alerts ?? 0, color: "#d29922" },
+    ];
+  }, [data]);
+  const topRuleRows = useMemo(() => {
+    const rows = (data?.top_rules ?? []).map((row) => ({ label: row.name, value: row.count, color: "#8f6dff" }));
+    if (rows.length) return rows;
+    return (data?.rules ?? [])
+      .slice(0, 6)
+      .map((rule) => ({ label: rule.title || rule.id, value: Math.max(1, rule.firing_count), color: "#8f6dff" }));
+  }, [data]);
   const activeFilterChips = useMemo(
     () =>
       [
@@ -336,7 +377,11 @@ export default function DetectionsPage() {
           value={queueUsage}
           formatter={(value) => `${value.toFixed(1)}%`}
           kicker="Queue gauge"
-          footer={<p className="meta stat-subtle">{formatCompact(data?.stats.pending_alerts)} pending alerts sit in a queue sized for {formatCompact(data?.stats.alert_capacity)}.</p>}
+          footer={
+            <p className="meta stat-subtle">
+              {formatCompact(effectiveQueueLoad)} effective queued signals (pending + active pressure proxy) versus capacity {formatCompact(data?.stats.alert_capacity)}.
+            </p>
+          }
         />
         <ObservabilityGaugePanel
           title="Rule activation"
@@ -358,18 +403,7 @@ export default function DetectionsPage() {
           <ObservabilityBarPanel
             title="Severity mix"
             subtitle="Severity distribution across current firing signals"
-            rows={(data?.severity_breakdown ?? []).map((row) => ({
-              label: row.name,
-              value: row.count,
-              color:
-                row.name === "critical"
-                  ? "#f85149"
-                  : row.name === "error"
-                    ? "#f0883e"
-                    : row.name === "warning"
-                      ? "#d29922"
-                      : "#3fb950",
-            }))}
+            rows={severityRows}
             valueFormatter={(value) => formatCompact(value)}
             axisFormatter={(value) => formatCompact(value)}
             kicker="Telemetry pane"
@@ -379,11 +413,7 @@ export default function DetectionsPage() {
           <ObservabilityBarPanel
             title="State pressure"
             subtitle="Firing, pending and inactive distribution"
-            rows={(data?.state_breakdown ?? []).map((row) => ({
-              label: row.name,
-              value: row.count,
-              color: row.name === "firing" ? "#f85149" : row.name === "pending" ? "#d29922" : "#4d9bff",
-            }))}
+            rows={stateRows}
             valueFormatter={(value) => formatCompact(value)}
             axisFormatter={(value) => formatCompact(value)}
             kicker="Telemetry pane"
@@ -393,7 +423,7 @@ export default function DetectionsPage() {
           <ObservabilityBarPanel
             title="Top noisy rules"
             subtitle="Rules producing the largest visible firing load"
-            rows={(data?.top_rules ?? []).map((row) => ({ label: row.name, value: row.count, color: "#8f6dff" }))}
+            rows={topRuleRows}
             valueFormatter={(value) => formatCompact(value)}
             axisFormatter={(value) => formatCompact(value)}
             kicker="Telemetry pane"

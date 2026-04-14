@@ -397,8 +397,9 @@ export function ObservabilityLinePanel({
       name: item.name,
       type: "line",
       smooth: true,
-      symbol: "none",
-      showSymbol: false,
+      symbol: categories.length <= 1 ? "circle" : "none",
+      symbolSize: categories.length <= 1 ? 7 : 0,
+      showSymbol: categories.length <= 1,
       cursor: onPointClick ? "pointer" : "default",
       lineStyle: {
         width: 2.5,

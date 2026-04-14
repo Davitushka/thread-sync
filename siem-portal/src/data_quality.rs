@@ -11,9 +11,18 @@ use crate::config::ClickHouseConfig;
 const DEFAULT_WINDOW_HOURS: u16 = 24;
 const MIN_WINDOW_HOURS: u16 = 1;
 const MAX_WINDOW_HOURS: u16 = 168;
-const PARSER_OK_QUERY: &str = "sum(rate(siem_parser_events_parsed_total{status=\"ok\"}[5m])) or vector(0)";
-const PARSER_ERROR_QUERY: &str = "sum(rate(siem_parser_events_parsed_total{status=\"error\"}[5m])) or vector(0)";
-const CONSUMER_LAG_QUERY: &str = "siem:kafka_consumer_lag:sum or vector(0)";
+const PARSER_OK_QUERY: &str =
+    "sum(rate(siem_parser_events_parsed_total{status=\"ok\"}[5m])) \
+or sum(rate(vector_component_received_events_total[5m])) \
+or vector(0)";
+const PARSER_ERROR_QUERY: &str =
+    "sum(rate(siem_parser_events_parsed_total{status=\"error\"}[5m])) \
+or sum(rate(vector_component_errors_total[5m])) \
+or vector(0)";
+const CONSUMER_LAG_QUERY: &str =
+    "siem:kafka_consumer_lag:sum \
+or sum(vector_kafka_queue_messages) \
+or vector(0)";
 
 #[derive(Debug, Clone, Copy)]
 pub struct DataQualityRequest {

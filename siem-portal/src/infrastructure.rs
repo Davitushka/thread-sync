@@ -57,6 +57,10 @@ const TOP_CPU_CONTAINERS_QUERY: &str =
     "topk(6, sum by(container) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container!=\"\",container!=\"/\"}[5m])) * 100) or topk(6, sum by(container) (rate(container_cpu_usage_seconds_total{container!=\"\",container!=\"/\"}[5m])) * 100)";
 const TOP_MEMORY_CONTAINERS_QUERY: &str =
     "topk(6, container_memory_usage_bytes{job=\"cadvisor\",container!=\"\",container!=\"/\"}) or topk(6, container_memory_usage_bytes{container!=\"\",container!=\"/\"})";
+const TOP_CPU_SERVICES_QUERY: &str =
+    "topk(6, sum by(job) (rate(process_cpu_seconds_total[5m])) * 100)";
+const TOP_MEMORY_SERVICES_QUERY: &str =
+    "topk(6, max by(job) (process_resident_memory_bytes))";
 const COMPONENT_STATUS_QUERY: &str =
     "max by(job) (up{job=~\"vector-aggregator|siem-parser|redpanda|clickhouse|correlator|alertmanager|prometheus|node-exporter|cadvisor|grafana|loki|minio|redis\"})";
 
@@ -134,6 +138,8 @@ impl InfrastructureService {
             total_container_memory,
             top_cpu,
             top_memory,
+            top_cpu_services,
+            top_memory_services,
             component_status,
             cpu_series,
             network_rx_series,
@@ -150,6 +156,8 @@ impl InfrastructureService {
             self.instant_scalar(CONTAINER_TOTAL_MEMORY_QUERY, timeout),
             self.instant_named_metrics(TOP_CPU_CONTAINERS_QUERY, "container", timeout),
             self.instant_named_metrics(TOP_MEMORY_CONTAINERS_QUERY, "container", timeout),
+            self.instant_named_metrics(TOP_CPU_SERVICES_QUERY, "job", timeout),
+            self.instant_named_metrics(TOP_MEMORY_SERVICES_QUERY, "job", timeout),
             self.component_status(timeout),
             self.range_series(HOST_CPU_QUERY, start, end, request.step_sec, timeout),
             self.range_series(HOST_RX_QUERY, start, end, request.step_sec, timeout),
@@ -178,8 +186,28 @@ impl InfrastructureService {
             cpu_series,
             network_rx_series,
             network_tx_series,
-            top_cpu_containers: top_cpu,
-            top_memory_containers: top_memory,
+            top_cpu_containers: if top_cpu.is_empty() {
+                top_cpu_services
+                    .into_iter()
+                    .map(|row| NamedMetric {
+                        name: format!("svc:{}", row.name),
+                        value: row.value,
+                    })
+                    .collect()
+            } else {
+                top_cpu
+            },
+            top_memory_containers: if top_memory.is_empty() {
+                top_memory_services
+                    .into_iter()
+                    .map(|row| NamedMetric {
+                        name: format!("svc:{}", row.name),
+                        value: row.value,
+                    })
+                    .collect()
+            } else {
+                top_memory
+            },
             component_status,
         })
     }

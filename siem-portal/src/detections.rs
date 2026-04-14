@@ -188,7 +188,7 @@ impl DetectionsOverviewService {
         }
 
         let payload = serde_json::from_str::<PromQueryResponse>(&body)?;
-        Ok(payload
+        let rows = payload
             .data
             .and_then(|data| data.result)
             .unwrap_or_default()
@@ -210,6 +210,51 @@ impl DetectionsOverviewService {
                     .cloned()
                     .unwrap_or_else(|| "firing".to_string()),
                 signal: item.value.map(|pair| pair.1).unwrap_or_else(|| "0".to_string()),
+            })
+            .collect::<Vec<_>>();
+
+        if !rows.is_empty() {
+            return Ok(rows);
+        }
+
+        // Fallback for environments where ALERTS is empty but correlator counters are active.
+        let mut fallback_url = base.join("/api/v1/query")?;
+        fallback_url.query_pairs_mut().append_pair(
+            "query",
+            "topk(20, increase(detection_alerts_fired_total[24h]))",
+        );
+        let fallback_resp = self.http.get(fallback_url).timeout(timeout).send().await?;
+        let fallback_status = fallback_resp.status();
+        let fallback_body = fallback_resp.text().await?;
+        if !fallback_status.is_success() {
+            return Ok(Vec::new());
+        }
+        let fallback_payload = serde_json::from_str::<PromQueryResponse>(&fallback_body)?;
+        Ok(fallback_payload
+            .data
+            .and_then(|data| data.result)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| {
+                let rule_id = item
+                    .metric
+                    .get("rule_id")
+                    .cloned()
+                    .unwrap_or_else(|| "rule".to_string());
+                DetectionRowSummary {
+                    rule: item
+                        .metric
+                        .get("alertname")
+                        .cloned()
+                        .unwrap_or_else(|| rule_id.clone()),
+                    severity: item
+                        .metric
+                        .get("severity")
+                        .cloned()
+                        .unwrap_or_else(|| "warning".to_string()),
+                    state: "firing".to_string(),
+                    signal: item.value.map(|pair| pair.1).unwrap_or_else(|| "0".to_string()),
+                }
             })
             .collect())
     }

@@ -19,7 +19,7 @@ import {
   ObservabilityPanel,
 } from "../components/echarts/ObservabilityCharts";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
-import { formatCompact, shortDateTime } from "../dashboard-utils";
+import { formatCompact, formatPercent, shortDateTime } from "../dashboard-utils";
 
 export default function OverviewPage() {
   const { openOrFocusWorkspace } = useWorkspaceShell();
@@ -206,7 +206,7 @@ export default function OverviewPage() {
               ? (overview.kpis.critical_events_24h / Math.max(overview.kpis.total_events_24h, 1)) * 100
               : null
           }
-          formatter={(value) => `${value.toFixed(1)}%`}
+          formatter={formatPercent}
           kicker="Risk gauge"
           footer={<p className="meta stat-subtle">Shows how much of the event stream is already in the most dangerous slice.</p>}
         />

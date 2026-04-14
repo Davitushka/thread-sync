@@ -153,11 +153,8 @@ export default function EventsPage() {
     }
     setFilters(next);
     if (!Object.keys(activeQueryParams).length) {
-      setResults(null);
-      setSelected(null);
-      setContext(null);
-      setErr(null);
-      setLoading(false);
+      // Default behavior: show the latest stream window instead of an empty workspace.
+      void fetchResults({});
       return;
     }
     void fetchResults(activeQueryParams);

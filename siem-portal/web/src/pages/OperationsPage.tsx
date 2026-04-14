@@ -86,6 +86,33 @@ export default function OperationsPage() {
   const healthyRatio = data ? (data.totals.healthy_components / Math.max(data.totals.total_components, 1)) * 100 : null;
   const vectorContinuity = data ? (data.totals.vector_forward_rate / Math.max(data.totals.vector_ingest_rate, 1)) * 100 : null;
   const pipelineContinuity = data ? (data.totals.detection_processed_rate / Math.max(data.totals.redpanda_records_rate, 1)) * 100 : null;
+  const pressureRows = useMemo(() => {
+    if (!data) {
+      return [
+        { label: "parse errors 24h", value: 0, color: "#f0883e" },
+        { label: "dropped alerts 24h", value: 0, color: "#f85149" },
+        { label: "firing alerts", value: 0, color: "#8f6dff" },
+        { label: "parser in flight", value: 0, color: "#4d9bff" },
+      ];
+    }
+    const primary = [
+      { label: "parse errors 24h", value: data.totals.parse_errors_24h, color: "#f0883e" },
+      { label: "dropped alerts 24h", value: data.totals.dropped_alerts_24h, color: "#f85149" },
+      { label: "firing alerts", value: data.totals.firing_alerts, color: "#8f6dff" },
+      { label: "parser in flight", value: data.totals.parser_in_flight, color: "#4d9bff" },
+    ];
+    const allZero = primary.every((row) => row.value <= 0);
+    if (!allZero) {
+      return primary;
+    }
+    // If degradation counters are currently quiet, show active load proxies instead of an empty-looking panel.
+    return [
+      { label: "vector ingest / s", value: data.totals.vector_ingest_rate, color: "#4d9bff" },
+      { label: "redpanda records / s", value: data.totals.redpanda_records_rate, color: "#7be37c" },
+      { label: "detection processed / s", value: data.totals.detection_processed_rate, color: "#8f6dff" },
+      { label: "CH insert qps", value: data.totals.clickhouse_insert_qps, color: "#f0c15d" },
+    ];
+  }, [data]);
 
   return (
     <div className="page-grid operations-page">
@@ -275,12 +302,7 @@ export default function OperationsPage() {
         <ObservabilityBarPanel
           title="Operational pressure points"
           subtitle="Fastest degradation indicators"
-          rows={[
-            { label: "parse errors 24h", value: data?.totals.parse_errors_24h ?? 0, color: "#f0883e" },
-            { label: "dropped alerts 24h", value: data?.totals.dropped_alerts_24h ?? 0, color: "#f85149" },
-            { label: "firing alerts", value: data?.totals.firing_alerts ?? 0, color: "#8f6dff" },
-            { label: "parser in flight", value: data?.totals.parser_in_flight ?? 0, color: "#4d9bff" },
-          ]}
+          rows={pressureRows}
           valueFormatter={(value) => formatCompact(value)}
           axisFormatter={(value) => formatCompact(value)}
           kicker="Pressure pane"

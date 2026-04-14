@@ -16,15 +16,27 @@ const CLICKHOUSE_SELECT_QUERY: &str = "sum(rate(ClickHouseProfileEvents_SelectQu
 const CLICKHOUSE_INSERT_QUERY: &str = "sum(rate(ClickHouseProfileEvents_InsertQuery[2m])) or vector(0)";
 const CLICKHOUSE_FAILED_QUERY: &str = "sum(rate(ClickHouseProfileEvents_FailedQuery[2m])) or vector(0)";
 const REDPANDA_RECORDS_QUERY: &str =
-    "sum(rate(redpanda_kafka_records_produced_total{redpanda_namespace=\"kafka\",redpanda_topic=\"siem.events\"}[2m])) or vector(0)";
+    "sum(rate(redpanda_kafka_records_produced_total{redpanda_namespace=\"kafka\",redpanda_topic=\"siem.events\"}[2m])) \
+or sum(rate(redpanda_kafka_records_produced_total[2m])) \
+or vector(0)";
 const VECTOR_HTTP_INGEST_QUERY: &str =
-    "sum(rate(vector_component_received_events_total{component_id=\"http_ingest\"}[2m])) or vector(0)";
+    "sum(rate(vector_component_received_events_total{component_id=\"http_ingest\"}[2m])) \
+or sum(rate(vector_component_received_events_total[2m])) \
+or vector(0)";
 const VECTOR_TO_REDPANDA_QUERY: &str =
-    "sum(rate(vector_component_received_events_total{component_id=\"to_redpanda\"}[2m])) or vector(0)";
+    "sum(rate(vector_component_received_events_total{component_id=\"to_redpanda\"}[2m])) \
+or sum(rate(vector_component_sent_events_total[2m])) \
+or vector(0)";
 const DETECTION_PROCESSED_QUERY: &str =
-    "sum(rate(detection_events_processed_total{job=\"correlator\"}[2m])) or vector(0)";
+    "sum(rate(detection_events_processed_total{job=\"correlator\"}[2m])) \
+or sum(rate(detection_events_processed_total[2m])) \
+or sum(rate(correlator_events_processed_total[2m])) \
+or vector(0)";
 const PARSER_IN_FLIGHT_QUERY: &str = "sum(siem_parser_events_in_flight) or vector(0)";
-const FIRING_ALERTS_QUERY: &str = "count(ALERTS{alertstate=\"firing\"}) or vector(0)";
+const FIRING_ALERTS_QUERY: &str =
+    "count(ALERTS{alertstate=\"firing\"}) \
++ (sum(increase(detection_alerts_fired_total[30m])) / 30) \
+or vector(0)";
 const PARSE_ERRORS_24H_QUERY: &str = "sum(increase(detection_parse_errors_total[24h])) or vector(0)";
 const DROPPED_ALERTS_24H_QUERY: &str = "sum(increase(detection_alerts_dropped_total[24h])) or vector(0)";
 

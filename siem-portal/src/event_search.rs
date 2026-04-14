@@ -360,13 +360,13 @@ impl SearchFilters {
 
     fn build_search_sql(&self) -> String {
         let mut where_parts = vec![if let Some(start) = &self.start {
-            format!("timestamp >= parseDateTime64BestEffort('{}', 3, 'UTC')", start)
+            format!("e.timestamp >= parseDateTime64BestEffort('{}', 3, 'UTC')", start)
         } else {
-            "timestamp >= now() - INTERVAL 24 HOUR".to_string()
+            "e.timestamp >= now() - INTERVAL 24 HOUR".to_string()
         }];
         if let Some(end) = &self.end {
             where_parts.push(format!(
-                "timestamp <= parseDateTime64BestEffort('{}', 3, 'UTC')",
+                "e.timestamp <= parseDateTime64BestEffort('{}', 3, 'UTC')",
                 end
             ));
         }
@@ -393,7 +393,7 @@ impl SearchFilters {
         }
         format!(
             "SELECT \
-                formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S.%fZ') AS timestamp, \
+                formatDateTime(e.timestamp, '%Y-%m-%dT%H:%i:%S.%fZ') AS timestamp, \
                 toString(event_id) AS event_id, \
                 source_type, \
                 event_type, \
@@ -405,9 +405,9 @@ impl SearchFilters {
                 ifNull(status_code, 0) AS status_code, \
                 ifNull(url_path, '') AS url_path, \
                 message \
-            FROM {}.events \
+            FROM {}.events AS e \
             WHERE {} \
-            ORDER BY timestamp DESC \
+            ORDER BY e.timestamp DESC \
             LIMIT {} \
             FORMAT JSONEachRow",
             self.database,

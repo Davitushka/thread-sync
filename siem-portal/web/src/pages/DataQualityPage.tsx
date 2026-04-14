@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { getDataQualityDashboard, uiConfig, type DataQualityDashboard, type UiConfig } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
-import { formatCompact } from "../dashboard-utils";
+import { formatCompact, formatPercent } from "../dashboard-utils";
 import {
   ObservabilityBarPanel,
   ObservabilityGaugePanel,
@@ -152,7 +152,7 @@ export default function DataQualityPage() {
               : null
           }
           subtitle="Healthy parser throughput"
-          formatter={(value) => `${value.toFixed(1)}%`}
+          formatter={formatPercent}
           kicker="Trust gauge"
           footer={<p className="meta stat-subtle">Green should dominate here; otherwise the rest of the console becomes untrustworthy fast.</p>}
         />
@@ -160,7 +160,7 @@ export default function DataQualityPage() {
           title="Freshness"
           value={data ? Math.max(0, 100 - (data.kpis.p95_ingest_lag_ms / 10_000) * 100) : null}
           subtitle="Lower lag means healthier data"
-          formatter={(value) => `${value.toFixed(0)}%`}
+          formatter={formatPercent}
           kicker="Trust gauge"
           footer={<p className="meta stat-subtle">A compact translation of ingest lag into something operators can scan instantly.</p>}
         />
@@ -168,7 +168,7 @@ export default function DataQualityPage() {
           title="Source completeness"
           value={data ? Math.max(0, 100 - data.kpis.missing_source_ip_pct) : null}
           subtitle="Rows with source identity"
-          formatter={(value) => `${value.toFixed(1)}%`}
+          formatter={formatPercent}
           kicker="Completeness gauge"
           footer={<p className="meta stat-subtle">Low completeness usually means hunting, attribution and pivoting degrade with it.</p>}
         />
@@ -176,7 +176,7 @@ export default function DataQualityPage() {
           title="Consumer readiness"
           value={data ? Math.max(0, 100 - Math.min(100, (data.kpis.consumer_lag / 5000) * 100)) : null}
           subtitle="Lag kept under control"
-          formatter={(value) => `${value.toFixed(0)}%`}
+          formatter={formatPercent}
           kicker="Pipeline gauge"
           footer={<p className="meta stat-subtle">Backlog pressure is compressed into a single readiness number for fast validation.</p>}
         />
