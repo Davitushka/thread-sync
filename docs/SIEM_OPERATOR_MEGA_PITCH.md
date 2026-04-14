@@ -1109,3 +1109,124 @@ const pageCommands = useMemo<SuitePageCommand[]>(() => {
 Ссылка: `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/web/src/pages/DetectionsPage.tsx` (`DetectionsPage.tsx#L196-L275`)
 
 ---
+
+## 28) Скрипты атак, поток данных и дашборды
+
+Этот раздел описывает, как в проекте формируются события, где появляются атакующие паттерны, как они проходят обработку и как превращаются в графики и аналитические экраны.
+
+### 28.1 Источник данных: генератор сценариев
+
+Сценарии нормального и атакующего трафика формируются генератором в `stress/src/main.rs`.
+
+Поддерживаются режимы:
+- `normal`
+- `brute-force`
+- `sql-injection`
+- `privilege-escalation`
+- `rate-limit`
+- `heavy-queries`
+- `all`
+
+Настройка идет через env:
+- `SIEM_STRESS_MODE`
+- `SIEM_STRESS_DURATION_SEC`
+- `SIEM_STRESS_NORMAL_EPS`
+- `SIEM_STRESS_ATTACK_EPS`
+- `SIEM_STRESS_BATCH_SIZE`
+- `SIEM_STRESS_BURST_INTERVAL_SEC`
+
+Генератор создает структурированные события с полями `ip`, `path`, `method`, `status`, `host`, `user`, `elapsed`, `event_type`, `source_type`.
+
+### 28.2 Ingestion и нормализация
+
+Сырые события обрабатываются `siem-parser` (`rust-parser/src/main.rs`):
+- ingest endpoint `/parse` принимает батч событий;
+- pipeline выполняет парсинг и нормализацию;
+- применяется PII masking;
+- выполняется enrichment (GeoIP/ASN и доп. контекст);
+- результат публикуется в Kafka/Redpanda.
+
+Публичные сервисные endpoints:
+- `/health`
+- `/ready`
+- `/metrics`
+
+Это обеспечивает наблюдаемость ingest-цепочки и проверку состояния сервиса.
+
+### 28.3 Детекция и агрегация сигналов
+
+Модуль `siem-portal/src/detections.rs` собирает обзор детекций из correlator и Prometheus:
+- статистика по правилам;
+- список `firing_rows`;
+- severity/state breakdown;
+- top rules;
+- расчет `critical_firing`, `firing_count`, нагрузочных метрик.
+
+Если стандартный запрос `ALERTS` в Prometheus пустой, применяется fallback на счетчики (`increase(detection_alerts_fired_total[24h])`), чтобы детекционный экран не терял полезную картину.
+
+### 28.4 Формирование overview-дашбордов
+
+`siem-portal/src/overview.rs` строит аналитический слой поверх ClickHouse.
+
+Формируемые наборы:
+- KPI: total/critical/error% за окно;
+- events per minute (bucketed time series);
+- severity timeline;
+- severity breakdown;
+- source breakdown;
+- top source IP;
+- recent security events.
+
+Запросы к ClickHouse выполняются параллельно через `tokio::try_join!`, благодаря чему overview получает консистентный срез данных с минимальной задержкой.
+
+### 28.5 Поиск и расследование событий
+
+`siem-portal/src/event_search.rs` реализует три ключевых сценария:
+- `search(...)`: фильтруемый поиск по событиям;
+- `get_event(...)`: детальная карточка события по `event_id`;
+- `entity_context(...)`: контекст сущности (последние события + метрики за окно).
+
+Запросы формируются SQL-конструктором по фильтрам и выполняются в ClickHouse.
+Такой подход поддерживает pivot-модель: из детекции можно перейти в события и дальше в контекст сущности без потери расследовательского потока.
+
+### 28.6 API-шлюз для UI и внешних сервисов
+
+`siem-portal/src/handlers.rs` выступает как BFF/proxy слой:
+- прокси-запросы в Prometheus (`query`, `query_range`);
+- прокси-запросы в Alertmanager (`alerts`, `status`);
+- прокси-операции case-management (list/create/patch/timeline/link/investigate);
+- dashboard endpoints;
+- search endpoints.
+
+Это дает единый контракт для UI и изолирует фронт от деталей отдельных сервисов.
+
+### 28.7 Как дашборды наполняются фактически
+
+Поток данных в проекте:
+1. `stress` генерирует события (включая атаки).
+2. `siem-parser` нормализует и обогащает события.
+3. События публикуются в очередь.
+4. Детектор и аналитические сервисы читают поток и считают агрегаты.
+5. `siem-portal` отдает готовые API для страниц overview/detections/events/cases.
+6. UI рендерит текущую динамику по реальным данным потока.
+
+Итог: визуализация отражает поведение конвейера и сценариев атаки, а не статически подставленные значения.
+
+### 28.8 Ссылки на код
+
+- Attack/stress генератор:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/stress/src/main.rs`
+- Ingestion/parser pipeline:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/rust-parser/src/main.rs`
+- Overview dashboards (SQL + агрегаты):
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/overview.rs`
+- Detections aggregation:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/detections.rs`
+- Event search + entity context:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/event_search.rs`
+- Portal API handlers:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/siem-portal/src/handlers.rs`
+- Architecture doc:
+  - `file:///C:/Users/Admin/Проекты/siem-lite/docs/ARCHITECTURE.md`
+
+---
