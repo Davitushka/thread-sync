@@ -99,6 +99,79 @@ export default function OverviewPage() {
       }),
     [overview?.severity_timeline]
   );
+  const eventsSeries = useMemo(() => {
+    const values = (overview?.events_per_minute ?? []).map((point) => point.events);
+    if (values.length) return values;
+    return [overview?.kpis.total_events_24h ?? 0];
+  }, [overview]);
+  const eventsCategories = useMemo(() => {
+    if (eventsLabels.length) return eventsLabels;
+    return ["now"];
+  }, [eventsLabels]);
+  const severityRows = useMemo(() => {
+    const rows = (overview?.severity_breakdown ?? []).map((row) => ({
+      label: row.severity,
+      value: row.events,
+      color:
+        row.severity === "critical"
+          ? "#f85149"
+          : row.severity === "error"
+            ? "#f0883e"
+            : row.severity === "warning"
+              ? "#d29922"
+              : "#3fb950",
+    }));
+    if (rows.length) return rows;
+    const critical = overview?.kpis.critical_events_24h ?? 0;
+    const total = overview?.kpis.total_events_24h ?? 0;
+    return [
+      { label: "critical", value: critical, color: "#f85149" },
+      { label: "other", value: Math.max(0, total - critical), color: "#4d9bff" },
+    ];
+  }, [overview]);
+  const severityTimelineSeries = useMemo(() => {
+    const source = overview?.severity_timeline ?? [];
+    if (source.length) {
+      return {
+        categories: severityTimelineLabels,
+        critical: source.map((row) => row.critical),
+        error: source.map((row) => row.error),
+        warning: source.map((row) => row.warning),
+      };
+    }
+    const critical = overview?.kpis.critical_events_24h ?? 0;
+    const total = overview?.kpis.total_events_24h ?? 0;
+    const errorAndCritical = Math.round(((overview?.kpis.error_pct_24h ?? 0) / 100) * total);
+    const errorOnly = Math.max(0, errorAndCritical - critical);
+    return {
+      categories: ["now"],
+      critical: [critical],
+      error: [errorOnly],
+      warning: [Math.max(0, total - critical - errorOnly)],
+    };
+  }, [overview, severityTimelineLabels]);
+  const topIpRows = useMemo(() => {
+    const rows = (overview?.top_source_ips ?? []).map((row) => ({
+      label: row.source_ip,
+      value: row.events,
+      color: row.threats > 0 ? "#f85149" : "#4d9bff",
+    }));
+    if (rows.length) return rows;
+    return (overview?.source_breakdown ?? []).slice(0, 6).map((row) => ({
+      label: `src:${row.source_type}`,
+      value: row.events,
+      color: "#4d9bff",
+    }));
+  }, [overview]);
+  const sourceRows = useMemo(() => {
+    const rows = (overview?.source_breakdown ?? []).map((row) => ({
+      label: row.source_type,
+      value: row.events,
+      color: "#4d9bff",
+    }));
+    if (rows.length) return rows;
+    return [{ label: "events", value: overview?.kpis.total_events_24h ?? 0, color: "#4d9bff" }];
+  }, [overview]);
 
   const stackRows = useMemo(
     () =>
@@ -240,12 +313,12 @@ export default function OverviewPage() {
         <ObservabilityLinePanel
           title="Events timeline"
           subtitle="Volume trend for the selected window"
-          categories={eventsLabels}
+          categories={eventsCategories}
           series={[
             {
               name: "events",
               color: "#7be37c",
-              data: (overview?.events_per_minute ?? []).map((point) => point.events),
+              data: eventsSeries,
               areaOpacity: 0.22,
             },
           ]}
@@ -275,18 +348,7 @@ export default function OverviewPage() {
         <ObservabilityBarPanel
           title="Events by severity"
           subtitle="Criticality split for the current horizon"
-          rows={(overview?.severity_breakdown ?? []).map((row) => ({
-            label: row.severity,
-            value: row.events,
-            color:
-              row.severity === "critical"
-                ? "#f85149"
-                : row.severity === "error"
-                  ? "#f0883e"
-                  : row.severity === "warning"
-                    ? "#d29922"
-                    : "#3fb950",
-          }))}
+          rows={severityRows}
           valueFormatter={(value) => formatCompact(value)}
           axisFormatter={(value) => formatCompact(value)}
           kicker="Distribution pane"
@@ -298,23 +360,23 @@ export default function OverviewPage() {
       <ObservabilityLinePanel
         title="Severity timeline"
         subtitle="Rolling severity pressure across the current window"
-        categories={severityTimelineLabels}
+        categories={severityTimelineSeries.categories}
         series={[
           {
             name: "critical",
             color: "#f85149",
-            data: (overview?.severity_timeline ?? []).map((row) => row.critical),
+            data: severityTimelineSeries.critical,
             areaOpacity: 0.14,
           },
           {
             name: "error",
             color: "#f0883e",
-            data: (overview?.severity_timeline ?? []).map((row) => row.error),
+            data: severityTimelineSeries.error,
           },
           {
             name: "warning",
             color: "#d29922",
-            data: (overview?.severity_timeline ?? []).map((row) => row.warning),
+            data: severityTimelineSeries.warning,
           },
         ]}
         axisFormatter={(value) => formatCompact(value)}
@@ -328,11 +390,7 @@ export default function OverviewPage() {
         <ObservabilityBarPanel
           title="Top source IPs"
           subtitle="High-traffic and high-threat sources"
-          rows={(overview?.top_source_ips ?? []).map((row) => ({
-            label: row.source_ip,
-            value: row.events,
-            color: row.threats > 0 ? "#f85149" : "#4d9bff",
-          }))}
+          rows={topIpRows}
           valueFormatter={(value) => formatCompact(value)}
           axisFormatter={(value) => formatCompact(value)}
           kicker="Exposure pane"
@@ -385,11 +443,7 @@ export default function OverviewPage() {
         <ObservabilityBarPanel
           title="Top sources"
           subtitle="Source-type contribution to current traffic"
-          rows={(overview?.source_breakdown ?? []).map((row) => ({
-            label: row.source_type,
-            value: row.events,
-            color: "#4d9bff",
-          }))}
+          rows={sourceRows}
           valueFormatter={(value) => formatCompact(value)}
           axisFormatter={(value) => formatCompact(value)}
           kicker="Coverage pane"

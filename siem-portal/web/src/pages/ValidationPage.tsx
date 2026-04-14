@@ -231,6 +231,24 @@ export default function ValidationPage() {
       ),
     [dataQuality?.parser_series]
   );
+  const validationPressureRows = useMemo(() => {
+    const rows = [
+      { label: "service failures", value: Math.max(0, (operations?.totals.total_components ?? 0) - (operations?.totals.healthy_components ?? 0)), color: "#f85149" },
+      { label: "p95 lag ms", value: dataQuality?.kpis.p95_ingest_lag_ms ?? 0, color: "#f0883e" },
+      { label: "parser errors / s", value: dataQuality?.kpis.parser_error_rate ?? 0, color: "#d29922" },
+      { label: "active alerts", value: alerts?.totals.active ?? 0, color: "#8f6dff" },
+      { label: "pending forwards", value: correlator?.pending_alerts ?? 0, color: "#4d9bff" },
+    ];
+    const allZero = rows.every((row) => row.value <= 0);
+    if (!allZero) return rows;
+    return [
+      { label: "vector ingest / s", value: operations?.totals.vector_ingest_rate ?? 0, color: "#4d9bff" },
+      { label: "redpanda records / s", value: operations?.totals.redpanda_records_rate ?? 0, color: "#7be37c" },
+      { label: "detection processed / s", value: operations?.totals.detection_processed_rate ?? 0, color: "#8f6dff" },
+      { label: "parser ok / s", value: dataQuality?.kpis.parser_ok_rate ?? 0, color: "#3fb950" },
+      { label: "events in range", value: overview?.kpis.total_events_24h ?? 0, color: "#f0c15d" },
+    ];
+  }, [alerts, correlator, dataQuality, operations, overview]);
 
   return (
     <div className="page-grid validation-page">
@@ -422,13 +440,7 @@ export default function ValidationPage() {
           <ObservabilityBarPanel
             title="Validation pressure points"
             subtitle="High-value indicators for stale or misleading dashboards"
-            rows={[
-              { label: "service failures", value: Math.max(0, (operations?.totals.total_components ?? 0) - (operations?.totals.healthy_components ?? 0)), color: "#f85149" },
-              { label: "p95 lag ms", value: dataQuality?.kpis.p95_ingest_lag_ms ?? 0, color: "#f0883e" },
-              { label: "parser errors / s", value: dataQuality?.kpis.parser_error_rate ?? 0, color: "#d29922" },
-              { label: "active alerts", value: alerts?.totals.active ?? 0, color: "#8f6dff" },
-              { label: "pending forwards", value: correlator?.pending_alerts ?? 0, color: "#4d9bff" },
-            ]}
+            rows={validationPressureRows}
             valueFormatter={(value) => formatCompact(value)}
             axisFormatter={(value) => formatCompact(value)}
             kicker="Pressure pane"

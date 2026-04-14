@@ -135,6 +135,44 @@ export default function AlertsPage() {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .slice(-12);
   }, [filteredAlerts]);
+  const timelineRows = useMemo(() => {
+    if (alertTimeline.length) return alertTimeline;
+    return [
+      [
+        "now",
+        {
+          total: data?.totals.total ?? 0,
+          critical: data?.totals.critical ?? 0,
+          active: data?.totals.active ?? 0,
+        },
+      ] as [string, { total: number; critical: number; active: number }],
+    ];
+  }, [alertTimeline, data]);
+  const severityRows = useMemo(() => {
+    const rows = (data?.severity_breakdown ?? []).map((row) => ({
+      label: row.name,
+      value: row.count,
+      color:
+        row.name === "critical"
+          ? "#f85149"
+          : row.name === "high" || row.name === "error"
+            ? "#f0883e"
+            : row.name === "warning"
+              ? "#d29922"
+              : "#3fb950",
+    }));
+    if (rows.length) return rows;
+    return [
+      { label: "critical", value: data?.totals.critical ?? 0, color: "#f85149" },
+      { label: "active", value: data?.totals.active ?? 0, color: "#7be37c" },
+      { label: "silenced", value: data?.totals.silenced ?? 0, color: "#4d9bff" },
+    ];
+  }, [data]);
+  const sourceRows = useMemo(() => {
+    const rows = (data?.source_breakdown ?? []).map((row) => ({ label: row.name, value: row.count, color: "#4d9bff" }));
+    if (rows.length) return rows;
+    return [{ label: "sources", value: data?.totals.unique_sources ?? 0, color: "#4d9bff" }];
+  }, [data]);
 
   const promote = useCallback(async () => {
     if (!selectedAlert) return;
@@ -398,54 +436,41 @@ export default function AlertsPage() {
         />
       </section>
 
-      {!!alertTimeline.length && (
-        <ObservabilityLinePanel
-          title="Alert pressure strip"
-          subtitle="Recent alert starts grouped into a compact triage rhythm"
-          categories={alertTimeline.map(([label]) => label)}
-          series={[
-            {
-              name: "alerts",
-              color: "#4d9bff",
-              data: alertTimeline.map(([, value]) => value.total),
-              areaOpacity: 0.16,
-            },
-            {
-              name: "critical",
-              color: "#f85149",
-              data: alertTimeline.map(([, value]) => value.critical),
-            },
-            {
-              name: "active",
-              color: "#f0c15d",
-              data: alertTimeline.map(([, value]) => value.active),
-            },
-          ]}
-          axisFormatter={(value) => formatCompact(value)}
-          valueFormatter={(value) => formatCompact(value)}
-          kicker="Pressure pane"
-          showDataZoom
-          footer={<p className="meta stat-subtle">This is a lightweight pressure strip derived from the current inbox snapshot, useful for quick triage pacing.</p>}
-        />
-      )}
+      <ObservabilityLinePanel
+        title="Alert pressure strip"
+        subtitle="Recent alert starts grouped into a compact triage rhythm"
+        categories={timelineRows.map(([label]) => label)}
+        series={[
+          {
+            name: "alerts",
+            color: "#4d9bff",
+            data: timelineRows.map(([, value]) => value.total),
+            areaOpacity: 0.16,
+          },
+          {
+            name: "critical",
+            color: "#f85149",
+            data: timelineRows.map(([, value]) => value.critical),
+          },
+          {
+            name: "active",
+            color: "#f0c15d",
+            data: timelineRows.map(([, value]) => value.active),
+          },
+        ]}
+        axisFormatter={(value) => formatCompact(value)}
+        valueFormatter={(value) => formatCompact(value)}
+        kicker="Pressure pane"
+        showDataZoom
+        footer={<p className="meta stat-subtle">This is a lightweight pressure strip derived from the current inbox snapshot, useful for quick triage pacing.</p>}
+      />
 
       <section className="triage-grid">
         <div className="section-stack">
           <ObservabilityBarPanel
             title="Severity mix"
             subtitle="Live severity pressure in the current inbox"
-            rows={(data?.severity_breakdown ?? []).map((row) => ({
-              label: row.name,
-              value: row.count,
-              color:
-                row.name === "critical"
-                  ? "#f85149"
-                  : row.name === "high" || row.name === "error"
-                    ? "#f0883e"
-                    : row.name === "warning"
-                      ? "#d29922"
-                      : "#3fb950",
-            }))}
+            rows={severityRows}
             valueFormatter={(value) => formatCompact(value)}
             axisFormatter={(value) => formatCompact(value)}
             kicker="Analytics pane"
@@ -455,7 +480,7 @@ export default function AlertsPage() {
           <ObservabilityBarPanel
             title="Top sources"
             subtitle="Biggest source contributors to the queue"
-            rows={(data?.source_breakdown ?? []).map((row) => ({ label: row.name, value: row.count, color: "#4d9bff" }))}
+            rows={sourceRows}
             valueFormatter={(value) => formatCompact(value)}
             axisFormatter={(value) => formatCompact(value)}
             kicker="Analytics pane"
