@@ -407,6 +407,26 @@ fn loading_screen_html(url: &str, status: &str) -> String {
         gap: 10px;
         margin-top: 20px;
       }}
+      .steps {{
+        display: grid;
+        gap: 8px;
+        margin-top: 18px;
+      }}
+      .step {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255,255,255,.03);
+        border: 1px solid rgba(255,255,255,.05);
+        color: var(--muted);
+        font-size: 13px;
+      }}
+      .step strong {{
+        color: var(--text);
+      }}
       button {{
         cursor: pointer;
         border: 1px solid transparent;
@@ -438,11 +458,34 @@ fn loading_screen_html(url: &str, status: &str) -> String {
       <div class="meta">
         <div><span>Target URL</span><code>{url}</code></div>
         <div><span>Shortcut</span><strong>F5 / Ctrl+R to retry or reload</strong></div>
+        <div><span>Session timer</span><strong id="boot-elapsed">0s</strong></div>
+      </div>
+      <div class="steps">
+        <div class="step"><span>Window shell</span><strong>Ready</strong></div>
+        <div class="step"><span>Portal health check</span><strong id="boot-stage">Running</strong></div>
+        <div class="step"><span>Recovery path</span><strong>Browser fallback available</strong></div>
       </div>
       <div class="actions">
         <button type="button" onclick="window.ipc.postMessage('retry')">Retry startup</button>
         <button type="button" class="secondary" onclick="window.ipc.postMessage('open-external')">Open in browser</button>
+        <button type="button" class="secondary" onclick="navigator.clipboard && navigator.clipboard.writeText('{url}')">Copy URL</button>
       </div>
+      <script>
+        const startedAt = Date.now();
+        const stage = document.getElementById('boot-stage');
+        const elapsed = document.getElementById('boot-elapsed');
+        const steps = ['Checking portal health', 'Starting local portal', 'Preparing unified suite'];
+        let idx = 0;
+        setInterval(() => {{
+          if (elapsed) {{
+            elapsed.textContent = Math.max(1, Math.round((Date.now() - startedAt) / 1000)) + 's';
+          }}
+          if (stage) {{
+            stage.textContent = steps[idx % steps.length];
+            idx += 1;
+          }}
+        }}, 1000);
+      </script>
     </section>
   </body>
 </html>"#
@@ -572,6 +615,7 @@ fn error_screen_html(url: &str, message: &str) -> String {
       <div class="actions">
         <button type="button" onclick="window.ipc.postMessage('retry')">Retry startup</button>
         <button type="button" class="secondary" onclick="window.ipc.postMessage('open-external')">Open in browser</button>
+        <button type="button" class="secondary" onclick="navigator.clipboard && navigator.clipboard.writeText('{url}')">Copy URL</button>
       </div>
     </section>
   </body>

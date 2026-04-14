@@ -582,12 +582,30 @@ impl OperatorApp {
         let mut do_close = false;
         let mut do_focus_search = false;
         let mut do_command_palette = false;
+        let mut jump_section: Option<Section> = None;
         ctx.input(|i| {
             do_refresh = i.key_pressed(egui::Key::R);
             do_assign = i.key_pressed(egui::Key::A);
             do_close = i.key_pressed(egui::Key::C);
             do_focus_search = i.key_pressed(egui::Key::Slash);
             do_command_palette = i.modifiers.ctrl && i.key_pressed(egui::Key::K);
+            if i.modifiers.alt {
+                if i.key_pressed(egui::Key::Num1) {
+                    jump_section = Some(Section::Overview);
+                } else if i.key_pressed(egui::Key::Num2) {
+                    jump_section = Some(Section::Detections);
+                } else if i.key_pressed(egui::Key::Num3) {
+                    jump_section = Some(Section::Alerts);
+                } else if i.key_pressed(egui::Key::Num4) {
+                    jump_section = Some(Section::Events);
+                } else if i.key_pressed(egui::Key::Num5) {
+                    jump_section = Some(Section::Investigations);
+                } else if i.key_pressed(egui::Key::Num6) {
+                    jump_section = Some(Section::Cases);
+                } else if i.key_pressed(egui::Key::Num7) {
+                    jump_section = Some(Section::StackControl);
+                }
+            }
         });
         if do_refresh {
             self.fetch_cases();
@@ -605,6 +623,10 @@ impl OperatorApp {
         if do_command_palette {
             self.palette_open = true;
             ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("command_palette_input")));
+        }
+        if let Some(section) = jump_section {
+            self.section = section;
+            self.status = format!("Navigation jump → {}", self.current_section_label());
         }
     }
 
@@ -1609,7 +1631,14 @@ impl OperatorApp {
                                 });
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if ui
-                                        .add_sized([32.0, 32.0], egui::Button::new(egui::RichText::new("⚙").size(16.0)))
+                                        .add_sized(
+                                            [74.0, 32.0],
+                                            egui::Button::new(
+                                                egui::RichText::new("Settings")
+                                                    .size(12.5)
+                                                    .color(p.text_on_sidebar),
+                                            ),
+                                        )
                                         .on_hover_text("Settings")
                                         .clicked()
                                     {
@@ -1666,7 +1695,7 @@ impl OperatorApp {
                 ui.separator();
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new("Hotkeys: R / A / C / /")
+                    egui::RichText::new("Hotkeys: R / A / C / / / Ctrl+K / Alt+1..7")
                         .small()
                         .color(p.text_footer),
                 );
@@ -1687,15 +1716,33 @@ impl OperatorApp {
     fn show_status_bar(&self, ctx: &egui::Context) {
         let p = self.theme_palette();
         egui::TopBottomPanel::bottom("status")
-            .exact_height(28.0)
+            .exact_height(34.0)
             .frame(theme::status_panel_frame(&p))
             .show(ctx, |ui| {
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    let nav_hint = format!("Section: {}", self.current_section_label());
+                    let refresh_hint = if self.auto_refresh_enabled {
+                        format!("Auto-refresh {}s", self.auto_refresh_interval_sec)
+                    } else {
+                        "Auto-refresh off".to_string()
+                    };
                     ui.label(
                         egui::RichText::new(&self.status)
                             .small()
                             .monospace()
                             .color(p.text_muted),
+                    );
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(nav_hint)
+                            .small()
+                            .color(p.text_footer),
+                    );
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(refresh_hint)
+                            .small()
+                            .color(p.text_footer),
                     );
                 });
             });
@@ -1739,6 +1786,18 @@ impl OperatorApp {
                         );
                         ui.label(
                             egui::RichText::new(format!(" / {}", self.current_section_label()))
+                                .small()
+                                .color(p.text_toolbar_secondary),
+                        );
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(format!("theme: {}", if self.use_light_theme { "light" } else { "dark" }))
+                                .small()
+                                .color(p.text_toolbar_secondary),
+                        );
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(format!("refresh: {}s", self.auto_refresh_interval_sec))
                                 .small()
                                 .color(p.text_toolbar_secondary),
                         );

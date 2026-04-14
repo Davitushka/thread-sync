@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { getOperationsDashboard, stackStatus, uiConfig, type OperationsDashboard, type StackStatus, type UiConfig } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
-import { NativeBarChart, NativeMultiLineChart } from "../components/NativeCharts";
 import { formatCompact, formatPercent } from "../dashboard-utils";
+import {
+  ObservabilityBarPanel,
+  ObservabilityGaugePanel,
+  ObservabilityLinePanel,
+  ObservabilityPanel,
+} from "../components/echarts/ObservabilityCharts";
 
 export default function OperationsPage() {
   const [config, setConfig] = useState<UiConfig | null>(null);
@@ -53,6 +58,34 @@ export default function OperationsPage() {
     const id = window.setInterval(() => load(), autoRefreshSec * 1000);
     return () => window.clearInterval(id);
   }, [autoRefreshSec, load]);
+
+  const clickhouseLabels = useMemo(
+    () =>
+      (data?.clickhouse_series ?? []).map((row) =>
+        new Date(row.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      ),
+    [data?.clickhouse_series]
+  );
+
+  const vectorLabels = useMemo(
+    () =>
+      (data?.vector_series ?? []).map((row) =>
+        new Date(row.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      ),
+    [data?.vector_series]
+  );
+
+  const pipelineLabels = useMemo(
+    () =>
+      (data?.pipeline_series ?? []).map((row) =>
+        new Date(row.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      ),
+    [data?.pipeline_series]
+  );
+
+  const healthyRatio = data ? (data.totals.healthy_components / Math.max(data.totals.total_components, 1)) * 100 : null;
+  const vectorContinuity = data ? (data.totals.vector_forward_rate / Math.max(data.totals.vector_ingest_rate, 1)) * 100 : null;
+  const pipelineContinuity = data ? (data.totals.detection_processed_rate / Math.max(data.totals.redpanda_records_rate, 1)) * 100 : null;
 
   return (
     <div className="page-grid operations-page">
@@ -123,124 +156,174 @@ export default function OperationsPage() {
         </div>
       </section>
 
-      <section className="infra-grid">
-        <article className="card">
-          <h2>ClickHouse workload</h2>
-          {!data?.clickhouse_series.length ? (
-            <p className="meta">Нет рядов по ClickHouse workload за выбранный диапазон.</p>
-          ) : (
-            <>
-              <NativeMultiLineChart
-                title="ClickHouse workload"
-                points={data.clickhouse_series.map((row) => ({
-                  x: String(row.ts),
-                  select_qps: row.select_qps,
-                  insert_qps: row.insert_qps,
-                  failed_qps: row.failed_qps,
-                }))}
-                series={[
-                  { key: "select_qps", label: "select qps", color: "#4d9bff" },
-                  { key: "insert_qps", label: "insert qps", color: "#7be37c" },
-                  { key: "failed_qps", label: "failed qps", color: "#f85149" },
-                ]}
-              />
-              <p className="meta stat-subtle">Current failed query rate is shown as red to surface storage pressure quickly.</p>
-            </>
-          )}
-        </article>
-
-        <article className="card">
-          <h2>Vector flow</h2>
-          {!data?.vector_series.length ? (
-            <p className="meta">Нет рядов по Vector ingest/forward потоку.</p>
-          ) : (
-            <>
-              <NativeMultiLineChart
-                title="Vector flow"
-                points={data.vector_series.map((row) => ({
-                  x: String(row.ts),
-                  http_ingest_eps: row.http_ingest_eps,
-                  to_redpanda_eps: row.to_redpanda_eps,
-                }))}
-                series={[
-                  { key: "http_ingest_eps", label: "http ingest", color: "#8f6dff" },
-                  { key: "to_redpanda_eps", label: "to redpanda", color: "#f0c15d" },
-                ]}
-              />
-              <p className="meta stat-subtle">
-                Flow continuity: {data ? formatPercent((data.totals.vector_forward_rate / Math.max(data.totals.vector_ingest_rate, 1)) * 100) : "—"}
-              </p>
-            </>
-          )}
-        </article>
+      <section className="dashboard-gauge-grid">
+        <ObservabilityGaugePanel
+          title="Service health"
+          subtitle="Reachable platform targets"
+          value={healthyRatio}
+          formatter={(value) => formatPercent(value)}
+          kicker="Availability gauge"
+          footer={<p className="meta stat-subtle">Shows how much of the stack is actually reachable inside the platform loop.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Vector continuity"
+          subtitle="Forward versus ingest"
+          value={vectorContinuity}
+          formatter={(value) => formatPercent(value)}
+          kicker="Pipeline gauge"
+          footer={<p className="meta stat-subtle">Low continuity means ingest is arriving but not being forwarded cleanly.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Detection continuity"
+          subtitle="Processed versus topic records"
+          value={pipelineContinuity}
+          formatter={(value) => formatPercent(value)}
+          kicker="Pipeline gauge"
+          footer={<p className="meta stat-subtle">Shows whether the detection engine is keeping up with topic throughput.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Alert pressure"
+          subtitle="Firing alert saturation"
+          value={data ? Math.min(100, data.totals.firing_alerts * 10) : null}
+          formatter={() => formatCompact(data?.totals.firing_alerts)}
+          kicker="Pressure gauge"
+          footer={<p className="meta stat-subtle">A compact visual summary of how hard the response loop is being pushed right now.</p>}
+        />
       </section>
 
-      <section className="infra-grid">
-        <article className="card">
-          <h2>Pipeline pressure</h2>
-          {!data?.pipeline_series.length ? (
-            <p className="meta">Нет pipeline throughput метрик за диапазон.</p>
-          ) : (
-            <>
-              <NativeMultiLineChart
-                title="Pipeline pressure"
-                points={data.pipeline_series.map((row) => ({
-                  x: String(row.ts),
-                  redpanda_records_eps: row.redpanda_records_eps,
-                  detection_processed_eps: row.detection_processed_eps,
-                }))}
-                series={[
-                  { key: "redpanda_records_eps", label: "redpanda records", color: "#4d9bff" },
-                  { key: "detection_processed_eps", label: "detection processed", color: "#7be37c" },
-                ]}
-              />
-              <p className="meta stat-subtle">Blue = ingestion into the topic, green = detection engine processing speed.</p>
-            </>
-          )}
-        </article>
+      <section className="observability-grid">
+        <ObservabilityLinePanel
+          title="ClickHouse workload"
+          subtitle="Query pressure across the storage layer"
+          categories={clickhouseLabels}
+          series={[
+            {
+              name: "select qps",
+              color: "#4d9bff",
+              data: (data?.clickhouse_series ?? []).map((row) => row.select_qps),
+            },
+            {
+              name: "insert qps",
+              color: "#7be37c",
+              data: (data?.clickhouse_series ?? []).map((row) => row.insert_qps),
+              areaOpacity: 0.12,
+            },
+            {
+              name: "failed qps",
+              color: "#f85149",
+              data: (data?.clickhouse_series ?? []).map((row) => row.failed_qps),
+            },
+          ]}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatCompact(value)}
+          kicker="Storage pane"
+          footer={<p className="meta stat-subtle">Red failed queries should stay flat; visible movement here is usually the first storage warning.</p>}
+        />
 
-        <article className="card">
-          <h2>Operational pressure points</h2>
-          <NativeBarChart
-            title="Operational pressure points"
-            rows={[
-              { label: "parse errors 24h", value: data?.totals.parse_errors_24h ?? 0, tone: "#f0883e" },
-              { label: "dropped alerts 24h", value: data?.totals.dropped_alerts_24h ?? 0, tone: "#f85149" },
-              { label: "firing alerts", value: data?.totals.firing_alerts ?? 0, tone: "#8f6dff" },
-              { label: "parser in flight", value: data?.totals.parser_in_flight ?? 0, tone: "#4d9bff" },
-            ]}
-            valueFormatter={(value) => formatCompact(value)}
-          />
-          <p className="meta stat-subtle">These are the fastest indicators that the pipeline is degraded or under unusual stress.</p>
-        </article>
+        <ObservabilityLinePanel
+          title="Vector flow"
+          subtitle="Ingest and forward continuity"
+          categories={vectorLabels}
+          series={[
+            {
+              name: "http ingest",
+              color: "#8f6dff",
+              data: (data?.vector_series ?? []).map((row) => row.http_ingest_eps),
+              areaOpacity: 0.14,
+            },
+            {
+              name: "to redpanda",
+              color: "#f0c15d",
+              data: (data?.vector_series ?? []).map((row) => row.to_redpanda_eps),
+            },
+          ]}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatCompact(value)}
+          kicker="Collector pane"
+          footer={
+            <p className="meta stat-subtle">
+              Flow continuity: {vectorContinuity != null ? formatPercent(vectorContinuity) : "—"}.
+            </p>
+          }
+        />
       </section>
 
-      <section className="card">
-        <h2>Service status</h2>
+      <section className="observability-grid">
+        <ObservabilityLinePanel
+          title="Pipeline pressure"
+          subtitle="Topic throughput versus detection processing"
+          categories={pipelineLabels}
+          series={[
+            {
+              name: "redpanda records",
+              color: "#4d9bff",
+              data: (data?.pipeline_series ?? []).map((row) => row.redpanda_records_eps),
+              areaOpacity: 0.12,
+            },
+            {
+              name: "detection processed",
+              color: "#7be37c",
+              data: (data?.pipeline_series ?? []).map((row) => row.detection_processed_eps),
+            },
+          ]}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatCompact(value)}
+          kicker="Pipeline pane"
+          footer={<p className="meta stat-subtle">The gap between blue and green reveals whether the pipeline is accumulating unseen backlog.</p>}
+        />
+
+        <ObservabilityBarPanel
+          title="Operational pressure points"
+          subtitle="Fastest degradation indicators"
+          rows={[
+            { label: "parse errors 24h", value: data?.totals.parse_errors_24h ?? 0, color: "#f0883e" },
+            { label: "dropped alerts 24h", value: data?.totals.dropped_alerts_24h ?? 0, color: "#f85149" },
+            { label: "firing alerts", value: data?.totals.firing_alerts ?? 0, color: "#8f6dff" },
+            { label: "parser in flight", value: data?.totals.parser_in_flight ?? 0, color: "#4d9bff" },
+          ]}
+          valueFormatter={(value) => formatCompact(value)}
+          axisFormatter={(value) => formatCompact(value)}
+          kicker="Pressure pane"
+          footer={<p className="meta stat-subtle">These bars compress the highest-value operational alerts into one view for fast triage.</p>}
+        />
+      </section>
+
+      <ObservabilityPanel
+        title="Service status"
+        subtitle="Reachability and latency for core services"
+        kicker="Availability pane"
+        footer={<p className="meta stat-subtle">Use this view to confirm whether missing data is a pipeline problem or just a charting symptom.</p>}
+      >
         {!data?.component_status.length ? (
-          <p className="meta">Prometheus не вернул service status для Operations center.</p>
+          <p className="meta">Prometheus did not return service status for the operations center.</p>
         ) : (
           <div className="infra-health-grid">
             {data.component_status.map((item) => (
-              <div key={item.job} className="health-card">
-                <strong>{item.job}</strong>
+              <div key={item.job} className={`health-card ${item.up ? "health-card-up" : "health-card-down"}`}>
+                <div className="health-card-copy">
+                  <strong>{item.job}</strong>
+                  <small>{item.up ? "Target reachable" : "Target degraded"}</small>
+                </div>
                 <span className={`badge ${item.up ? "sev-low" : "sev-critical"}`}>{item.up ? "up" : "down"}</span>
               </div>
             ))}
           </div>
         )}
         {stack ? (
-          <div className="property-grid ops-property-grid">
-            {Object.entries(stack.components).map(([name, value]) => (
-              <div key={name} className="property-card">
-                <span>{name}</span>
-                <strong>{value.ok ? "reachable" : "degraded"}</strong>
-                <small className="meta">{value.latency_ms ?? "—"} ms</small>
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="section-divider" />
+            <div className="property-grid ops-property-grid">
+              {Object.entries(stack.components).map(([name, value]) => (
+                <div key={name} className="property-card">
+                  <span>{name}</span>
+                  <strong>{value.ok ? "reachable" : "degraded"}</strong>
+                  <small className="meta">{value.latency_ms ?? "—"} ms</small>
+                </div>
+              ))}
+            </div>
+          </>
         ) : null}
-      </section>
+      </ObservabilityPanel>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { uiConfig, type UiConfig } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
-import { NativeGaugeChart, NativeLineChart } from "../components/NativeCharts";
+import { ObservabilityGaugePanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import {
   DASHBOARDS,
   DASHBOARD_GROUPS,
@@ -57,14 +57,18 @@ export default function DashboardsPage() {
       Math.max(DASHBOARDS.filter((item) => item.priority !== "deep-dive").length, 1)) *
       100
   );
-  const nativePreviewPoints = useMemo(
+  const migrationPulseCategories = useMemo(
+    () => ["baseline", "daily", "support", "bridge", "native", "target"],
+    []
+  );
+  const migrationPulseValues = useMemo(
     () => [
-      { x: "0", y: Math.max(0, dailyCount - 1) },
-      { x: "1", y: dailyCount },
-      { x: "2", y: dailyCount + 1 },
-      { x: "3", y: dailyCount + supportCount - 1 },
-      { x: "4", y: dailyCount + supportCount + hybridCount },
-      { x: "5", y: nativeCount },
+      Math.max(0, dailyCount - 1),
+      dailyCount,
+      dailyCount + 1,
+      dailyCount + supportCount - 1,
+      dailyCount + supportCount + hybridCount,
+      nativeCount,
     ],
     [dailyCount, hybridCount, nativeCount, supportCount]
   );
@@ -285,28 +289,44 @@ export default function DashboardsPage() {
           </div>
 
           <div className="dashboard-gauge-grid">
-            <NativeGaugeChart
+            <ObservabilityGaugePanel
               title="Native migration"
               value={migrationCoverage}
-              detail="All dashboard surfaces"
+              subtitle="All dashboard surfaces"
               formatter={(value) => `${Math.round(value)}%`}
+              kicker="Migration gauge"
+              footer={<p className="meta stat-subtle">Shows how much of the catalog already runs natively inside the suite shell.</p>}
             />
-            <NativeGaugeChart
+            <ObservabilityGaugePanel
               title="Daily native coverage"
               value={dailyNativeCoverage}
-              detail="Daily and support surfaces"
+              subtitle="Daily and support surfaces"
               formatter={(value) => `${Math.round(value)}%`}
+              kicker="Migration gauge"
+              footer={<p className="meta stat-subtle">Tracks how much of the default analyst loop has already escaped iframe-first workflows.</p>}
             />
-            <div className="card dashboard-mini-panel">
-              <div className="dashboard-mini-panel-head">
-                <strong>Migration pulse</strong>
-                <span>{formatCompact(nativeCount)} native surfaces</span>
-              </div>
-              <NativeLineChart title="Migration pulse" color="#4d9bff" points={nativePreviewPoints} filled fillOpacity={0.18} />
-              <p className="meta stat-subtle">
-                The hub now treats Grafana as a fallback tier while native panels absorb the daily operational language.
-              </p>
-            </div>
+            <ObservabilityLinePanel
+              title="Migration pulse"
+              subtitle={`${formatCompact(nativeCount)} native surfaces currently available`}
+              categories={migrationPulseCategories}
+              series={[
+                {
+                  name: "native surface count",
+                  color: "#4d9bff",
+                  data: migrationPulseValues,
+                  areaOpacity: 0.16,
+                },
+              ]}
+              axisFormatter={(value) => formatCompact(value)}
+              valueFormatter={(value) => formatCompact(value)}
+              kicker="Migration pane"
+              height={270}
+              footer={
+                <p className="meta stat-subtle">
+                  The hub now treats Grafana as a fallback tier while native panels absorb the daily operational language.
+                </p>
+              }
+            />
           </div>
 
           {current.kind === "native" && current.path ? (

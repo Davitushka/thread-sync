@@ -12,6 +12,7 @@ import {
   type EventSearchResponse,
 } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
+import { ObservabilityBarPanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
@@ -38,6 +39,13 @@ const INITIAL_FILTERS: Filters = {
   end: "",
 };
 
+const TIME_PRESETS = [
+  { id: "15m", label: "Last 15m", minutes: 15 },
+  { id: "1h", label: "Last 1h", minutes: 60 },
+  { id: "6h", label: "Last 6h", minutes: 360 },
+  { id: "24h", label: "Last 24h", minutes: 1_440 },
+];
+
 function severityTone(value?: string) {
   return (value || "info").toLowerCase();
 }
@@ -48,6 +56,40 @@ function priorityFromSeverity(value?: string) {
   if (severity === "error") return { label: "P2", tone: "high" as const };
   if (severity === "warning") return { label: "P3", tone: "medium" as const };
   return { label: "P4", tone: "low" as const };
+}
+
+function buildSearchString(next: Filters) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(next)) {
+    if (value.trim()) {
+      params.set(key, value.trim());
+    }
+  }
+  return params.toString();
+}
+
+function applyRelativeWindow(minutes: number) {
+  const end = new Date();
+  const start = new Date(end.getTime() - minutes * 60_000);
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+  };
+}
+
+function formatFilterWindow(start?: string, end?: string) {
+  if (!start || !end) return "Live query";
+  const parsedStart = new Date(start);
+  const parsedEnd = new Date(end);
+  if (Number.isNaN(parsedStart.getTime()) || Number.isNaN(parsedEnd.getTime())) {
+    return "Bounded window";
+  }
+  return `${parsedStart.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })} - ${parsedEnd.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
 export default function EventsPage() {
@@ -61,13 +103,46 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(false);
   const { actor, setActor } = useActorState();
 
-  const queryParams = useMemo(() => {
+  const activeQueryParams = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const [key, value] of Object.entries(filters)) {
-      if (value.trim()) out[key] = value.trim();
+    for (const key of Object.keys(INITIAL_FILTERS) as Array<keyof Filters>) {
+      const value = searchParams.get(key);
+      if (value?.trim()) out[key] = value.trim();
     }
     return out;
-  }, [filters]);
+  }, [searchParams]);
+
+  const fetchResults = useCallback(async (params: Record<string, string>) => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const data = await searchEvents(params);
+      setResults(data);
+      setSelected(null);
+      setContext(null);
+    } catch (error) {
+      setErr(String(error));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const commitSearch = useCallback(
+    (nextFilters: Filters) => {
+      const nextParams = buildSearchString(nextFilters);
+      navigate(nextParams ? `/events?${nextParams}` : "/events");
+    },
+    [navigate]
+  );
+
+  const applyFilters = useCallback(
+    (patch: Partial<Filters>) => {
+      const next = { ...filters, ...patch };
+      setFilters(next);
+      commitSearch(next);
+    },
+    [commitSearch, filters]
+  );
 
   useEffect(() => {
     const next = { ...INITIAL_FILTERS };
@@ -76,7 +151,16 @@ export default function EventsPage() {
       if (value) next[key] = value;
     }
     setFilters(next);
-  }, [searchParams]);
+    if (!Object.keys(activeQueryParams).length) {
+      setResults(null);
+      setSelected(null);
+      setContext(null);
+      setErr(null);
+      setLoading(false);
+      return;
+    }
+    void fetchResults(activeQueryParams);
+  }, [searchParams, activeQueryParams, fetchResults]);
 
   const clearWorkspace = useCallback(() => {
     setFilters(INITIAL_FILTERS);
@@ -89,35 +173,10 @@ export default function EventsPage() {
   const load = useCallback(
     async (e?: React.FormEvent) => {
       e?.preventDefault();
-      setLoading(true);
-      setErr(null);
-      try {
-        const data = await searchEvents(queryParams);
-        setResults(data);
-        setSelected(null);
-        setContext(null);
-      } catch (error) {
-        setErr(String(error));
-      } finally {
-        setLoading(false);
-      }
+      commitSearch(filters);
     },
-    [queryParams]
+    [filters, commitSearch]
   );
-
-  useEffect(() => {
-    if (!Object.keys(queryParams).length) return;
-    setLoading(true);
-    setErr(null);
-    searchEvents(queryParams)
-      .then((data) => {
-        setResults(data);
-        setSelected(null);
-        setContext(null);
-      })
-      .catch((error) => setErr(String(error)))
-      .finally(() => setLoading(false));
-  }, [queryParams]);
 
   const openEvent = useCallback(async (row: EventRow) => {
     setErr(null);
@@ -140,6 +199,16 @@ export default function EventsPage() {
 
   const selectedEntityValue = selected?.event.source_ip || selected?.event.user_id || selected?.event.host;
   const logRows = results?.rows ?? [];
+  const streamLabels = useMemo(
+    () =>
+      logRows.map((row) => {
+        const parsed = new Date(row.timestamp);
+        return Number.isNaN(parsed.getTime())
+          ? row.timestamp
+          : parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      }),
+    [logRows]
+  );
   const topSourceTypes = useMemo(() => {
     const counts = new Map<string, number>();
     for (const row of logRows) {
@@ -149,6 +218,34 @@ export default function EventsPage() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 4);
   }, [logRows]);
+  const topEventTypes = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of logRows) {
+      counts.set(row.event_type || "unknown", (counts.get(row.event_type || "unknown") ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [logRows]);
+  const severityCounts = useMemo(() => {
+    const output = { critical: 0, error: 0, warning: 0, info: 0 };
+    for (const row of logRows) {
+      const key = severityTone(row.severity) as keyof typeof output;
+      if (key in output) {
+        output[key] += 1;
+      } else {
+        output.info += 1;
+      }
+    }
+    return output;
+  }, [logRows]);
+  const activeFilterChips = useMemo(
+    () =>
+      Object.entries(filters)
+        .filter(([, value]) => value.trim())
+        .map(([key, value]) => ({ key: key as keyof Filters, label: key.replace("_", " "), value })),
+    [filters]
+  );
 
   const promoteToCase = useCallback(
     async (row: EventRow) => {
@@ -174,15 +271,15 @@ export default function EventsPage() {
   const pageCommands = useMemo<SuitePageCommand[]>(() => {
     const commands: SuitePageCommand[] = [];
 
-    if (Object.keys(queryParams).length) {
+    if (Object.keys(activeQueryParams).length) {
       commands.push({
         id: "events:refresh",
         title: "Refresh current event search",
         subtitle: "Run the active native event query again and replace the current result set.",
         section: "Current event search",
-        keywords: Object.values(queryParams).join(" "),
+        keywords: Object.values(activeQueryParams).join(" "),
         priority: 85,
-        run: () => void load(),
+        run: () => void fetchResults(activeQueryParams),
       });
     }
 
@@ -197,6 +294,20 @@ export default function EventsPage() {
         run: () => {
           clearWorkspace();
           navigate("/events");
+        },
+      });
+    }
+
+    for (const preset of TIME_PRESETS) {
+      commands.push({
+        id: `events:window:${preset.id}`,
+        title: `Apply ${preset.label} window`,
+        subtitle: "Replace the current event search window with a relative time range preset.",
+        section: "Current event search",
+        keywords: `events time window ${preset.label}`,
+        priority: 72,
+        run: () => {
+          applyFilters(applyRelativeWindow(preset.minutes));
         },
       });
     }
@@ -231,7 +342,7 @@ export default function EventsPage() {
           section: "Selected event",
           keywords: `${selected.event.source_ip} ip filter events`,
           priority: 92,
-          run: () => setFilters((current) => ({ ...current, source_ip: selected.event.source_ip || "" })),
+          run: () => applyFilters({ source_ip: selected.event.source_ip || "" }),
         });
       }
       if (selected.event.user_id) {
@@ -242,7 +353,7 @@ export default function EventsPage() {
           section: "Selected event",
           keywords: `${selected.event.user_id} user filter events`,
           priority: 90,
-          run: () => setFilters((current) => ({ ...current, user_id: selected.event.user_id || "" })),
+          run: () => applyFilters({ user_id: selected.event.user_id || "" }),
         });
       }
       if (selected.event.host) {
@@ -253,7 +364,7 @@ export default function EventsPage() {
           section: "Selected event",
           keywords: `${selected.event.host} host filter events`,
           priority: 88,
-          run: () => setFilters((current) => ({ ...current, host: selected.event.host || "" })),
+          run: () => applyFilters({ host: selected.event.host || "" }),
         });
       }
     }
@@ -283,25 +394,54 @@ export default function EventsPage() {
     }
 
     return commands;
-  }, [queryParams, filters, selected, context, selectedEntityValue, load, clearWorkspace, promoteToCase, navigate]);
+  }, [activeQueryParams, filters, selected, context, selectedEntityValue, load, clearWorkspace, promoteToCase, navigate, fetchResults, applyFilters]);
 
   usePublishPageCommands(pageCommands);
 
   return (
     <div className="page-grid triage-page">
       <section className="card hero-card triage-card">
-        <h2>Log explorer</h2>
-        <p className="meta">
-          Native read-only event and log exploration over ClickHouse with a denser stream, context-aware pivots and a workflow closer to a real log console.
-        </p>
-        <form className="toolbar" onSubmit={load}>
+        <div className="dashboard-hero">
+          <div>
+            <h2>Signal workspace</h2>
+            <p className="meta">
+              Native ClickHouse log exploration with a denser operator rhythm: bounded windows, event-family pivots, and context panels that behave closer to a serious Grafana/Loki workspace.
+            </p>
+          </div>
+          <div className="dense-inline-actions">
+            <button type="button" className="secondary" onClick={() => void fetchResults(activeQueryParams)}>
+              {loading ? "Refreshing..." : "Refresh current query"}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                clearWorkspace();
+                navigate("/events");
+              }}
+            >
+              Clear workspace
+            </button>
+            <Link className="tool-btn secondary" to="/alerts">
+              Alert inbox
+            </Link>
+            <Link className="tool-btn secondary" to="/detections">
+              Detection ops
+            </Link>
+          </div>
+        </div>
+        <form className="triage-filterbar triage-filterbar-wide" onSubmit={load}>
           <label>
             Analyst
             <input value={actor} onChange={(e) => setActor(e.target.value)} />
           </label>
           <label>
             Query
-            <input value={filters.q} onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))} placeholder="message / action / path" />
+            <input
+              value={filters.q}
+              onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
+              placeholder="message / action / path / source"
+            />
           </label>
           <label>
             Severity
@@ -329,8 +469,42 @@ export default function EventsPage() {
             User ID
             <input value={filters.user_id} onChange={(e) => setFilters((p) => ({ ...p, user_id: e.target.value }))} />
           </label>
-          <button type="submit">{loading ? "Searching…" : "Search"}</button>
+          <label>
+            Start
+            <input value={filters.start} onChange={(e) => setFilters((p) => ({ ...p, start: e.target.value }))} placeholder="2026-04-14T09:00:00Z" />
+          </label>
+          <label>
+            End
+            <input value={filters.end} onChange={(e) => setFilters((p) => ({ ...p, end: e.target.value }))} placeholder="2026-04-14T10:00:00Z" />
+          </label>
+          <button type="submit">{loading ? "Searching..." : "Search"}</button>
         </form>
+        <div className="time-preset-row">
+          {TIME_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className="secondary compact"
+              onClick={() => applyFilters(applyRelativeWindow(preset.minutes))}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        {!!activeFilterChips.length && (
+          <div className="filter-chip-row">
+            {activeFilterChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                className="token token-action"
+                onClick={() => applyFilters({ [chip.key]: "" } as Partial<Filters>)}
+              >
+                {chip.label}:{chip.value} x
+              </button>
+            ))}
+          </div>
+        )}
         {results && (
           <div className="summary-grid">
             <div className="summary-card">
@@ -347,12 +521,65 @@ export default function EventsPage() {
             </div>
             <div className="summary-card">
               <span>Time window</span>
-              <strong>{results.meta.filters.start && results.meta.filters.end ? "bounded" : "live query"}</strong>
+              <strong>{formatFilterWindow(results.meta.filters.start, results.meta.filters.end)}</strong>
+            </div>
+            <div className="summary-card">
+              <span>Critical + error</span>
+              <strong>{formatCompact(severityCounts.critical + severityCounts.error)}</strong>
+            </div>
+            <div className="summary-card">
+              <span>Top event type</span>
+              <strong>{topEventTypes[0]?.[0] ?? "—"}</strong>
             </div>
           </div>
         )}
         {err && <p className="error">{err}</p>}
       </section>
+
+      {!!logRows.length && (
+        <section className="observability-grid observability-grid-primary">
+          <ObservabilityLinePanel
+            title="Signal volume strip"
+            subtitle="Returned event density across the active result window"
+            categories={streamLabels}
+            series={[
+              {
+                name: "events",
+                color: "#4d9bff",
+                data: logRows.map(() => 1),
+                areaOpacity: 0.16,
+              },
+            ]}
+            axisFormatter={(value) => formatCompact(value)}
+            valueFormatter={(value) => formatCompact(value)}
+            kicker="Volume pane"
+            showDataZoom
+            onPointClick={({ dataIndex }) => {
+              const row = logRows[dataIndex];
+              if (row) {
+                void openEvent(row);
+              }
+            }}
+            footer={<p className="meta stat-subtle">Click the strip to jump into a log row, or zoom the current hunt window when the stream gets dense.</p>}
+          />
+          <ObservabilityBarPanel
+            title="Top event types"
+            subtitle="Most common event families in the current result set"
+            rows={topEventTypes.map(([label, value], index) => ({
+              label,
+              value,
+              color: index === 0 ? "#8f6dff" : "#4d9bff",
+            }))}
+            valueFormatter={(value) => formatCompact(value)}
+            axisFormatter={(value) => formatCompact(value)}
+            kicker="Distribution pane"
+            onRowClick={({ label }) => {
+              applyFilters({ q: label });
+            }}
+            footer={<p className="meta stat-subtle">Click a bar to pivot the query toward that event family immediately.</p>}
+          />
+        </section>
+      )}
 
       <AdaptivePaneLayout
         storageKey="events-log-explorer"
@@ -393,6 +620,7 @@ export default function EventsPage() {
                     <div className="log-row-gutter">
                       <span className={`priority-pill priority-${priority.tone}`}>{priority.label}</span>
                       <time>{shortDateTime(row.timestamp)}</time>
+                      <span className="log-row-type">{row.event_type || "event"}</span>
                     </div>
                     <div className="log-row-body">
                       <div className="log-row-head">
@@ -407,6 +635,16 @@ export default function EventsPage() {
                       </div>
                       <p className="log-row-message">{row.message}</p>
                       <div className="log-row-meta">
+                        <button
+                          type="button"
+                          className="token token-action"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            applyFilters({ source_type: row.source_type });
+                          }}
+                        >
+                          source:{row.source_type}
+                        </button>
                         {row.source_ip ? <span className="token">ip:{row.source_ip}</span> : null}
                         {row.user_id ? <span className="token">user:{row.user_id}</span> : null}
                         {row.action ? <span className="token">{row.action}</span> : null}
@@ -465,6 +703,10 @@ export default function EventsPage() {
                   <span>Action</span>
                   <strong>{selected.event.action || "—"}</strong>
                 </div>
+                <div className="summary-card">
+                  <span>Event type</span>
+                  <strong>{selected.event.event_type || "—"}</strong>
+                </div>
               </div>
 
               <div className="insight-panel">
@@ -504,13 +746,16 @@ export default function EventsPage() {
                 <button type="button" onClick={() => promoteToCase(selected.event)}>
                   Promote to case
                 </button>
+                <button type="button" className="secondary" onClick={() => navigator.clipboard.writeText(selected.event.event_id)}>
+                  Copy event id
+                </button>
                 {selected.event.source_ip ? (
-                  <button type="button" className="secondary" onClick={() => setFilters((p) => ({ ...p, source_ip: selected.event.source_ip || "" }))}>
+                  <button type="button" className="secondary" onClick={() => applyFilters({ source_ip: selected.event.source_ip || "" })}>
                     Filter by IP
                   </button>
                 ) : null}
                 {selected.event.user_id ? (
-                  <button type="button" className="secondary" onClick={() => setFilters((p) => ({ ...p, user_id: selected.event.user_id || "" }))}>
+                  <button type="button" className="secondary" onClick={() => applyFilters({ user_id: selected.event.user_id || "" })}>
                     Filter by user
                   </button>
                 ) : null}
@@ -624,6 +869,11 @@ export default function EventsPage() {
               <Link className="tool-btn secondary inline" to="/detections">
                 Detection ops
               </Link>
+              {selectedEntityValue ? (
+                <Link className="tool-btn secondary inline" to={`/events?q=${encodeURIComponent(selectedEntityValue)}`}>
+                  Re-run focused search
+                </Link>
+              ) : null}
             </div>
           </section>
         </aside>

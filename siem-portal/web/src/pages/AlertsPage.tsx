@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createCase, getAlertsOverview, linkAlert, type AlertsOverview } from "../api";
-import { NativeBarChart } from "../components/NativeCharts";
+import { ObservabilityBarPanel, ObservabilityGaugePanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
@@ -64,6 +64,31 @@ export default function AlertsPage() {
   const sources = useMemo(() => {
     return Array.from(new Set((data?.alerts ?? []).map((alert) => alert.source))).sort((a, b) => a.localeCompare(b));
   }, [data]);
+
+  const totalAlerts = data?.totals.total ?? 0;
+  const activeShare = totalAlerts ? ((data?.totals.active ?? 0) / totalAlerts) * 100 : 0;
+  const criticalShare = totalAlerts ? ((data?.totals.critical ?? 0) / totalAlerts) * 100 : 0;
+  const silencedShare = totalAlerts ? ((data?.totals.silenced ?? 0) / totalAlerts) * 100 : 0;
+  const sourceSpread = totalAlerts ? ((data?.totals.unique_sources ?? 0) / totalAlerts) * 100 : 0;
+  const alertTimeline = useMemo(() => {
+    const buckets = new Map<string, { total: number; critical: number; active: number }>();
+    for (const alert of filteredAlerts) {
+      const iso = alert.starts_at || alert.ends_at;
+      const parsed = iso ? new Date(iso) : null;
+      const label =
+        parsed && !Number.isNaN(parsed.getTime())
+          ? parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          : "unknown";
+      const entry = buckets.get(label) ?? { total: 0, critical: 0, active: 0 };
+      entry.total += 1;
+      if (severity(alert.severity) === "critical") entry.critical += 1;
+      if (!(alert.silenced_count > 0 || alert.state === "suppressed")) entry.active += 1;
+      buckets.set(label, entry);
+    }
+    return Array.from(buckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-12);
+  }, [filteredAlerts]);
 
   const promote = useCallback(async () => {
     if (!selectedAlert) return;
@@ -286,46 +311,106 @@ export default function AlertsPage() {
         </div>
       </section>
 
+      <section className="dashboard-gauge-grid">
+        <ObservabilityGaugePanel
+          title="Active share"
+          subtitle="Open triage load"
+          value={activeShare}
+          formatter={(value) => `${value.toFixed(1)}%`}
+          kicker="Queue gauge"
+          footer={<p className="meta stat-subtle">{formatCompact(data?.totals.active)} active alerts in the current inbox.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Critical share"
+          subtitle="Highest risk slice"
+          value={criticalShare}
+          formatter={(value) => `${value.toFixed(1)}%`}
+          kicker="Risk gauge"
+          footer={<p className="meta stat-subtle">{formatCompact(data?.totals.critical)} alerts currently sit in the highest-priority bucket.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Silenced share"
+          subtitle="Suppression coverage"
+          value={silencedShare}
+          formatter={(value) => `${value.toFixed(1)}%`}
+          kicker="State gauge"
+          footer={<p className="meta stat-subtle">{formatCompact(data?.totals.silenced)} alerts are currently suppressed or silenced.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Source spread"
+          subtitle="Source diversity"
+          value={sourceSpread}
+          formatter={(value) => `${value.toFixed(1)}%`}
+          kicker="Source gauge"
+          footer={<p className="meta stat-subtle">{formatCompact(data?.totals.unique_sources)} distinct sources are contributing to the current queue.</p>}
+        />
+      </section>
+
+      {!!alertTimeline.length && (
+        <ObservabilityLinePanel
+          title="Alert pressure strip"
+          subtitle="Recent alert starts grouped into a compact triage rhythm"
+          categories={alertTimeline.map(([label]) => label)}
+          series={[
+            {
+              name: "alerts",
+              color: "#4d9bff",
+              data: alertTimeline.map(([, value]) => value.total),
+              areaOpacity: 0.16,
+            },
+            {
+              name: "critical",
+              color: "#f85149",
+              data: alertTimeline.map(([, value]) => value.critical),
+            },
+            {
+              name: "active",
+              color: "#f0c15d",
+              data: alertTimeline.map(([, value]) => value.active),
+            },
+          ]}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatCompact(value)}
+          kicker="Pressure pane"
+          showDataZoom
+          footer={<p className="meta stat-subtle">This is a lightweight pressure strip derived from the current inbox snapshot, useful for quick triage pacing.</p>}
+        />
+      )}
+
       <section className="triage-grid">
-        <article className="card triage-card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Analytics pane</span>
-              <h2>Severity mix</h2>
-              <p className="workspace-pane-subtitle">Live severity pressure and top emitting sources for the current inbox.</p>
-            </div>
-          </div>
-          {!data?.severity_breakdown.length ? (
-            <p className="meta">Нет данных severity breakdown.</p>
-          ) : (
-            <NativeBarChart
-              title="Alert severity mix"
-              rows={data.severity_breakdown.map((row) => ({
-                label: row.name,
-                value: row.count,
-                tone:
-                  row.name === "critical"
-                    ? "#f85149"
-                    : row.name === "high" || row.name === "error"
-                      ? "#f0883e"
-                      : row.name === "warning"
-                        ? "#d29922"
-                        : "#3fb950",
-              }))}
-              valueFormatter={(value) => formatCompact(value)}
-            />
-          )}
-          <h2>Top sources</h2>
-          {!data?.source_breakdown.length ? (
-            <p className="meta">Нет source breakdown.</p>
-          ) : (
-            <NativeBarChart
-              title="Alert top sources"
-              rows={data.source_breakdown.map((row) => ({ label: row.name, value: row.count }))}
-              valueFormatter={(value) => formatCompact(value)}
-            />
-          )}
-        </article>
+        <div className="section-stack">
+          <ObservabilityBarPanel
+            title="Severity mix"
+            subtitle="Live severity pressure in the current inbox"
+            rows={(data?.severity_breakdown ?? []).map((row) => ({
+              label: row.name,
+              value: row.count,
+              color:
+                row.name === "critical"
+                  ? "#f85149"
+                  : row.name === "high" || row.name === "error"
+                    ? "#f0883e"
+                    : row.name === "warning"
+                      ? "#d29922"
+                      : "#3fb950",
+            }))}
+            valueFormatter={(value) => formatCompact(value)}
+            axisFormatter={(value) => formatCompact(value)}
+            kicker="Analytics pane"
+            onRowClick={({ label }) => setSeverityFilter(label)}
+            footer={<p className="meta stat-subtle">This is the quickest read on how much of the queue needs immediate analyst attention.</p>}
+          />
+          <ObservabilityBarPanel
+            title="Top sources"
+            subtitle="Biggest source contributors to the queue"
+            rows={(data?.source_breakdown ?? []).map((row) => ({ label: row.name, value: row.count, color: "#4d9bff" }))}
+            valueFormatter={(value) => formatCompact(value)}
+            axisFormatter={(value) => formatCompact(value)}
+            kicker="Analytics pane"
+            onRowClick={({ label }) => setSourceFilter(label)}
+            footer={<p className="meta stat-subtle">Useful for seeing whether one platform or tenant is dominating alert production.</p>}
+          />
+        </div>
 
         <article className="card triage-card workspace-pane">
           <div className="workspace-pane-header">
@@ -403,6 +488,11 @@ export default function AlertsPage() {
                   <div className="detail-metric">
                     <span>Fingerprint</span>
                     <strong>{selectedAlert.fingerprint.slice(0, 12)}...</strong>
+                    <small>{selectedAlert.fingerprint}</small>
+                  </div>
+                  <div className="detail-metric">
+                    <span>Ended</span>
+                    <strong>{selectedAlert.ends_at ? shortDateTime(selectedAlert.ends_at) : "still firing"}</strong>
                   </div>
                 </div>
 
@@ -440,7 +530,7 @@ export default function AlertsPage() {
                   <p className="meta">Labels</p>
                   <div className="tag-row">
                     {Object.entries(selectedAlert.labels)
-                      .slice(0, 10)
+                      .slice(0, 14)
                       .map(([key, value]) => (
                         <span key={key} className="token">
                           {key}:{value}
@@ -448,6 +538,19 @@ export default function AlertsPage() {
                       ))}
                   </div>
                 </div>
+
+                {!!Object.keys(selectedAlert.annotations).length && (
+                  <div>
+                    <p className="meta">Annotations</p>
+                    <div className="tag-row">
+                      {Object.entries(selectedAlert.annotations).map(([key, value]) => (
+                        <span key={key} className="token">
+                          {key}:{value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </section>

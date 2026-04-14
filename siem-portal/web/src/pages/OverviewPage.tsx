@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   getAlerts,
   getCorrelatorStats,
@@ -12,12 +12,18 @@ import {
   type UiConfig,
 } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
-import { NativeBarChart, NativeLineChart, NativeMultiLineChart } from "../components/NativeCharts";
+import {
+  ObservabilityBarPanel,
+  ObservabilityGaugePanel,
+  ObservabilityLinePanel,
+  ObservabilityPanel,
+} from "../components/echarts/ObservabilityCharts";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 export default function OverviewPage() {
   const { openOrFocusWorkspace } = useWorkspaceShell();
+  const navigate = useNavigate();
   const [config, setConfig] = useState<UiConfig | null>(null);
   const [stack, setStack] = useState<StackStatus | null>(null);
   const [overview, setOverview] = useState<OverviewDashboard | null>(null);
@@ -71,6 +77,48 @@ export default function OverviewPage() {
     const id = window.setInterval(() => load(), autoRefreshSec * 1000);
     return () => window.clearInterval(id);
   }, [autoRefreshSec, load]);
+
+  const eventsLabels = useMemo(
+    () =>
+      (overview?.events_per_minute ?? []).map((point) => {
+        const parsed = new Date(point.minute);
+        return Number.isNaN(parsed.getTime())
+          ? point.minute
+          : parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }),
+    [overview?.events_per_minute]
+  );
+
+  const severityTimelineLabels = useMemo(
+    () =>
+      (overview?.severity_timeline ?? []).map((row) => {
+        const parsed = new Date(row.bucket);
+        return Number.isNaN(parsed.getTime())
+          ? row.bucket
+          : parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }),
+    [overview?.severity_timeline]
+  );
+
+  const stackRows = useMemo(
+    () =>
+      stack
+        ? Object.entries(stack.components).map(([name, value]) => ({
+            label: name,
+            value: value.ok ? 1 : 0,
+            color: value.ok ? "#7be37c" : "#f85149",
+          }))
+        : [],
+    [stack]
+  );
+  const openEventsPivot = useCallback(
+    (params: Record<string, string>) => {
+      const query = new URLSearchParams(params).toString();
+      openOrFocusWorkspace("/events");
+      navigate(query ? `/events?${query}` : "/events");
+    },
+    [navigate, openOrFocusWorkspace]
+  );
 
   return (
     <div className="page-grid overview-dashboard">
@@ -149,124 +197,148 @@ export default function OverviewPage() {
         </div>
       </section>
 
-      <section className="overview-grid">
-        <article className="card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Signal pane</span>
-              <h2>Events timeline</h2>
-              <p className="workspace-pane-subtitle">Volume trend for the selected window, optimized for quick posture validation.</p>
-            </div>
-          </div>
-          {!overview?.events_per_minute.length ? (
-            <p className="meta">Пока нет данных в агрегате `events_per_minute_agg`.</p>
-          ) : (
-            <>
-              <NativeLineChart
-                title="Events timeline"
-                color="#7be37c"
-                points={overview.events_per_minute.map((point) => ({ x: point.minute, y: point.events }))}
-                filled
-                fillOpacity={0.2}
-              />
-              <p className="meta stat-subtle">
-                Bucket = {overview.bucket_minutes} min, range = {overview.window_hours}h.
-              </p>
-            </>
-          )}
-        </article>
-
-        <article className="card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Distribution pane</span>
-              <h2>Events by severity</h2>
-              <p className="workspace-pane-subtitle">Criticality split for the current horizon to spot pressure at a glance.</p>
-            </div>
-          </div>
-          {!overview?.severity_breakdown.length ? (
-            <p className="meta">Нет severity breakdown за последние {overview?.window_hours ?? hours} часов.</p>
-          ) : (
-            <NativeBarChart
-              title="Events by severity"
-              rows={overview.severity_breakdown.map((row) => ({
-                label: row.severity,
-                value: row.events,
-                tone:
-                  row.severity === "critical"
-                    ? "#f85149"
-                    : row.severity === "error"
-                      ? "#f0883e"
-                      : row.severity === "warning"
-                        ? "#d29922"
-                        : "#3fb950",
-              }))}
-              valueFormatter={(value) => formatCompact(value)}
-            />
-          )}
-        </article>
+      <section className="dashboard-gauge-grid">
+        <ObservabilityGaugePanel
+          title="Critical pressure"
+          subtitle="Critical signal share"
+          value={
+            overview
+              ? (overview.kpis.critical_events_24h / Math.max(overview.kpis.total_events_24h, 1)) * 100
+              : null
+          }
+          formatter={(value) => `${value.toFixed(1)}%`}
+          kicker="Risk gauge"
+          footer={<p className="meta stat-subtle">Shows how much of the event stream is already in the most dangerous slice.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Error + critical"
+          subtitle="Escalation pressure"
+          value={overview?.kpis.error_pct_24h}
+          formatter={(value) => `${value.toFixed(2)}%`}
+          kicker="Risk gauge"
+          footer={<p className="meta stat-subtle">Higher values usually mean the analyst console should shift from posture to triage mode.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Alert visibility"
+          subtitle="Active alerts present"
+          value={alertsCount != null ? Math.min(100, alertsCount * 10) : null}
+          formatter={() => formatCompact(alertsCount)}
+          kicker="Queue gauge"
+          footer={<p className="meta stat-subtle">A fast signal that the upstream detection and alerting flow is surfacing into the suite.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Case pressure"
+          subtitle="Open investigation load"
+          value={casesCount != null ? Math.min(100, casesCount * 10) : null}
+          formatter={() => formatCompact(casesCount)}
+          kicker="Queue gauge"
+          footer={<p className="meta stat-subtle">Helps balance current alert volume against ongoing case workload.</p>}
+        />
       </section>
 
-      <section className="card workspace-pane">
-        <div className="workspace-pane-header">
-          <div className="workspace-pane-copy">
-            <span className="workspace-pane-kicker">Trend pane</span>
-            <h2>Severity timeline</h2>
-            <p className="workspace-pane-subtitle">Rolling severity pressure across the current window for escalation awareness.</p>
-          </div>
-        </div>
-        {!overview?.severity_timeline.length ? (
-          <p className="meta">Нет severity timeline за выбранный диапазон.</p>
-        ) : (
-          <NativeMultiLineChart
-            title="Severity timeline"
-            points={overview.severity_timeline.map((row) => ({
-              x: row.bucket,
-              critical: row.critical,
-              error: row.error,
-              warning: row.warning,
-            }))}
-            series={[
-              { key: "critical", label: "critical", color: "#f85149" },
-              { key: "error", label: "error", color: "#f0883e" },
-              { key: "warning", label: "warning", color: "#d29922" },
-            ]}
-          />
-        )}
+      <section className="observability-grid observability-grid-primary">
+        <ObservabilityLinePanel
+          title="Events timeline"
+          subtitle="Volume trend for the selected window"
+          categories={eventsLabels}
+          series={[
+            {
+              name: "events",
+              color: "#7be37c",
+              data: (overview?.events_per_minute ?? []).map((point) => point.events),
+              areaOpacity: 0.22,
+            },
+          ]}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatCompact(value)}
+          kicker="Signal pane"
+          className="observability-panel-wide"
+          showDataZoom
+          onPointClick={({ dataIndex }) => {
+            const row = overview?.events_per_minute[dataIndex];
+            if (!row) return;
+            const start = new Date(row.minute);
+            if (Number.isNaN(start.getTime())) {
+              openEventsPivot({ q: row.minute });
+              return;
+            }
+            const end = new Date(start.getTime() + (overview?.bucket_minutes ?? 1) * 60_000);
+            openEventsPivot({ start: start.toISOString(), end: end.toISOString() });
+          }}
+          footer={
+            <p className="meta stat-subtle">
+              Bucket = {overview?.bucket_minutes ?? 1} min, range = {overview?.window_hours ?? hours}h.
+            </p>
+          }
+        />
+
+        <ObservabilityBarPanel
+          title="Events by severity"
+          subtitle="Criticality split for the current horizon"
+          rows={(overview?.severity_breakdown ?? []).map((row) => ({
+            label: row.severity,
+            value: row.events,
+            color:
+              row.severity === "critical"
+                ? "#f85149"
+                : row.severity === "error"
+                  ? "#f0883e"
+                  : row.severity === "warning"
+                    ? "#d29922"
+                    : "#3fb950",
+          }))}
+          valueFormatter={(value) => formatCompact(value)}
+          axisFormatter={(value) => formatCompact(value)}
+          kicker="Distribution pane"
+          onRowClick={({ label }) => openEventsPivot({ severity: label })}
+          footer={<p className="meta stat-subtle">This gives a fast read on whether the stream is mostly background noise or operator-relevant pressure.</p>}
+        />
       </section>
 
-      <section className="overview-grid">
-        <article className="card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Exposure pane</span>
-              <h2>Top source IPs</h2>
-              <p className="workspace-pane-subtitle">High-traffic and high-threat sources for immediate hunting pivots.</p>
-            </div>
-          </div>
-          {!overview?.top_source_ips.length ? (
-            <p className="meta">Нет source IP c трафиком за последние {overview?.window_hours ?? hours} часов.</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>IP</th>
-                  <th>Events</th>
-                  <th>Threats</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.top_source_ips.map((row) => (
-                  <tr key={row.source_ip}>
-                    <td>{row.source_ip}</td>
-                    <td>{formatCompact(row.events)}</td>
-                    <td>{formatCompact(row.threats)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </article>
+      <ObservabilityLinePanel
+        title="Severity timeline"
+        subtitle="Rolling severity pressure across the current window"
+        categories={severityTimelineLabels}
+        series={[
+          {
+            name: "critical",
+            color: "#f85149",
+            data: (overview?.severity_timeline ?? []).map((row) => row.critical),
+            areaOpacity: 0.14,
+          },
+          {
+            name: "error",
+            color: "#f0883e",
+            data: (overview?.severity_timeline ?? []).map((row) => row.error),
+          },
+          {
+            name: "warning",
+            color: "#d29922",
+            data: (overview?.severity_timeline ?? []).map((row) => row.warning),
+          },
+        ]}
+        axisFormatter={(value) => formatCompact(value)}
+        valueFormatter={(value) => formatCompact(value)}
+        kicker="Trend pane"
+        showDataZoom
+        footer={<p className="meta stat-subtle">Use this to distinguish sustained escalation from short bursts of noisy traffic.</p>}
+      />
+
+      <section className="observability-grid">
+        <ObservabilityBarPanel
+          title="Top source IPs"
+          subtitle="High-traffic and high-threat sources"
+          rows={(overview?.top_source_ips ?? []).map((row) => ({
+            label: row.source_ip,
+            value: row.events,
+            color: row.threats > 0 ? "#f85149" : "#4d9bff",
+          }))}
+          valueFormatter={(value) => formatCompact(value)}
+          axisFormatter={(value) => formatCompact(value)}
+          kicker="Exposure pane"
+          onRowClick={({ label }) => openEventsPivot({ source_ip: label })}
+          footer={<p className="meta stat-subtle">Red bars indicate sources that also produced threat-tagged activity in the selected range.</p>}
+        />
 
         <article className="card workspace-pane">
           <div className="workspace-pane-header">
@@ -285,11 +357,15 @@ export default function OverviewPage() {
                   type="button"
                   key={row.event_id}
                   className="recent-event-card"
-                  onClick={() => {
-                    openOrFocusWorkspace("/events");
-                    window.history.replaceState(null, "", `/events?q=${encodeURIComponent(row.source_ip || row.host || row.source_type)}`);
-                    window.dispatchEvent(new PopStateEvent("popstate"));
-                  }}
+                  onClick={() =>
+                    openEventsPivot(
+                      row.source_ip
+                        ? { source_ip: row.source_ip }
+                        : row.host
+                          ? { host: row.host }
+                          : { source_type: row.source_type, q: row.message.slice(0, 80) }
+                    )
+                  }
                 >
                   <header>
                     <span>{shortDateTime(row.timestamp)}</span>
@@ -305,62 +381,57 @@ export default function OverviewPage() {
         </article>
       </section>
 
-      <section className="overview-grid">
-        <article className="card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Coverage pane</span>
-              <h2>Top sources</h2>
-              <p className="workspace-pane-subtitle">Source-type contribution to current traffic and security signal mix.</p>
-            </div>
-          </div>
-          {!overview?.source_breakdown.length ? (
-            <p className="meta">Нет source breakdown по агрегату.</p>
-          ) : (
-            <NativeBarChart
-              title="Top sources"
-              rows={overview.source_breakdown.map((row) => ({
-                label: row.source_type,
-                value: row.events,
-              }))}
-              valueFormatter={(value) => formatCompact(value)}
-            />
-          )}
-        </article>
+      <section className="observability-grid">
+        <ObservabilityBarPanel
+          title="Top sources"
+          subtitle="Source-type contribution to current traffic"
+          rows={(overview?.source_breakdown ?? []).map((row) => ({
+            label: row.source_type,
+            value: row.events,
+            color: "#4d9bff",
+          }))}
+          valueFormatter={(value) => formatCompact(value)}
+          axisFormatter={(value) => formatCompact(value)}
+          kicker="Coverage pane"
+          onRowClick={({ label }) => openEventsPivot({ source_type: label })}
+          footer={<p className="meta stat-subtle">Highlights which ingest families dominate the current operator view.</p>}
+        />
 
-        <article className="card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Platform pane</span>
-              <h2>Stack health</h2>
-              <p className="workspace-pane-subtitle">Fast health readout for core services before jumping into deeper ops views.</p>
-            </div>
-          </div>
+        <ObservabilityPanel
+          title="Stack health"
+          subtitle="Fast reachability readout for core services"
+          kicker="Platform pane"
+          footer={<p className="meta stat-subtle">Use this before jumping into deeper platform views or deciding whether the data can be trusted.</p>}
+        >
           {!stack ? (
-            <p className="meta">Загрузка…</p>
+            <p className="meta">Loading stack status…</p>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Component</th>
-                  <th>Status</th>
-                  <th>Latency</th>
-                </tr>
-              </thead>
-              <tbody>
+            <>
+              <div className="infra-health-grid">
                 {Object.entries(stack.components).map(([name, value]) => (
-                  <tr key={name}>
-                    <td>{name}</td>
-                    <td>
-                      <span className={`badge ${value.ok ? "sev-low" : "sev-critical"}`}>{value.ok ? "ok" : "down"}</span>
-                    </td>
-                    <td>{value.latency_ms ?? "—"} ms</td>
-                  </tr>
+                  <div key={name} className={`health-card ${value.ok ? "health-card-up" : "health-card-down"}`}>
+                    <div className="health-card-copy">
+                      <strong>{name}</strong>
+                      <small>{value.latency_ms ?? "—"} ms</small>
+                    </div>
+                    <span className={`badge ${value.ok ? "sev-low" : "sev-critical"}`}>{value.ok ? "ok" : "down"}</span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+              <div className="section-divider" />
+              <ObservabilityBarPanel
+                title="Service availability"
+                subtitle="Healthy versus degraded targets"
+                rows={stackRows}
+                valueFormatter={(value) => (value > 0 ? "healthy" : "down")}
+                axisFormatter={(value) => `${Math.round(value)}`}
+                kicker="Platform pane"
+                className="observability-panel-embedded"
+                height={220}
+              />
+            </>
           )}
-        </article>
+        </ObservabilityPanel>
       </section>
 
       <section className="card workspace-pane">

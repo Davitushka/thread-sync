@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getDetectionsOverview, type DetectionsOverview } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
-import { NativeBarChart } from "../components/NativeCharts";
+import { ObservabilityBarPanel, ObservabilityGaugePanel } from "../components/echarts/ObservabilityCharts";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { formatCompact } from "../dashboard-utils";
 
@@ -100,6 +100,16 @@ export default function DetectionsPage() {
         ? "High-priority rule pressure: confirm whether the current signal burst should escalate into alert triage or case assignment."
         : "Monitor the firing pattern and use event pivots to validate whether the rule is noisy or expected for the current environment."
     : "";
+
+  const criticalShare = data?.stats.firing_count
+    ? (data.stats.critical_firing / Math.max(data.stats.firing_count, 1)) * 100
+    : 0;
+  const queueUsage = data?.stats.alert_capacity
+    ? (data.stats.pending_alerts / Math.max(data.stats.alert_capacity, 1)) * 100
+    : 0;
+  const ruleActivation = data?.stats.rules_count
+    ? (data.stats.firing_count / Math.max(data.stats.rules_count, 1)) * 100
+    : 0;
 
   const pageCommands = useMemo<SuitePageCommand[]>(() => {
     const commands: SuitePageCommand[] = [
@@ -263,67 +273,85 @@ export default function DetectionsPage() {
         </div>
       </section>
 
+      <section className="dashboard-gauge-grid">
+        <ObservabilityGaugePanel
+          title="Critical share"
+          subtitle="Highest-priority firing load"
+          value={criticalShare}
+          formatter={(value) => `${value.toFixed(1)}%`}
+          kicker="Risk gauge"
+          footer={<p className="meta stat-subtle">{formatCompact(data?.stats.critical_firing)} critical firing rows are active right now.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Queue usage"
+          subtitle="Pending versus forward capacity"
+          value={queueUsage}
+          formatter={(value) => `${value.toFixed(1)}%`}
+          kicker="Queue gauge"
+          footer={<p className="meta stat-subtle">{formatCompact(data?.stats.pending_alerts)} pending alerts sit in a queue sized for {formatCompact(data?.stats.alert_capacity)}.</p>}
+        />
+        <ObservabilityGaugePanel
+          title="Rule activation"
+          subtitle="Firing rows versus rule catalog"
+          value={ruleActivation}
+          formatter={(value) => `${value.toFixed(1)}%`}
+          kicker="Engine gauge"
+          footer={<p className="meta stat-subtle">{formatCompact(data?.stats.firing_count)} firing rows are active across {formatCompact(data?.stats.rules_count)} rules.</p>}
+        />
+      </section>
+
       <AdaptivePaneLayout
         storageKey="detections-command-center"
         defaultSizes={[0.24, 0.46, 0.3]}
         minSizes={[0.18, 0.28, 0.22]}
         className="command-center-layout"
       >
-        <section className="card triage-card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Telemetry pane</span>
-              <h2>Engine pressure</h2>
-              <p className="workspace-pane-subtitle">Severity, state distribution and noisy rule concentration for fast detection posture checks.</p>
-            </div>
-          </div>
-          <div className="section-stack">
-            {!data?.severity_breakdown.length ? (
-              <p className="meta">Нет severity breakdown.</p>
-            ) : (
-              <NativeBarChart
-                title="Detection severity mix"
-                rows={data.severity_breakdown.map((row) => ({
-                  label: row.name,
-                  value: row.count,
-                  tone:
-                    row.name === "critical"
-                      ? "#f85149"
-                      : row.name === "error"
-                        ? "#f0883e"
-                        : row.name === "warning"
-                          ? "#d29922"
-                          : "#3fb950",
-                }))}
-                valueFormatter={(value) => formatCompact(value)}
-              />
-            )}
+        <div className="section-stack">
+          <ObservabilityBarPanel
+            title="Severity mix"
+            subtitle="Severity distribution across current firing signals"
+            rows={(data?.severity_breakdown ?? []).map((row) => ({
+              label: row.name,
+              value: row.count,
+              color:
+                row.name === "critical"
+                  ? "#f85149"
+                  : row.name === "error"
+                    ? "#f0883e"
+                    : row.name === "warning"
+                      ? "#d29922"
+                      : "#3fb950",
+            }))}
+            valueFormatter={(value) => formatCompact(value)}
+            axisFormatter={(value) => formatCompact(value)}
+            kicker="Telemetry pane"
+            footer={<p className="meta stat-subtle">The faster this shifts upward, the faster detections should escalate into alert triage.</p>}
+          />
 
-            {!data?.state_breakdown.length ? (
-              <p className="meta">Нет state breakdown.</p>
-            ) : (
-              <NativeBarChart
-                title="Detection state pressure"
-                rows={data.state_breakdown.map((row) => ({
-                  label: row.name,
-                  value: row.count,
-                  tone: row.name === "firing" ? "#f85149" : row.name === "pending" ? "#d29922" : "#4d9bff",
-                }))}
-                valueFormatter={(value) => formatCompact(value)}
-              />
-            )}
+          <ObservabilityBarPanel
+            title="State pressure"
+            subtitle="Firing, pending and inactive distribution"
+            rows={(data?.state_breakdown ?? []).map((row) => ({
+              label: row.name,
+              value: row.count,
+              color: row.name === "firing" ? "#f85149" : row.name === "pending" ? "#d29922" : "#4d9bff",
+            }))}
+            valueFormatter={(value) => formatCompact(value)}
+            axisFormatter={(value) => formatCompact(value)}
+            kicker="Telemetry pane"
+            footer={<p className="meta stat-subtle">Useful for separating hard firing pressure from backlog or inactive catalog noise.</p>}
+          />
 
-            {!data?.top_rules.length ? (
-              <p className="meta">Нет noisy rules для текущего окна.</p>
-            ) : (
-              <NativeBarChart
-                title="Top noisy rules"
-                rows={data.top_rules.map((row) => ({ label: row.name, value: row.count }))}
-                valueFormatter={(value) => formatCompact(value)}
-              />
-            )}
-          </div>
-        </section>
+          <ObservabilityBarPanel
+            title="Top noisy rules"
+            subtitle="Rules producing the largest visible firing load"
+            rows={(data?.top_rules ?? []).map((row) => ({ label: row.name, value: row.count, color: "#8f6dff" }))}
+            valueFormatter={(value) => formatCompact(value)}
+            axisFormatter={(value) => formatCompact(value)}
+            kicker="Telemetry pane"
+            footer={<p className="meta stat-subtle">This is the shortest path to finding which rule needs validation, tuning or immediate investigation.</p>}
+          />
+        </div>
 
         <section className="card triage-card workspace-pane">
           <div className="workspace-pane-header">

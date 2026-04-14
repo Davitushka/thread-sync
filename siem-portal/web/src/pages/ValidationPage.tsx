@@ -17,7 +17,11 @@ import {
   type UiConfig,
 } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
-import { NativeBarChart, NativeGaugeChart, NativeLineChart, NativeMultiLineChart } from "../components/NativeCharts";
+import {
+  ObservabilityBarPanel,
+  ObservabilityGaugePanel,
+  ObservabilityLinePanel,
+} from "../components/echarts/ObservabilityCharts";
 import { formatCompact, formatPercent } from "../dashboard-utils";
 
 type ValidationState = "ok" | "warn" | "critical";
@@ -210,6 +214,23 @@ export default function ValidationPage() {
   const okChecks = checks.filter((check) => check.state === "ok").length;
   const warningChecks = checks.filter((check) => check.state === "warn").length;
   const criticalChecks = checks.filter((check) => check.state === "critical").length;
+  const eventIntakeLabels = useMemo(
+    () =>
+      (overview?.events_per_minute ?? []).map((point) => {
+        const parsed = new Date(point.minute);
+        return Number.isNaN(parsed.getTime())
+          ? point.minute
+          : parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }),
+    [overview?.events_per_minute]
+  );
+  const parserTrendLabels = useMemo(
+    () =>
+      (dataQuality?.parser_series ?? []).map((row) =>
+        new Date(row.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      ),
+    [dataQuality?.parser_series]
+  );
 
   return (
     <div className="page-grid validation-page">
@@ -287,87 +308,81 @@ export default function ValidationPage() {
       </section>
 
       <section className="dashboard-gauge-grid">
-        <NativeGaugeChart
+        <ObservabilityGaugePanel
           title="Service availability"
           value={serviceAvailabilityPct}
-          detail="Reachable platform endpoints"
+          subtitle="Reachable platform endpoints"
           formatter={(value) => formatPercent(value)}
+          kicker="Validation gauge"
         />
-        <NativeGaugeChart
+        <ObservabilityGaugePanel
           title="Parser success"
           value={parserSuccessPct}
-          detail="Successful parser throughput"
+          subtitle="Successful parser throughput"
           formatter={(value) => formatPercent(value)}
+          kicker="Validation gauge"
         />
-        <NativeGaugeChart
+        <ObservabilityGaugePanel
           title="Pipeline continuity"
           value={pipelineContinuityPct}
-          detail="Processed versus produced traffic"
+          subtitle="Processed versus produced traffic"
           formatter={(value) => formatPercent(value)}
+          kicker="Validation gauge"
         />
-        <NativeGaugeChart
+        <ObservabilityGaugePanel
           title="Data freshness"
           value={freshnessPct}
-          detail="Fresh data landing inside target"
+          subtitle="Fresh data landing inside target"
           formatter={(value) => formatPercent(value)}
+          kicker="Validation gauge"
         />
       </section>
 
-      <section className="infra-grid">
-        <article className="card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Signal pane</span>
-              <h2>Event intake continuity</h2>
-              <p className="workspace-pane-subtitle">Filled time-series to make dead or delayed ingest obvious in the first glance, like a proper Grafana operations panel.</p>
-            </div>
-          </div>
-          {!overview?.events_per_minute.length ? (
-            <p className="meta">No event buckets returned for this range.</p>
-          ) : (
-            <>
-              <NativeLineChart
-                title="Event intake continuity"
-                color="#7be37c"
-                points={overview.events_per_minute.map((point) => ({ x: point.minute, y: point.events }))}
-                filled
-                fillOpacity={0.2}
-              />
-              <p className="meta stat-subtle">
-                Vector ingest now: {formatCompact(operations?.totals.vector_ingest_rate)} eps. Detection throughput: {formatCompact(operations?.totals.detection_processed_rate)} /s.
-              </p>
-            </>
-          )}
-        </article>
+      <section className="observability-grid">
+        <ObservabilityLinePanel
+          title="Event intake continuity"
+          subtitle="Dead or delayed ingest should stand out immediately"
+          categories={eventIntakeLabels}
+          series={[
+            {
+              name: "events",
+              color: "#7be37c",
+              data: (overview?.events_per_minute ?? []).map((point) => point.events),
+              areaOpacity: 0.18,
+            },
+          ]}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatCompact(value)}
+          kicker="Signal pane"
+          footer={
+            <p className="meta stat-subtle">
+              Vector ingest now: {formatCompact(operations?.totals.vector_ingest_rate)} eps. Detection throughput: {formatCompact(operations?.totals.detection_processed_rate)} /s.
+            </p>
+          }
+        />
 
-        <article className="card workspace-pane">
-          <div className="workspace-pane-header">
-            <div className="workspace-pane-copy">
-              <span className="workspace-pane-kicker">Quality pane</span>
-              <h2>Parser quality trend</h2>
-              <p className="workspace-pane-subtitle">The parser should stay green-dominant over the whole window, otherwise the rest of the suite cannot be trusted.</p>
-            </div>
-          </div>
-          {!dataQuality?.parser_series.length ? (
-            <p className="meta">No parser trend was returned for the selected window.</p>
-          ) : (
-            <>
-              <NativeMultiLineChart
-                title="Parser quality trend"
-                points={dataQuality.parser_series.map((row) => ({
-                  x: String(row.ts),
-                  ok_rate: row.ok_rate,
-                  error_rate: row.error_rate,
-                }))}
-                series={[
-                  { key: "ok_rate", label: "ok / s", color: "#7be37c" },
-                  { key: "error_rate", label: "error / s", color: "#f85149" },
-                ]}
-              />
-              <p className="meta stat-subtle">Consumer lag: {formatCompact(dataQuality.kpis.consumer_lag)}. Rising red together with lag means the pipeline is degrading.</p>
-            </>
-          )}
-        </article>
+        <ObservabilityLinePanel
+          title="Parser quality trend"
+          subtitle="Green should dominate if the suite is trustworthy"
+          categories={parserTrendLabels}
+          series={[
+            {
+              name: "ok / s",
+              color: "#7be37c",
+              data: (dataQuality?.parser_series ?? []).map((row) => row.ok_rate),
+              areaOpacity: 0.12,
+            },
+            {
+              name: "error / s",
+              color: "#f85149",
+              data: (dataQuality?.parser_series ?? []).map((row) => row.error_rate),
+            },
+          ]}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatCompact(value)}
+          kicker="Quality pane"
+          footer={<p className="meta stat-subtle">Consumer lag: {formatCompact(dataQuality?.kpis.consumer_lag)}. Rising red together with lag means the pipeline is degrading.</p>}
+        />
       </section>
 
       <section className="infra-grid">
@@ -404,16 +419,20 @@ export default function ValidationPage() {
               <p className="workspace-pane-subtitle">Dense indicators that usually explain why dashboards go stale, empty or misleading.</p>
             </div>
           </div>
-          <NativeBarChart
+          <ObservabilityBarPanel
             title="Validation pressure points"
+            subtitle="High-value indicators for stale or misleading dashboards"
             rows={[
-              { label: "service failures", value: Math.max(0, (operations?.totals.total_components ?? 0) - (operations?.totals.healthy_components ?? 0)), tone: "#f85149" },
-              { label: "p95 lag ms", value: dataQuality?.kpis.p95_ingest_lag_ms ?? 0, tone: "#f0883e" },
-              { label: "parser errors / s", value: dataQuality?.kpis.parser_error_rate ?? 0, tone: "#d29922" },
-              { label: "active alerts", value: alerts?.totals.active ?? 0, tone: "#8f6dff" },
-              { label: "pending forwards", value: correlator?.pending_alerts ?? 0, tone: "#4d9bff" },
+              { label: "service failures", value: Math.max(0, (operations?.totals.total_components ?? 0) - (operations?.totals.healthy_components ?? 0)), color: "#f85149" },
+              { label: "p95 lag ms", value: dataQuality?.kpis.p95_ingest_lag_ms ?? 0, color: "#f0883e" },
+              { label: "parser errors / s", value: dataQuality?.kpis.parser_error_rate ?? 0, color: "#d29922" },
+              { label: "active alerts", value: alerts?.totals.active ?? 0, color: "#8f6dff" },
+              { label: "pending forwards", value: correlator?.pending_alerts ?? 0, color: "#4d9bff" },
             ]}
             valueFormatter={(value) => formatCompact(value)}
+            axisFormatter={(value) => formatCompact(value)}
+            kicker="Pressure pane"
+            height={280}
           />
           <div className="section-divider" />
           <div className="infra-health-grid">

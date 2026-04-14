@@ -1,22 +1,45 @@
+import { Suspense, lazy } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { SuiteTopbar, useActorState } from "./components/PageLayout";
 import CommandPalette from "./components/CommandPalette";
 import ShellIcon from "./components/ShellIcon";
 import { SuiteCommandProvider } from "./components/SuiteCommandContext";
 import { WorkspaceShellProvider, useWorkspaceShell } from "./components/WorkspaceShellContext";
-import OverviewPage from "./pages/OverviewPage";
-import InfrastructurePage from "./pages/InfrastructurePage";
-import OperationsPage from "./pages/OperationsPage";
-import DataQualityPage from "./pages/DataQualityPage";
-import ValidationPage from "./pages/ValidationPage";
-import AlertsPage from "./pages/AlertsPage";
-import DetectionsPage from "./pages/DetectionsPage";
-import DashboardsPage from "./pages/DashboardsPage";
 import EventsPage from "./pages/EventsPage";
 import CasesList from "./pages/CasesList";
 import CaseDetail from "./pages/CaseDetail";
 import InvestigationWorkbench from "./pages/InvestigationWorkbench";
 import { SUITE_NAV_GROUPS, resolveNavSelection } from "./suite-meta";
+
+const OverviewPage = lazy(() => import("./pages/OverviewPage"));
+const InfrastructurePage = lazy(() => import("./pages/InfrastructurePage"));
+const OperationsPage = lazy(() => import("./pages/OperationsPage"));
+const DataQualityPage = lazy(() => import("./pages/DataQualityPage"));
+const ValidationPage = lazy(() => import("./pages/ValidationPage"));
+const DashboardsPage = lazy(() => import("./pages/DashboardsPage"));
+const AlertsPage = lazy(() => import("./pages/AlertsPage"));
+const DetectionsPage = lazy(() => import("./pages/DetectionsPage"));
+
+function WorkspaceLoadingFallback({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <section className="card workspace-pane">
+      <div className="workspace-pane-header">
+        <div className="workspace-pane-copy">
+          <span className="workspace-pane-kicker">Loading workspace</span>
+          <h2>{title}</h2>
+          <p className="workspace-pane-subtitle">{subtitle}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 
 type SidebarWorkspace = {
   path: string;
@@ -287,14 +310,126 @@ function AppShell({ actor }: { actor: string }) {
         <WorkspaceTabs />
         <main className="suite-main">
           <Routes>
-            <Route path="/" element={<OverviewPage />} />
-            <Route path="/infrastructure" element={<InfrastructurePage />} />
-            <Route path="/operations" element={<OperationsPage />} />
-            <Route path="/data-quality" element={<DataQualityPage />} />
-            <Route path="/validation" element={<ValidationPage />} />
-            <Route path="/dashboards" element={<DashboardsPage />} />
-            <Route path="/alerts" element={<AlertsPage />} />
-            <Route path="/detections" element={<DetectionsPage />} />
+            <Route
+              path="/"
+              element={
+                <Suspense
+                  fallback={
+                    <WorkspaceLoadingFallback
+                      title="SOC overview"
+                      subtitle="Loading the native overview command surface and signal panels."
+                    />
+                  }
+                >
+                  <OverviewPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/infrastructure"
+              element={
+                <Suspense
+                  fallback={
+                    <WorkspaceLoadingFallback
+                      title="Infrastructure"
+                      subtitle="Loading the ECharts pilot screen and platform metrics."
+                    />
+                  }
+                >
+                  <InfrastructurePage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/operations"
+              element={
+                <Suspense
+                  fallback={
+                    <WorkspaceLoadingFallback
+                      title="Operations center"
+                      subtitle="Loading the ECharts operations workspace and pipeline telemetry."
+                    />
+                  }
+                >
+                  <OperationsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/data-quality"
+              element={
+                <Suspense
+                  fallback={
+                    <WorkspaceLoadingFallback
+                      title="Data quality"
+                      subtitle="Loading the ECharts trust layer and ingest quality metrics."
+                    />
+                  }
+                >
+                  <DataQualityPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/validation"
+              element={
+                <Suspense
+                  fallback={
+                    <WorkspaceLoadingFallback
+                      title="Validation workspace"
+                      subtitle="Loading trust checks, validation gauges and pipeline health signals."
+                    />
+                  }
+                >
+                  <ValidationPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/dashboards"
+              element={
+                <Suspense
+                  fallback={
+                    <WorkspaceLoadingFallback
+                      title="Dashboards hub"
+                      subtitle="Loading the analytics command center and surface catalog."
+                    />
+                  }
+                >
+                  <DashboardsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/alerts"
+              element={
+                <Suspense
+                  fallback={
+                    <WorkspaceLoadingFallback
+                      title="Alerts console"
+                      subtitle="Loading the native alert inbox and analytics surfaces."
+                    />
+                  }
+                >
+                  <AlertsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/detections"
+              element={
+                <Suspense
+                  fallback={
+                    <WorkspaceLoadingFallback
+                      title="Detections console"
+                      subtitle="Loading the engine pressure view, firing queue and rule telemetry."
+                    />
+                  }
+                >
+                  <DetectionsPage />
+                </Suspense>
+              }
+            />
             <Route path="/events" element={<EventsPage />} />
             <Route path="/cases" element={<CasesList />} />
             <Route path="/cases/:id" element={<CaseDetail />} />

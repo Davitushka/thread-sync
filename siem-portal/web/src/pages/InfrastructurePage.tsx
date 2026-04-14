@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { getInfrastructureDashboard, uiConfig, type InfrastructureDashboard, type UiConfig } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
-import { NativeBarChart, NativeGaugeChart, NativeLineChart } from "../components/NativeCharts";
 import { formatBytes, formatCompact, formatPercent, formatRate, formatUptime } from "../dashboard-utils";
+import {
+  ObservabilityBarPanel,
+  ObservabilityGaugePanel,
+  ObservabilityLinePanel,
+  ObservabilityPanel,
+} from "../components/echarts/ObservabilityCharts";
 
 export default function InfrastructurePage() {
   const [config, setConfig] = useState<UiConfig | null>(null);
@@ -52,13 +57,29 @@ export default function InfrastructurePage() {
     return () => window.clearInterval(id);
   }, [autoRefreshSec, load]);
 
+  const timelineLabels = useMemo(
+    () =>
+      (data?.cpu_series ?? []).map((point) =>
+        new Date(point.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      ),
+    [data?.cpu_series]
+  );
+
+  const networkLabels = useMemo(
+    () =>
+      (data?.network_rx_series ?? []).map((point) =>
+        new Date(point.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      ),
+    [data?.network_rx_series]
+  );
+
   return (
     <div className="page-grid infrastructure-page">
       {err && <p className="error">{err}</p>}
 
       <DashboardToolbar
-        title="Infrastructure, но уже в нашем UI"
-        subtitle="Нативный экран поверх Prometheus: host CPU/RAM/disk/network, контейнеры и состояние компонентов, с диапазоном и автообновлением."
+        title="Infrastructure command surface"
+        subtitle="Native observability dashboard over Prometheus for host pressure, container behavior and platform reachability, rebuilt as a denser Grafana-like pilot."
         hours={hours}
         autoRefreshSec={autoRefreshSec}
         loading={loading}
@@ -68,12 +89,19 @@ export default function InfrastructurePage() {
       />
 
       <section className="card">
-        <p className="meta">
-          На Windows + Docker Desktop host-метрики всё ещё показывают Linux VM Docker, а не голый Windows host.
-        </p>
+        <div className="workspace-pane-header">
+          <div className="workspace-pane-copy">
+            <span className="workspace-pane-kicker">Pilot screen</span>
+            <h2>Infrastructure rebuilt on ECharts</h2>
+            <p className="workspace-pane-subtitle">
+              This pilot keeps our own shell and data APIs, but replaces the hand-drawn chart language with denser observability panels closer to a real monitoring product.
+            </p>
+          </div>
+        </div>
+        <p className="meta">On Windows + Docker Desktop the host metrics still describe the Linux VM behind Docker rather than the bare Windows host.</p>
         <div className="btn-row">
           <Link className="tool-btn" to="/dashboards">
-            Open embedded dashboards
+            Open dashboards hub
           </Link>
           <a className="tool-btn secondary" href={config?.links.prometheus || "#"} target="_blank" rel="noreferrer">
             Open Prometheus
@@ -122,119 +150,166 @@ export default function InfrastructurePage() {
       </section>
 
       <section className="dashboard-gauge-grid">
-        <NativeGaugeChart
+        <ObservabilityGaugePanel
           title="CPU usage"
           value={data?.host.cpu_usage_pct}
-          detail="Host pressure"
+          subtitle="Host saturation"
           formatter={(value) => formatPercent(value)}
+          footer={<p className="meta stat-subtle">Keep this below sustained warning ranges during ingestion spikes.</p>}
         />
-        <NativeGaugeChart
+        <ObservabilityGaugePanel
           title="Memory usage"
           value={data?.host.memory_usage_pct}
-          detail="Working set pressure"
+          subtitle="Working set pressure"
           formatter={(value) => formatPercent(value)}
+          footer={<p className="meta stat-subtle">Memory pressure usually appears before parser or ClickHouse instability.</p>}
         />
-        <NativeGaugeChart
+        <ObservabilityGaugePanel
           title="Disk usage"
           value={data?.host.disk_usage_pct}
-          detail="Storage saturation"
+          subtitle="Storage saturation"
           formatter={(value) => formatPercent(value)}
+          footer={<p className="meta stat-subtle">Storage pressure directly impacts retention, lag and query responsiveness.</p>}
         />
-        <NativeGaugeChart
+        <ObservabilityGaugePanel
           title="Component health"
           value={data ? (data.host.healthy_components / Math.max(data.host.total_components, 1)) * 100 : null}
-          detail="Reachable components"
+          subtitle="Reachable components"
           formatter={(value) => formatPercent(value)}
+          footer={<p className="meta stat-subtle">A fast read on how much of the platform is actually reachable right now.</p>}
         />
       </section>
 
-      <section className="infra-grid">
-        <article className="card">
-          <h2>Host CPU trend</h2>
-          <NativeLineChart
-            title="Host CPU trend"
-            color="#7be37c"
-            points={(data?.cpu_series ?? []).map((point) => ({ x: String(point.ts), y: point.value }))}
-            filled
-            fillOpacity={0.2}
-          />
-          <p className="meta stat-subtle">
-            Последние {data?.window_hours ?? 6} часов, шаг {Math.round((data?.step_sec ?? 300) / 60)} минут.
-          </p>
-        </article>
+      <section className="observability-grid observability-grid-primary">
+        <ObservabilityLinePanel
+          title="Host CPU timeline"
+          subtitle={`Last ${data?.window_hours ?? 6}h, step ${Math.round((data?.step_sec ?? 300) / 60)} minutes`}
+          categories={timelineLabels}
+          series={[
+            {
+              name: "cpu %",
+              color: "#7be37c",
+              data: (data?.cpu_series ?? []).map((point) => point.value),
+              areaOpacity: 0.18,
+            },
+          ]}
+          axisFormatter={(value) => `${Math.round(value)}%`}
+          valueFormatter={(value) => `${value.toFixed(1)}%`}
+          className="observability-panel-wide"
+          footer={<p className="meta stat-subtle">This should stay visually calm; frequent spikes usually reflect ingestion bursts or resource contention.</p>}
+        />
 
-        <article className="card">
-          <h2>Network I/O trend</h2>
-          <div className="sparkline-stack">
-            <NativeLineChart
-              title="Network RX trend"
-              color="#4d9bff"
-              points={(data?.network_rx_series ?? []).map((point) => ({ x: String(point.ts), y: point.value }))}
-            />
-            <NativeLineChart
-              title="Network TX trend"
-              color="#f0c15d"
-              points={(data?.network_tx_series ?? []).map((point) => ({ x: String(point.ts), y: point.value }))}
-            />
+        <ObservabilityPanel
+          title="Platform snapshot"
+          subtitle="Dense operational summary"
+          className="observability-panel-compact"
+          footer={<p className="meta stat-subtle">Use this side panel as the fast comparison layer before jumping into the deeper trend panels.</p>}
+        >
+          <div className="observability-stat-stack">
+            <div className="observability-stat-card">
+              <span>Network RX</span>
+              <strong>{formatRate(data?.host.network_rx_bps)}</strong>
+            </div>
+            <div className="observability-stat-card">
+              <span>Network TX</span>
+              <strong>{formatRate(data?.host.network_tx_bps)}</strong>
+            </div>
+            <div className="observability-stat-card">
+              <span>Uptime</span>
+              <strong>{formatUptime(data?.host.uptime_sec)}</strong>
+            </div>
+            <div className="observability-stat-card">
+              <span>Containers</span>
+              <strong>{formatCompact(data?.host.container_count)}</strong>
+            </div>
+            <div className="observability-stat-card">
+              <span>Total container CPU</span>
+              <strong>{formatPercent(data?.host.total_container_cpu_pct)}</strong>
+            </div>
+            <div className="observability-stat-card">
+              <span>Total container memory</span>
+              <strong>{formatBytes(data?.host.total_container_memory_bytes)}</strong>
+            </div>
           </div>
-          <p className="meta stat-subtle">Blue = RX, yellow = TX.</p>
-        </article>
+        </ObservabilityPanel>
       </section>
 
-      <section className="infra-grid">
-        <article className="card">
-          <h2>Top containers by CPU</h2>
-          {!data?.top_cpu_containers.length ? (
-            <p className="meta">cAdvisor не вернул per-container CPU breakdown.</p>
-          ) : (
-            <NativeBarChart
-              title="Top containers by CPU"
-              rows={data.top_cpu_containers.map((row) => ({
-                label: row.name,
-                value: Number(row.value.toFixed(2)),
-              }))}
-              color="linear-gradient(90deg, #4d9bff 0%, #7be37c 100%)"
-              valueFormatter={(value) => `${value.toFixed(1)}%`}
-            />
-          )}
-          <p className="meta stat-subtle">Total container CPU: {formatPercent(data?.host.total_container_cpu_pct)}</p>
-        </article>
+      <section className="observability-grid">
+        <ObservabilityLinePanel
+          title="Network I/O"
+          subtitle="Receive versus transmit"
+          categories={networkLabels}
+          series={[
+            {
+              name: "rx",
+              color: "#4d9bff",
+              data: (data?.network_rx_series ?? []).map((point) => point.value),
+              areaOpacity: 0.14,
+            },
+            {
+              name: "tx",
+              color: "#f0c15d",
+              data: (data?.network_tx_series ?? []).map((point) => point.value),
+            },
+          ]}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatRate(value)}
+          footer={<p className="meta stat-subtle">Blue is receive, amber is transmit. Watch for asymmetry during collector or parser pressure.</p>}
+        />
 
-        <article className="card">
-          <h2>Top containers by memory</h2>
-          {!data?.top_memory_containers.length ? (
-            <p className="meta">cAdvisor не вернул per-container memory breakdown.</p>
-          ) : (
-            <NativeBarChart
-              title="Top containers by memory"
-              rows={data.top_memory_containers.map((row) => ({
-                label: row.name,
-                value: Number(row.value.toFixed(0)),
-              }))}
-              color="linear-gradient(90deg, #8f6dff 0%, #4d9bff 100%)"
-              valueFormatter={(value) => formatBytes(value)}
-            />
-          )}
-          <p className="meta stat-subtle">Total container memory: {formatBytes(data?.host.total_container_memory_bytes)}</p>
-        </article>
+        <ObservabilityBarPanel
+          title="Top containers by CPU"
+          subtitle="Most expensive workloads"
+          rows={(data?.top_cpu_containers ?? []).map((row) => ({
+            label: row.name,
+            value: Number(row.value.toFixed(2)),
+            color: "#7be37c",
+          }))}
+          axisFormatter={(value) => `${value.toFixed(0)}%`}
+          valueFormatter={(value) => `${value.toFixed(1)}%`}
+          footer={<p className="meta stat-subtle">Use this to spot which container is actually burning the platform budget.</p>}
+        />
       </section>
 
-      <section className="card">
-        <h2>Component status</h2>
-        {!data?.component_status.length ? (
-          <p className="meta">
-            Prometheus <code>up{"{job=...}"}</code> не вернул компонентный статус.
-          </p>
-        ) : (
+      <section className="observability-grid">
+        <ObservabilityBarPanel
+          title="Top containers by memory"
+          subtitle="Largest working sets"
+          rows={(data?.top_memory_containers ?? []).map((row) => ({
+            label: row.name,
+            value: Number(row.value.toFixed(0)),
+            color: "#8f6dff",
+          }))}
+          axisFormatter={(value) => formatCompact(value)}
+          valueFormatter={(value) => formatBytes(value)}
+          footer={<p className="meta stat-subtle">This is often the earliest signal that memory pressure is concentrated in one service.</p>}
+        />
+
+        <ObservabilityPanel
+          title="Component status matrix"
+          subtitle="Reachability by service"
+          footer={
+            !data?.component_status.length ? (
+              <p className="meta stat-subtle">
+                Prometheus <code>up{"{job=...}"}</code> did not return component health for this window.
+              </p>
+            ) : (
+              <p className="meta stat-subtle">Healthy services stay green. Red entries usually explain why dashboards or pipelines feel stale.</p>
+            )
+          }
+        >
           <div className="infra-health-grid">
-            {data.component_status.map((item) => (
-              <div key={item.job} className="health-card">
-                <strong>{item.job}</strong>
+            {data?.component_status.map((item) => (
+              <div key={item.job} className={`health-card ${item.up ? "health-card-up" : "health-card-down"}`}>
+                <div className="health-card-copy">
+                  <strong>{item.job}</strong>
+                  <small>{item.up ? "Reachable via Prometheus" : "Missing or degraded target"}</small>
+                </div>
                 <span className={`badge ${item.up ? "sev-low" : "sev-critical"}`}>{item.up ? "up" : "down"}</span>
               </div>
-            ))}
+            )) ?? null}
           </div>
-        )}
+        </ObservabilityPanel>
       </section>
     </div>
   );

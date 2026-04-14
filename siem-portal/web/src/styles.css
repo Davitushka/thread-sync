@@ -1760,6 +1760,118 @@ pre {
   background: var(--panel-soft);
 }
 
+.health-card-up {
+  border-color: rgba(63, 185, 80, 0.18);
+  background: linear-gradient(180deg, rgba(63, 185, 80, 0.06), rgba(16, 24, 38, 0.88));
+}
+
+.health-card-down {
+  border-color: rgba(248, 81, 73, 0.2);
+  background: linear-gradient(180deg, rgba(248, 81, 73, 0.07), rgba(16, 24, 38, 0.88));
+}
+
+.health-card-copy {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.health-card-copy small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.observability-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.observability-grid-primary {
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.7fr);
+}
+
+.observability-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 360px;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(77, 155, 255, 0.1);
+  background:
+    radial-gradient(circle at top left, rgba(77, 155, 255, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(0, 0, 0, 0.14));
+}
+
+.observability-panel-wide {
+  min-height: 420px;
+}
+
+.observability-panel-compact {
+  min-height: 420px;
+}
+
+.observability-panel-header {
+  margin-bottom: 0.7rem;
+}
+
+.observability-panel-copy {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.observability-panel-kicker {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7fb1ff;
+}
+
+.observability-panel-copy h2 {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.observability-panel-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.observability-panel-body {
+  min-height: 0;
+}
+
+.observability-panel-footer {
+  margin-top: 0.7rem;
+}
+
+.observability-stat-stack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.observability-stat-card {
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.observability-stat-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.observability-stat-card strong {
+  display: block;
+  margin-top: 0.22rem;
+  font-size: 1.08rem;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -2519,6 +2631,7 @@ code.fp {
   .workbench-grid,
   .overview-grid,
   .infra-grid,
+  .observability-grid,
   .adaptive-pane-layout,
   .triage-grid,
   .dashboard-native-shell {
