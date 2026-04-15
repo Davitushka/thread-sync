@@ -248,6 +248,7 @@ impl Default for OperatorApp {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct ObsSnapshot {
     fetched_at: String,
     prom_total_targets: usize,
@@ -1938,7 +1939,7 @@ impl OperatorApp {
             }
         });
         ui.add_space(8.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -2298,7 +2299,7 @@ impl OperatorApp {
             ui.spinner();
         }
         ui.add_space(6.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(30, 36, 48))
             .inner_margin(egui::Margin::same(10))
             .corner_radius(egui::CornerRadius::same(8))
@@ -2481,7 +2482,7 @@ impl OperatorApp {
                 });
             });
         ui.add_space(10.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 110, 160)))
@@ -2490,7 +2491,7 @@ impl OperatorApp {
                 self.show_portal_grafana_links(ui);
             });
         ui.add_space(10.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(26, 32, 45))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 120, 210)))
@@ -2542,7 +2543,7 @@ impl OperatorApp {
                 });
             });
         ui.add_space(12.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -2638,7 +2639,7 @@ impl OperatorApp {
             }
             if self.widget_sources {
                 ui.label(egui::RichText::new("Top Sources").strong());
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(egui::Color32::from_rgb(24, 30, 42))
                     .corner_radius(egui::CornerRadius::same(10))
                     .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -2659,7 +2660,7 @@ impl OperatorApp {
             }
             if self.widget_severity_mix {
                 ui.label(egui::RichText::new("Severity Mix").strong());
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(egui::Color32::from_rgb(24, 30, 42))
                     .corner_radius(egui::CornerRadius::same(10))
                     .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -2692,7 +2693,7 @@ impl OperatorApp {
                 }
                 if self.widget_sources {
                     cols[0].label(egui::RichText::new("Top Sources").strong());
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(24, 30, 42))
                         .corner_radius(egui::CornerRadius::same(10))
                         .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -2733,7 +2734,7 @@ impl OperatorApp {
                 }
                 if self.widget_severity_mix {
                     cols[1].label(egui::RichText::new("Severity Mix").strong());
-                    egui::Frame::none()
+                    egui::Frame::new()
                         .fill(egui::Color32::from_rgb(24, 30, 42))
                         .corner_radius(egui::CornerRadius::same(10))
                         .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -2757,7 +2758,7 @@ impl OperatorApp {
         if self.widget_analyst_load {
             ui.add_space(10.0);
             ui.label(egui::RichText::new("Analyst Load").strong());
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(egui::Color32::from_rgb(24, 30, 42))
                 .corner_radius(egui::CornerRadius::same(10))
                 .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -2865,7 +2866,7 @@ impl OperatorApp {
         let mut open_investigation: Option<String> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, alert) in self.alerts.iter_mut().enumerate() {
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(egui::Color32::from_rgb(24, 30, 42))
                     .inner_margin(egui::Margin::symmetric(12, 10))
                     .corner_radius(egui::CornerRadius::same(10))
@@ -2938,6 +2939,7 @@ impl OperatorApp {
         }
     }
 
+    #[allow(dead_code)]
     fn show_stack_panel(&mut self, ui: &mut egui::Ui) {
         let p = self.theme_palette();
         ui.label(
@@ -3088,7 +3090,7 @@ impl OperatorApp {
         );
         ui.add_space(16.0);
 
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(30, 36, 48))
             .corner_radius(egui::CornerRadius::same(10))
             .inner_margin(egui::Margin::same(18))
@@ -3235,7 +3237,7 @@ impl OperatorApp {
     }
 
     fn show_events_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
@@ -3256,7 +3258,7 @@ impl OperatorApp {
                     }
                 });
             });
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -3322,7 +3324,7 @@ impl OperatorApp {
         ui.label(format!("Events shown: {}", rows.len()));
         egui::ScrollArea::vertical().show(ui, |ui| {
             for e in rows {
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(egui::Color32::from_rgb(30, 36, 48))
                     .inner_margin(egui::Margin::same(10))
                     .corner_radius(egui::CornerRadius::same(8))
@@ -3344,7 +3346,7 @@ impl OperatorApp {
     }
 
     fn show_assets_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
@@ -3365,7 +3367,7 @@ impl OperatorApp {
                     }
                 });
             });
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -3443,7 +3445,7 @@ impl OperatorApp {
     }
 
     fn show_settings_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(12))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
@@ -3458,7 +3460,7 @@ impl OperatorApp {
             });
         ui.add_space(10.0);
 
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -3512,7 +3514,7 @@ impl OperatorApp {
             });
 
         ui.add_space(10.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -3529,7 +3531,7 @@ impl OperatorApp {
             });
 
         ui.add_space(10.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -3542,7 +3544,7 @@ impl OperatorApp {
         self.show_connection_panel(ui);
 
         ui.add_space(10.0);
-        egui::Frame::none()
+        egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
@@ -3934,7 +3936,7 @@ impl eframe::App for OperatorApp {
 
         egui::CentralPanel::default()
             .frame(
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(self.background_fill_color())
                     .inner_margin(egui::Margin::same(22)),
             )
