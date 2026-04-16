@@ -1,9 +1,9 @@
-use anyhow::{anyhow, Result};
-use reqwest::Url;
+use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::config::ClickHouseConfig;
+use crate::query_helpers::{as_f64, as_u64, get_opt_str, get_str, ident, parse_rows, query_clickhouse};
 
 const DEFAULT_WINDOW_HOURS: u16 = 24;
 const MIN_WINDOW_HOURS: u16 = 1;
@@ -205,13 +205,13 @@ impl OverviewService {
 
         let (kpis_body, events_body, severity_timeline_body, severity_body, sources_body, ips_body, recent_body) =
             tokio::try_join!(
-            self.query_json(&sql_kpis, timeout),
-            self.query_json(&sql_events_per_minute, timeout),
-            self.query_json(&sql_severity_timeline, timeout),
-            self.query_json(&sql_severity, timeout),
-            self.query_json(&sql_sources, timeout),
-            self.query_json(&sql_top_ips, timeout),
-            self.query_json(&sql_recent, timeout),
+            query_clickhouse(&self.http, &self.cfg, &sql_kpis, timeout),
+            query_clickhouse(&self.http, &self.cfg, &sql_events_per_minute, timeout),
+            query_clickhouse(&self.http, &self.cfg, &sql_severity_timeline, timeout),
+            query_clickhouse(&self.http, &self.cfg, &sql_severity, timeout),
+            query_clickhouse(&self.http, &self.cfg, &sql_sources, timeout),
+            query_clickhouse(&self.http, &self.cfg, &sql_top_ips, timeout),
+            query_clickhouse(&self.http, &self.cfg, &sql_recent, timeout),
         )?;
 
         let kpis = parse_rows(kpis_body)?
@@ -256,28 +256,6 @@ impl OverviewService {
             top_source_ips,
             recent_security_events,
         })
-    }
-
-    async fn query_json(&self, sql: &str, timeout: std::time::Duration) -> Result<String> {
-        let mut url = Url::parse(&self.cfg.url)?;
-        {
-            let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("database", &self.cfg.database);
-            pairs.append_pair("query", sql);
-        }
-        let resp = self
-            .http
-            .get(url)
-            .basic_auth(&self.cfg.user, Some(&self.cfg.password))
-            .timeout(timeout)
-            .send()
-            .await?;
-        let status = resp.status();
-        let body = resp.text().await?;
-        if !status.is_success() {
-            return Err(anyhow!("clickhouse responded {}: {}", status, body));
-        }
-        Ok(body)
     }
 }
 
@@ -363,56 +341,3 @@ impl OverviewRecentEvent {
     }
 }
 
-fn ident(value: &str) -> Result<&str> {
-    if value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        && !value.is_empty()
-    {
-        Ok(value)
-    } else {
-        Err(anyhow!("invalid identifier"))
-    }
-}
-
-fn parse_rows(body: String) -> Result<Vec<Value>> {
-    let mut rows = Vec::new();
-    for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        rows.push(serde_json::from_str::<Value>(line)?);
-    }
-    Ok(rows)
-}
-
-fn get_str(v: &Value, key: &str) -> String {
-    v.get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn get_opt_str(v: &Value, key: &str) -> Option<String> {
-    v.get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToString::to_string)
-}
-
-fn as_u64(v: &Value, key: &str) -> u64 {
-    v.get(key)
-        .and_then(Value::as_u64)
-        .or_else(|| v.get(key).and_then(Value::as_i64).map(|n| n.max(0) as u64))
-        .or_else(|| v.get(key).and_then(Value::as_str).and_then(|s| s.parse::<u64>().ok()))
-        .unwrap_or(0)
-}
-
-fn as_f64(v: &Value, key: &str) -> f64 {
-    v.get(key)
-        .and_then(Value::as_f64)
-        .or_else(|| v.get(key).and_then(Value::as_str).and_then(|s| s.parse::<f64>().ok()))
-        .unwrap_or(0.0)
-}

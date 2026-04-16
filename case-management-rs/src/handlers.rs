@@ -3,6 +3,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::models::*;
@@ -86,7 +87,7 @@ pub async fn create_case(
     })?;
 
     let actor = actor_from_request(&headers, &state.default_actor);
-    let _ = state
+    if let Err(e) = state
         .store
         .add_timeline(
             case.id,
@@ -95,7 +96,10 @@ pub async fn create_case(
             Some("Case created"),
             json!({"source": case.source}),
         )
-        .await;
+        .await
+    {
+        tracing::warn!(error = %e, case_id = %case.id, "failed to add creation timeline");
+    }
 
     portal_notify::notify_portal(
         &state,
@@ -162,7 +166,7 @@ pub async fn patch_case(
     let actor = actor_from_request(&headers, &state.default_actor);
 
     if cur.status != updated.status {
-        let _ = state
+        if let Err(e) = state
             .store
             .add_timeline(
                 id,
@@ -171,13 +175,16 @@ pub async fn patch_case(
                 Some("Status changed"),
                 json!({"from": cur.status, "to": updated.status}),
             )
-            .await;
+            .await
+        {
+            tracing::warn!(error = %e, case_id = %id, "failed to add status timeline");
+        }
     }
 
     let old_assignee = cur.assignee.as_deref().unwrap_or("");
     let new_assignee = updated.assignee.as_deref().unwrap_or("");
     if old_assignee != new_assignee {
-        let _ = state
+        if let Err(e) = state
             .store
             .add_timeline(
                 id,
@@ -186,7 +193,10 @@ pub async fn patch_case(
                 Some("Assignee updated"),
                 json!({"from": old_assignee, "to": new_assignee}),
             )
-            .await;
+            .await
+        {
+            tracing::warn!(error = %e, case_id = %id, "failed to add assignment timeline");
+        }
     }
 
     portal_notify::notify_portal(
@@ -273,7 +283,7 @@ pub async fn link_event(
         })?;
 
     let actor = actor_from_request(&headers, &state.default_actor);
-    let _ = state
+    if let Err(e) = state
         .store
         .add_timeline(
             id,
@@ -285,7 +295,10 @@ pub async fn link_event(
                 "explore_url": format!("{}/explore", state.grafana_base_url),
             }),
         )
-        .await;
+        .await
+    {
+        tracing::warn!(error = %e, case_id = %id, "failed to add event link timeline");
+    }
 
     portal_notify::notify_portal(
         &state,
@@ -345,7 +358,7 @@ pub async fn link_alert(
         })?;
 
     let actor = actor_from_request(&headers, &state.default_actor);
-    let _ = state
+    if let Err(e) = state
         .store
         .add_timeline(
             id,
@@ -354,7 +367,10 @@ pub async fn link_alert(
             Some("Alert linked manually"),
             json!({"fingerprint": fp}),
         )
-        .await;
+        .await
+    {
+        tracing::warn!(error = %e, case_id = %id, "failed to add alert link timeline");
+    }
 
     portal_notify::notify_portal(
         &state,
@@ -368,15 +384,16 @@ pub async fn link_alert(
     Ok(Json(json!({"status": "linked"})))
 }
 
-fn sanitize_ipv4_for_sql(ip: &str) -> Option<String> {
+/// Validates an IP address string using standard parsing.
+/// Returns the validated IP string if it parses correctly, None otherwise.
+fn sanitize_ip_for_sql(ip: &str) -> Option<String> {
     let ip = ip.trim();
-    if ip.is_empty() || ip.len() > 45 {
+    if ip.is_empty() {
         return None;
     }
-    if !ip.chars().all(|c| c.is_ascii_digit() || c == '.') {
-        return None;
-    }
-    Some(ip.to_string())
+    std::net::IpAddr::from_str(ip)
+        .ok()
+        .map(|_| ip.to_string())
 }
 
 /// Сводка для расследования: ссылки Grafana и шаблоны SQL по контексту связанных алертов.
@@ -410,7 +427,7 @@ pub async fn investigate_case(
             .get("source_ip")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if let Some(ip) = sanitize_ipv4_for_sql(ip_raw) {
+        if let Some(ip) = sanitize_ip_for_sql(ip_raw) {
             suggested_queries.push(json!({
                 "title": format!("События с source_ip = {} (24 ч)", ip),
                 "sql": format!(

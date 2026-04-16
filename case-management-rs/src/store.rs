@@ -88,8 +88,6 @@ impl Store {
 
         let mut count_qb = QueryBuilder::<Postgres>::new("SELECT count(*) FROM cases");
         Self::push_list_filters(&mut count_qb, &f);
-        let row = count_qb.build().fetch_one(&self.pool).await?;
-        let total: i64 = row.get(0);
 
         let mut list_qb = QueryBuilder::<Postgres>::new(
             "SELECT id, case_number, title, description, severity, status, priority, \
@@ -103,10 +101,12 @@ impl Store {
             .push(" OFFSET ")
             .push_bind(offset);
 
-        let mut cases: Vec<Case> = list_qb
-            .build_query_as::<Case>()
-            .fetch_all(&self.pool)
-            .await?;
+        // Run COUNT and SELECT in parallel — they are independent
+        let (row, mut cases) = tokio::try_join!(
+            count_qb.build().fetch_one(&self.pool),
+            list_qb.build_query_as::<Case>().fetch_all(&self.pool),
+        )?;
+        let total: i64 = row.get(0);
         for c in &mut cases {
             c.apply_display_key();
         }
@@ -246,7 +246,7 @@ impl Store {
         updated.apply_display_key();
 
         if did_acknowledge {
-            let _ = self
+            if let Err(e) = self
                 .add_timeline(
                     id,
                     "system",
@@ -254,7 +254,10 @@ impl Store {
                     Some("Incident acknowledged (left new)"),
                     serde_json::json!({"from": prev_status, "to": updated.status}),
                 )
-                .await;
+                .await
+            {
+                tracing::warn!(error = %e, case_id = %id, "failed to add acknowledgement timeline");
+            }
         }
 
         Ok(updated)
@@ -410,10 +413,12 @@ impl Store {
     }
 
     pub async fn get_case_detail(&self, id: Uuid) -> Result<CaseDetail, StoreError> {
-        let case = self.get_case(id).await?;
-        let timeline = self.list_timeline(id).await?;
-        let linked_alerts = self.list_linked_alerts(id).await?;
-        let linked_events = self.list_linked_events(id).await?;
+        let (case, timeline, linked_alerts, linked_events) = tokio::try_join!(
+            self.get_case(id),
+            self.list_timeline(id),
+            self.list_linked_alerts(id),
+            self.list_linked_events(id),
+        )?;
         Ok(CaseDetail {
             case,
             timeline,

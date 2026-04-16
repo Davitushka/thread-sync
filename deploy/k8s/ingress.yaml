@@ -48,6 +48,10 @@ metadata:
   namespace: siem-lite
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Auth — require API key via nginx.ingress.kubernetes.io/auth-type: basic
+    # or use OAuth2 proxy for production deployments
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
     # Большой body для батчей логов
     nginx.ingress.kubernetes.io/proxy-body-size: "8m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"

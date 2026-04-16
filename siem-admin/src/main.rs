@@ -1,8 +1,10 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, Request, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -20,6 +22,8 @@ struct AppState {
     docker: Arc<Docker>,
     http: reqwest::Client,
     red_alert: Arc<tokio::sync::Mutex<RedAlertRuntime>>,
+    /// Bearer token for API authentication. If empty, auth is disabled (dev mode).
+    api_key: String,
 }
 
 #[derive(Serialize)]
@@ -160,42 +164,54 @@ async fn main() {
         .build()
         .unwrap();
 
-    let state = AppState {
-        docker: Arc::new(docker),
-        http,
-        red_alert: Arc::new(tokio::sync::Mutex::new(RedAlertRuntime::default())),
-    };
+      let api_key = std::env::var("SIEM_ADMIN_API_KEY")
+          .unwrap_or_default()
+          .trim()
+          .to_string();
+      if api_key.is_empty() {
+          tracing::warn!("SIEM_ADMIN_API_KEY not set — admin API authentication disabled (dev mode)");
+      }
 
-    let app = Router::new()
-        .route("/", get(index_handler))
-        .route("/api/services", get(list_services))
-        .route("/api/services/:name/stop", post(stop_service))
-        .route("/api/services/:name/start", post(start_service))
-        .route("/api/services/:name/restart", post(restart_service))
-        .route("/api/fill-all-data", post(fill_all_data))
-        .route("/api/fill-events", post(fill_events))
-        .route("/api/fill-alerts", post(fill_alerts))
-        .route("/api/fill-threat-intel", post(fill_threat_intel))
-        .route("/api/fill-parser-events", post(fill_parser_events))
-        .route("/api/red-alert", post(start_red_alert))
-        .route("/api/red-alert/stop", post(stop_red_alert))
-        .route("/api/red-alert/status", get(red_alert_status))
-        .route("/api/data-status", get(data_status))
-        .route("/api/prometheus-status", get(prometheus_status))
-        .route("/api/pipeline", get(pipeline_status))
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+      let state = AppState {
+          docker: Arc::new(docker),
+          http,
+          red_alert: Arc::new(tokio::sync::Mutex::new(RedAlertRuntime::default())),
+          api_key,
+      };
+
+      let app = Router::new()
+          .route("/", get(index_handler))
+          .route("/api/services", get(list_services))
+          .route("/api/services/:name/stop", post(stop_service))
+          .route("/api/services/:name/start", post(start_service))
+          .route("/api/services/:name/restart", post(restart_service))
+          .route("/api/fill-all-data", post(fill_all_data))
+          .route("/api/fill-events", post(fill_events))
+          .route("/api/fill-alerts", post(fill_alerts))
+          .route("/api/fill-threat-intel", post(fill_threat_intel))
+          .route("/api/fill-parser-events", post(fill_parser_events))
+          .route("/api/red-alert", post(start_red_alert))
+          .route("/api/red-alert/stop", post(stop_red_alert))
+          .route("/api/red-alert/status", get(red_alert_status))
+          .route("/api/data-status", get(data_status))
+          .route("/api/prometheus-status", get(prometheus_status))
+          .route("/api/pipeline", get(pipeline_status))
+          .layer(middleware::from_fn_with_state(state.clone(), admin_auth_middleware))
+          .layer(CorsLayer::permissive())
+          .with_state(state);
 
     let addr = std::env::var("ADMIN_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:8089".into());
 
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("failed to bind ADMIN_ADDR — is the port already in use?");
     tracing::info!(addr = %addr, "SIEM Admin Panel starting");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .unwrap();
+        .expect("server error");
 }
 
 async fn shutdown_signal() {
@@ -206,11 +222,43 @@ async fn shutdown_signal() {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
         tokio::select! {
             _ = ctrl_c => {}
-            _ = sigterm.recv() => {}
+            _ = sigterm.recv() {}
         }
     }
     #[cfg(not(unix))]
     ctrl_c.await.ok();
+}
+
+/// Bearer token authentication middleware for siem-admin.
+async fn admin_auth_middleware(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    if state.api_key.is_empty() {
+        return next.run(req).await;
+    }
+    let ok = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|auth| {
+            auth.strip_prefix("Bearer ")
+                .or_else(|| auth.strip_prefix("bearer "))
+                .map(|t| t.trim() == state.api_key)
+        })
+        .unwrap_or(false)
+        || req
+            .headers()
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v == state.api_key)
+            .unwrap_or(false);
+    if ok {
+        next.run(req).await
+    } else {
+        (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))).into_response()
+    }
 }
 
 async fn list_services(
@@ -863,62 +911,64 @@ async fn red_alert_status(State(state): State<AppState>) -> Json<RedAlertStatus>
 }
 
 async fn data_status(State(state): State<AppState>) -> Json<DataStatus> {
-    let queries = [
-        (
-            "events_24h",
-            "SELECT count() FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
-        ),
-        (
-            "alerts_7d",
-            "SELECT count() FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY FORMAT TabSeparatedRaw",
-        ),
-        (
-            "threat_intel_seed",
-            "SELECT count() FROM siem.threat_intel WHERE feed = 'seed' FORMAT TabSeparatedRaw",
-        ),
-        (
-            "events_per_minute_24h",
-            "SELECT count() FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
-        ),
-        (
-            "top_ips_24h",
-            "SELECT count() FROM siem.top_ips_agg WHERE hour >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
-        ),
-        (
-            "source_types_24h",
-            "SELECT uniqExact(source_type) FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
-        ),
-    ];
+    // Run all 6 ClickHouse queries in parallel
+    let (events_24h, alerts_7d, threat_intel_seed, events_per_minute_24h, top_ips_24h, source_types_24h) =
+        tokio::join!(
+            clickhouse_scalar_u64(
+                &state.http,
+                "SELECT count() FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
+            ),
+            clickhouse_scalar_u64(
+                &state.http,
+                "SELECT count() FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 7 DAY FORMAT TabSeparatedRaw",
+            ),
+            clickhouse_scalar_u64(
+                &state.http,
+                "SELECT count() FROM siem.threat_intel WHERE feed = 'seed' FORMAT TabSeparatedRaw",
+            ),
+            clickhouse_scalar_u64(
+                &state.http,
+                "SELECT count() FROM siem.events_per_minute_agg WHERE minute >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
+            ),
+            clickhouse_scalar_u64(
+                &state.http,
+                "SELECT count() FROM siem.top_ips_agg WHERE hour >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
+            ),
+            clickhouse_scalar_u64(
+                &state.http,
+                "SELECT uniqExact(source_type) FROM siem.events WHERE timestamp >= now() - INTERVAL 24 HOUR FORMAT TabSeparatedRaw",
+            ),
+        );
 
-    let mut values = std::collections::HashMap::new();
-    for (key, query) in queries {
-        match clickhouse_scalar_u64(&state.http, query).await {
-            Ok(value) => {
-                values.insert(key, value);
-            }
-            Err(error) => {
-                return Json(DataStatus {
-                    clickhouse_ok: false,
-                    events_24h: 0,
-                    alerts_7d: 0,
-                    threat_intel_seed: 0,
-                    events_per_minute_24h: 0,
-                    top_ips_24h: 0,
-                    source_types_24h: 0,
-                    error: Some(error),
-                });
-            }
-        }
+    // Check for errors
+    let first_err = events_24h.as_ref().err()
+        .or_else(|| alerts_7d.as_ref().err())
+        .or_else(|| threat_intel_seed.as_ref().err())
+        .or_else(|| events_per_minute_24h.as_ref().err())
+        .or_else(|| top_ips_24h.as_ref().err())
+        .or_else(|| source_types_24h.as_ref().err());
+
+    if let Some(error) = first_err {
+        return Json(DataStatus {
+            clickhouse_ok: false,
+            events_24h: 0,
+            alerts_7d: 0,
+            threat_intel_seed: 0,
+            events_per_minute_24h: 0,
+            top_ips_24h: 0,
+            source_types_24h: 0,
+            error: Some(error.clone()),
+        });
     }
 
     Json(DataStatus {
         clickhouse_ok: true,
-        events_24h: *values.get("events_24h").unwrap_or(&0),
-        alerts_7d: *values.get("alerts_7d").unwrap_or(&0),
-        threat_intel_seed: *values.get("threat_intel_seed").unwrap_or(&0),
-        events_per_minute_24h: *values.get("events_per_minute_24h").unwrap_or(&0),
-        top_ips_24h: *values.get("top_ips_24h").unwrap_or(&0),
-        source_types_24h: *values.get("source_types_24h").unwrap_or(&0),
+        events_24h: events_24h.unwrap_or(0),
+        alerts_7d: alerts_7d.unwrap_or(0),
+        threat_intel_seed: threat_intel_seed.unwrap_or(0),
+        events_per_minute_24h: events_per_minute_24h.unwrap_or(0),
+        top_ips_24h: top_ips_24h.unwrap_or(0),
+        source_types_24h: source_types_24h.unwrap_or(0),
         error: None,
     })
 }
@@ -1536,11 +1586,11 @@ fn clickhouse_config() -> (String, String, String) {
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|_| {
                 std::env::var("CLICKHOUSE_PASSWORD")
-                    .unwrap_or_else(|_| "ClickHousePass123!".to_string())
+                    .expect("CLICKHOUSE_PASSWORD or CLICKHOUSE_PASSWORD_FILE must be set")
             })
     } else {
         std::env::var("CLICKHOUSE_PASSWORD")
-            .unwrap_or_else(|_| "ClickHousePass123!".to_string())
+            .expect("CLICKHOUSE_PASSWORD or CLICKHOUSE_PASSWORD_FILE must be set")
     };
     (url, user, password)
 }
@@ -1593,37 +1643,29 @@ async fn prometheus_status(State(state): State<AppState>) -> Json<PrometheusStat
         });
     }
 
-    let siem_events_total = prometheus_instant_scalar(&state.http, "sum(siem_events_total)")
-        .await
-        .unwrap_or(0.0);
-    let siem_parser_parsed_total =
-        prometheus_instant_scalar(&state.http, "sum(siem_parser_events_parsed_total)")
-            .await
-            .unwrap_or(0.0);
-    let siem_parser_parse_errors = prometheus_instant_scalar(
-        &state.http,
-        r#"sum(siem_parser_events_parsed_total{status="error"})"#,
-    )
-    .await
-    .unwrap_or(0.0);
-    let detection_events_processed_total =
-        prometheus_instant_scalar(&state.http, "sum(detection_events_processed_total)")
-            .await
-            .unwrap_or(0.0);
-    let vector_http_ingest_events_total = prometheus_instant_scalar(
-        &state.http,
-        r#"sum(vector_component_received_events_total{component_id="http_ingest"})"#,
-    )
-    .await
-    .unwrap_or(0.0);
+    // Run all 5 Prometheus queries in parallel
+    let (siem_events_total, siem_parser_parsed_total, siem_parser_parse_errors,
+         detection_events_processed_total, vector_http_ingest_events_total) = tokio::join!(
+        prometheus_instant_scalar(&state.http, "sum(siem_events_total)"),
+        prometheus_instant_scalar(&state.http, "sum(siem_parser_events_parsed_total)"),
+        prometheus_instant_scalar(
+            &state.http,
+            r#"sum(siem_parser_events_parsed_total{status="error"})"#,
+        ),
+        prometheus_instant_scalar(&state.http, "sum(detection_events_processed_total)"),
+        prometheus_instant_scalar(
+            &state.http,
+            r#"sum(vector_component_received_events_total{component_id="http_ingest"})"#,
+        ),
+    );
 
     Json(PrometheusStatus {
         prometheus_ok: true,
-        siem_events_total,
-        siem_parser_parsed_total,
-        siem_parser_parse_errors,
-        detection_events_processed_total,
-        vector_http_ingest_events_total,
+        siem_events_total: siem_events_total.unwrap_or(0.0),
+        siem_parser_parsed_total: siem_parser_parsed_total.unwrap_or(0.0),
+        siem_parser_parse_errors: siem_parser_parse_errors.unwrap_or(0.0),
+        detection_events_processed_total: detection_events_processed_total.unwrap_or(0.0),
+        vector_http_ingest_events_total: vector_http_ingest_events_total.unwrap_or(0.0),
         error: None,
     })
 }
@@ -1697,26 +1739,35 @@ async fn pipeline_status(
     let mut checks = Vec::new();
     let mut all_ok = true;
 
-    for (name, url) in endpoints {
-        let (ok, detail) = match state.http.get(url).send().await {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() {
-                    (true, format!("HTTP {}", status.as_u16()))
-                } else {
-                    (false, format!("HTTP {}", status.as_u16()))
-                }
+    // Run all health checks in parallel using tokio::spawn for each
+    let handles: Vec<_> = endpoints
+        .into_iter()
+        .map(|(name, url)| {
+            let http = state.http.clone();
+            tokio::spawn(async move {
+                let (ok, detail) = match http.get(url).send().await {
+                    Ok(resp) => {
+                        let status = resp.status();
+                        (status.is_success(), format!("HTTP {}", status.as_u16()))
+                    }
+                    Err(e) => (false, format!("{}", e)),
+                };
+                (name, ok, detail)
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        if let Ok((name, ok, detail)) = handle.await {
+            if !ok {
+                all_ok = false;
             }
-            Err(e) => (false, format!("{}", e)),
-        };
-        if !ok {
-            all_ok = false;
+            checks.push(PipelineCheck {
+                name: name.to_string(),
+                ok,
+                detail,
+            });
         }
-        checks.push(PipelineCheck {
-            name: name.to_string(),
-            ok,
-            detail,
-        });
     }
 
     Json(PipelineStatus {

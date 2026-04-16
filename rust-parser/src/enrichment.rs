@@ -2,16 +2,14 @@
 //! MaxMind MMDB читается через mmap — нулевые копии при каждом lookup.
 
 use crate::schema::{GeoInfo, NormalizedEvent};
-use lru::LruCache;
 use maxminddb::{geoip2, Reader};
 use memmap2::Mmap;
-use redis::Commands;
+use moka::sync::Cache;
 use std::fs::File;
 use std::net::IpAddr;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
 
 /// Конфигурация обогащения
@@ -36,21 +34,20 @@ impl Default for EnrichmentConfig {
     }
 }
 
-/// Enricher — держит открытые MMDB readers и LRU-кэш пользователей.
+/// Enricher — держит открытые MMDB readers и moka-кэш пользователей.
 /// Reader<Mmap> — Send+Sync, файл отображён в адресное пространство без копирования.
+/// moka::sync::Cache — потокобезопасный кэш с встроенным TTL, без Mutex.
 pub struct Enricher {
     city_reader: Option<Reader<Mmap>>,
     asn_reader: Option<Reader<Mmap>>,
-    // В продакшне LruCache с TTL лучше заменить на moka::sync::Cache
-    user_cache: Arc<Mutex<LruCache<String, CachedUser>>>,
-    intel_redis: Option<Arc<Mutex<redis::Connection>>>,
+    user_cache: Cache<String, CachedUser>,
+    intel_redis: Option<redis::aio::MultiplexedConnection>,
 }
 
 #[derive(Clone, Debug)]
 struct CachedUser {
     display_name: String,
     department: Option<String>,
-    cached_at: std::time::Instant,
 }
 
 impl Enricher {
@@ -60,43 +57,91 @@ impl Enricher {
 
         let cache_size =
             NonZeroUsize::new(config.user_cache_size).unwrap_or(NonZeroUsize::new(10_000).unwrap());
+        let cache_ttl = std::time::Duration::from_secs(config.user_cache_ttl_secs);
+
+        // Async Redis connection is established lazily — we store None here
+        // and let `enrich_threat_intel` handle the connection if URL is configured.
+        let _ = config.intel_redis_url;
+
+        let user_cache = Cache::builder()
+            .max_capacity(cache_size.get() as u64)
+            .time_to_idle(cache_ttl)
+            .build();
+
+        Self {
+            city_reader,
+            asn_reader,
+            user_cache,
+            intel_redis: None,
+        }
+    }
+
+    /// Creates a new Enricher with an async Redis connection.
+    /// Call this from an async context instead of `new()`.
+    pub async fn new_async(config: &EnrichmentConfig) -> Self {
+        let city_reader = load_mmdb(&config.geoip_city_db_path);
+        let asn_reader = load_mmdb(&config.geoip_asn_db_path);
+
+        let cache_size =
+            NonZeroUsize::new(config.user_cache_size).unwrap_or(NonZeroUsize::new(10_000).unwrap());
+        let cache_ttl = std::time::Duration::from_secs(config.user_cache_ttl_secs);
 
         let intel_redis = config
             .intel_redis_url
             .as_deref()
             .filter(|s| !s.is_empty())
-            .and_then(|url| match redis::Client::open(url) {
-                Ok(client) => match client.get_connection() {
-                    Ok(conn) => {
-                        info!("Threat intel Redis enrichment enabled (SET siem:intel:ipv4)");
-                        Some(Arc::new(Mutex::new(conn)))
+            .and_then(|url| {
+                match redis::Client::open(url) {
+                    Ok(client) => {
+                        // We'll try to connect synchronously to see if the URL is valid,
+                        // then the async connection is established below.
+                        Some(url.to_string())
                     }
                     Err(e) => {
-                        warn!(
-                            "INTEL redis URL set but connection failed: {} — intel match disabled",
-                            e
-                        );
+                        warn!("Invalid INTEL redis URL: {} — intel match disabled", e);
                         None
                     }
-                },
-                Err(e) => {
-                    warn!("Invalid INTEL redis URL: {} — intel match disabled", e);
-                    None
                 }
             });
+
+        let intel_redis_conn = if let Some(url) = intel_redis {
+            match redis::Client::open(url.as_str())
+                .and_then(|c| c.get_multiplexed_async_connection())
+                .await
+            {
+                Ok(conn) => {
+                    info!("Threat intel Redis enrichment enabled (async, SET siem:intel:ipv4)");
+                    Some(conn)
+                }
+                Err(e) => {
+                    warn!(
+                        "INTEL redis URL set but async connection failed: {} — intel match disabled",
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let user_cache = Cache::builder()
+            .max_capacity(cache_size.get() as u64)
+            .time_to_idle(cache_ttl)
+            .build();
 
         Self {
             city_reader,
             asn_reader,
-            user_cache: Arc::new(Mutex::new(LruCache::new(cache_size))),
-            intel_redis,
+            user_cache,
+            intel_redis: intel_redis_conn,
         }
     }
 
     /// Обогащает событие на месте. Ошибки обогащения не фатальны — событие
     /// передаётся дальше без обогащения с флагом в metadata.
-    pub fn enrich(&self, event: &mut NormalizedEvent) {
-        if let Some(ip_str) = &event.source_ip.clone() {
+    pub async fn enrich(&self, event: &mut NormalizedEvent) {
+        if let Some(ip_str) = event.source_ip.as_deref() {
             match IpAddr::from_str(ip_str) {
                 Ok(ip) => {
                     event.geo = self.lookup_geo(ip);
@@ -106,20 +151,21 @@ impl Enricher {
                 }
             }
         }
-        self.enrich_threat_intel(event);
+        self.enrich_threat_intel(event).await;
     }
 
-    fn enrich_threat_intel(&self, event: &mut NormalizedEvent) {
-        let Some(pool) = &self.intel_redis else {
+    async fn enrich_threat_intel(&self, event: &mut NormalizedEvent) {
+        let Some(conn) = &self.intel_redis else {
             return;
         };
         let Some(ip) = event.source_ip.as_deref().filter(|s| !s.is_empty()) else {
             return;
         };
-        let Ok(mut conn) = pool.lock() else {
-            return;
-        };
-        let member: bool = conn.sismember("siem:intel:ipv4", ip).unwrap_or(false);
+        use redis::AsyncCommands;
+        let member: bool = conn
+            .sismember("siem:intel:ipv4", ip)
+            .await
+            .unwrap_or(false);
         if member {
             crate::metrics::INTEL_IOC_MATCH_TOTAL.inc();
             event
@@ -267,8 +313,8 @@ mod tests {
         assert!(!is_private_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
     }
 
-    #[test]
-    fn test_enricher_no_mmdb() {
+    #[tokio::test]
+    async fn test_enricher_no_mmdb() {
         let config = EnrichmentConfig {
             geoip_city_db_path: "/nonexistent/city.mmdb".to_string(),
             geoip_asn_db_path: "/nonexistent/asn.mmdb".to_string(),
@@ -277,7 +323,7 @@ mod tests {
         let enricher = Enricher::new(&config);
         let mut event = crate::schema::NormalizedEvent::new("test");
         event.source_ip = Some("8.8.8.8".to_string());
-        enricher.enrich(&mut event);
+        enricher.enrich(&mut event).await;
         // Без MMDB базы — geo должен быть None, но событие не потеряно
         assert!(event.geo.is_none());
     }

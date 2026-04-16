@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import { DASHBOARD_WINDOWS } from "../dashboard-utils";
 import { suiteRefreshSelectOptions, type SuiteRefreshChoice } from "../suite-polling";
 
@@ -22,7 +22,7 @@ type Props = {
 
 const REFRESH_OPTIONS = suiteRefreshSelectOptions();
 
-export default function DashboardToolbar({
+export default React.memo(function DashboardToolbar({
   title,
   subtitle,
   hours,
@@ -93,4 +93,4 @@ export default function DashboardToolbar({
       {children ? <div className="dashboard-toolbar-body">{children}</div> : null}
     </section>
   );
-}
+});

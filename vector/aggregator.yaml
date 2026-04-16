@@ -315,6 +315,10 @@ sinks:
     batch:
       timeout_secs: 1
       max_events: 1000
+    buffer:
+      type: disk
+      max_size: 1073741824  # 1GB — prevents data loss if Redpanda is temporarily unavailable
+      when_full: block
     librdkafka_options:
       enable.idempotence: "true"
       acks: "all"
@@ -336,6 +340,10 @@ sinks:
     topic: "siem.events.dlq"
     encoding:
       codec: json
+    buffer:
+      type: disk
+      max_size: 268435456  # 256MB
+      when_full: drop_newest
 
   internal_metrics_sink:
     type: prometheus_exporter

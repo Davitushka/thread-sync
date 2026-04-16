@@ -1,6 +1,31 @@
-import { animate, useMotionValue } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { formatCompact, formatPercent } from "../dashboard-utils";
+
+/** Cubic-bezier easing [0.22, 1, 0.36, 1] approximated as a simple out-cubic */
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function animateValue(
+  from: number,
+  to: number,
+  durationMs: number,
+  onUpdate: (v: number) => void,
+): () => void {
+  let rafId = 0;
+  const t0 = performance.now();
+  const tick = () => {
+    const elapsed = performance.now() - t0;
+    const progress = Math.min(elapsed / durationMs, 1);
+    const eased = easeOutCubic(progress);
+    onUpdate(from + (to - from) * eased);
+    if (progress < 1) {
+      rafId = requestAnimationFrame(tick);
+    }
+  };
+  rafId = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(rafId);
+}
 
 type LiveCompactProps = {
   value: number | null | undefined;
@@ -8,37 +33,29 @@ type LiveCompactProps = {
   className?: string;
 };
 
-export function LiveCompactNumber({ value, duration = 0.65, className }: LiveCompactProps) {
-  const mv = useMotionValue(0);
-  const [text, setText] = useState("—");
+export function LiveCompactNumber({ value, duration = 650, className }: LiveCompactProps) {
+  const spanRef = useRef<HTMLSpanElement>(null);
+  const prevRef = useRef(0);
 
   useEffect(() => {
     if (value == null || Number.isNaN(value)) {
-      mv.set(0);
-      setText("—");
+      prevRef.current = 0;
+      if (spanRef.current) spanRef.current.textContent = "\u2014";
       return;
     }
     const end = Math.round(value);
-    const start = Math.round(mv.get());
+    const start = Math.round(prevRef.current);
     if (start === end) {
-      mv.set(end);
-      setText(formatCompact(end));
+      if (spanRef.current) spanRef.current.textContent = formatCompact(end);
       return;
     }
-    const from = start;
-    mv.set(from);
-    const controls = animate(from, end, {
-      duration,
-      ease: [0.22, 1, 0.36, 1],
-      onUpdate: (latest) => {
-        mv.set(latest);
-        setText(formatCompact(Math.round(latest)));
-      },
+    prevRef.current = end;
+    return animateValue(start, end, duration, (v) => {
+      if (spanRef.current) spanRef.current.textContent = formatCompact(Math.round(v));
     });
-    return () => controls.stop();
-  }, [value, duration, mv]);
+  }, [value, duration]);
 
-  return <span className={className}>{text}</span>;
+  return <span ref={spanRef} className={className}>{"\u2014"}</span>;
 }
 
 type LivePercentProps = {
@@ -47,35 +64,28 @@ type LivePercentProps = {
   className?: string;
 };
 
-export function LivePercentNumber({ value, duration = 0.65, className }: LivePercentProps) {
-  const mv = useMotionValue(0);
-  const [text, setText] = useState("—");
+export function LivePercentNumber({ value, duration = 650, className }: LivePercentProps) {
+  const spanRef = useRef<HTMLSpanElement>(null);
+  const prevRef = useRef(0);
 
   useEffect(() => {
     if (value == null || Number.isNaN(value)) {
-      mv.set(0);
-      setText("—");
+      prevRef.current = 0;
+      if (spanRef.current) spanRef.current.textContent = "\u2014";
       return;
     }
     const end = value;
-    const start = mv.get();
+    const start = prevRef.current;
     if (Number.isFinite(start) && Math.abs(start - end) < 1e-6) {
-      mv.set(end);
-      setText(formatPercent(end));
+      if (spanRef.current) spanRef.current.textContent = formatPercent(end);
       return;
     }
     const from = Number.isFinite(start) && Math.abs(start - end) > 1e-9 ? start : 0;
-    mv.set(from);
-    const controls = animate(from, end, {
-      duration,
-      ease: [0.22, 1, 0.36, 1],
-      onUpdate: (latest) => {
-        mv.set(latest);
-        setText(formatPercent(latest));
-      },
+    prevRef.current = end;
+    return animateValue(from, end, duration, (v) => {
+      if (spanRef.current) spanRef.current.textContent = formatPercent(v);
     });
-    return () => controls.stop();
-  }, [value, duration, mv]);
+  }, [value, duration]);
 
-  return <span className={className}>{text}</span>;
+  return <span ref={spanRef} className={className}>{"\u2014"}</span>;
 }

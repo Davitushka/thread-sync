@@ -30,6 +30,16 @@ spec:
         seccompProfile:
           type: RuntimeDefault
 
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: clickhouse
+                topologyKey: kubernetes.io/hostname
+
       initContainers:
         - name: init-sql
           image: clickhouse/clickhouse-server:24.8

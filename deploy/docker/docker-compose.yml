@@ -21,7 +21,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.28.0.0/24
+        - subnet: 172.28.0.0/20
 
 volumes:
   vector-data:
@@ -44,6 +44,8 @@ volumes:
     driver: local
   postgres-data:
     driver: local
+  redis-data:
+    driver: local
   pgadmin-data:
     driver: local
 
@@ -58,6 +60,8 @@ secrets:
     file: ./secrets/clickhouse_password.txt
   minio_secret_key:
     file: ./secrets/minio_secret_key.txt
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt
 
 services:
   # ════════════════════════════════════════════════════════════════
@@ -95,7 +99,7 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 1500M
+          memory: 2G
 
   # Инициализация топиков Redpanda
   redpanda-init:
@@ -140,10 +144,12 @@ services:
         condition: service_healthy
       redpanda-init:
         condition: service_completed_successfully
-    ports:
-      - "8123:8123"    # HTTP interface
-      - "9000:9000"    # Native protocol
-      - "9363:9363"    # Prometheus /metrics (self-monitoring)
+    # Ports NOT exposed externally — access via internal Docker network only
+    # Uncomment for local debugging:
+    # ports:
+    #   - "8123:8123"
+    #   - "9000:9000"
+    #   - "9363:9363"
     volumes:
       - clickhouse-data-hot:/var/lib/clickhouse
       - ../../clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -156,7 +162,7 @@ services:
       CLICKHOUSE_DB: siem
     healthcheck:
       <<: *healthcheck-defaults
-      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' || exit 1"]
+      test: ["CMD-SHELL", "clickhouse-client --user=siem --password=$CLICKHOUSE_PASSWORD --query 'SELECT 1' || exit 1"]
     deploy:
       resources:
         limits:
@@ -210,8 +216,10 @@ services:
     restart: unless-stopped
     networks:
       - siem-internal
-    ports:
-      - "5432:5432"
+    # Port NOT exposed externally — access via internal Docker network only
+    # Uncomment for local debugging:
+    # ports:
+    #   - "5432:5432"
     environment:
       <<: *common-env
       POSTGRES_USER: siem_soc
@@ -224,6 +232,11 @@ services:
       timeout: 5s
       retries: 5
       test: ["CMD-SHELL", "pg_isready -U siem_soc -d soc_cases"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
 
   # ════════════════════════════════════════════════════════════════
   # Case management — API + UI (кейсы, Alertmanager webhook)
@@ -357,12 +370,19 @@ services:
     restart: unless-stopped
     networks:
       - siem-internal
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--requirepass", "${REDIS_PASSWORD:-changeme}"]
+    volumes:
+      - redis-data:/data
     healthcheck:
       interval: 10s
       timeout: 5s
       retries: 3
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
   # ════════════════════════════════════════════════════════════════
   # intel-connector — Phase 2: MISP / HTTP JSON / локальный фид → threat_intel (+ Redis для парсера)
@@ -394,6 +414,7 @@ services:
       INTEL_REDIS_URL: redis://redis:6379/0
       LOG_LEVEL: ${INTEL_LOG_LEVEL:-INFO}
     secrets:
+      - grafana_admin_password
       - clickhouse_password
     volumes:
       - ../../intel-connector/examples:/app/examples:ro
@@ -441,6 +462,7 @@ services:
       CLICKHOUSE_USER: "siem"
       CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
     secrets:
+      - grafana_admin_password
       - clickhouse_password
     depends_on:
       redpanda:
@@ -644,7 +666,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=15d'
       - '--web.enable-lifecycle'
-      - '--web.enable-admin-api'
+      # --web.enable-admin-api removed: allows destructive TSDB operations without auth
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
@@ -679,7 +701,7 @@ services:
       - '--config.file=/etc/alertmanager/alertmanager.yaml'
       - '--storage.path=/alertmanager'
       - '--web.external-url=http://alertmanager:9093'
-      - '--cluster.advertise-address=0.0.0.0:9094'
+      # HA cluster flags removed — no peers configured. Add --cluster.peer when scaling.
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
@@ -732,14 +754,14 @@ services:
     environment:
       <<: *common-env
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/clickhouse_password
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
       GF_SECURITY_ALLOW_EMBEDDING: "true"
       GF_SECURITY_DISABLE_GRAVATAR: "true"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/siem-overview.json"
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_LOG_LEVEL: warn
@@ -748,6 +770,7 @@ services:
       # ClickHouse datasource
       GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
     secrets:
+      - grafana_admin_password
       - clickhouse_password
     depends_on:
       - clickhouse
@@ -772,8 +795,11 @@ services:
     networks:
       - siem-internal
     volumes:
+      # SECURITY NOTE: Docker socket mount grants container escape potential.
+      # Consider using a Docker socket proxy (e.g. tecnativa/docker-socket-proxy) in production.
+      # SECURITY NOTE: Docker socket mount grants container escape potential.
+      # Consider using a Docker socket proxy in production, or restrict via Docker API TLS.
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./promtail-config.yaml:/etc/promtail/config.yml:ro
     command: ["-config.file=/etc/promtail/config.yml"]
     depends_on:
       loki:
@@ -874,7 +900,7 @@ services:
       KAFKA_TOPIC: siem.events
       KAFKA_GROUP_ID: correlator
       REDIS_ADDR: redis:6379
-      REDIS_PASSWORD: ""
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-changeme}
       ALERTMANAGER_URL: http://alertmanager:9093
       CORRELATOR_HTTP_ADDR: ":9111"
       BRUTE_FORCE_THRESHOLD: "10"
@@ -918,6 +944,8 @@ services:
     ports:
       - "8089:8089"
     volumes:
+      # SECURITY NOTE: Docker socket mount grants container escape potential.
+      # Consider using a Docker socket proxy in production, or restrict via Docker API TLS.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Актуальный seed без пересборки образа (перекрывает COPY из Dockerfile.admin)
       - ../../scripts/seed-data/seed_test_events.sql:/app/seed/seed_test_events.sql:ro

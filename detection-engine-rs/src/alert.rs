@@ -12,6 +12,17 @@ pub enum AlertSeverity {
     Critical,
 }
 
+impl AlertSeverity {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Critical => "critical",
+        }
+    }
+}
+
 impl fmt::Display for AlertSeverity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

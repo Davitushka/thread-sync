@@ -63,7 +63,7 @@ button.secondary {
 }
 
 button:hover {
-  filter: brightness(1.06);
+  background: #5aa7ff;
 }
 
 code,
@@ -80,8 +80,7 @@ pre {
 
 .suite-side {
   border-right: 1px solid rgba(255, 255, 255, 0.05);
-  background: linear-gradient(180deg, rgba(8, 14, 24, 0.97), rgba(11, 18, 30, 0.94));
-  backdrop-filter: blur(14px);
+  background: rgba(8, 14, 24, 0.98);
   padding: 0.9rem;
   position: relative;
   align-self: stretch;
@@ -533,8 +532,7 @@ pre {
   z-index: 1200;
   display: grid;
   place-items: center;
-  background: rgba(4, 8, 13, 0.74);
-  backdrop-filter: blur(4px);
+  background: rgba(4, 8, 13, 0.96);
 }
 
 .suite-settings-dialog {
@@ -737,9 +735,7 @@ pre {
   justify-content: center;
   padding: 1.25rem;
   box-sizing: border-box;
-  background: rgba(4, 12, 22, 0.48);
-  backdrop-filter: blur(12px) saturate(1.08);
-  -webkit-backdrop-filter: blur(12px) saturate(1.08);
+  background: rgba(4, 12, 22, 0.96);
 }
 
 .workspace-bg-modal-dialog {
@@ -1803,6 +1799,7 @@ pre {
 }
 
 .stat-tile {
+  will-change: transform;
   transition:
     transform 0.22s ease,
     box-shadow 0.22s ease,
@@ -2047,7 +2044,7 @@ pre {
 
 .native-gauge-progress {
   stroke-width: 7;
-  filter: drop-shadow(0 0 6px rgba(77, 155, 255, 0.16));
+  box-shadow: 0 0 6px rgba(77, 155, 255, 0.16);
 }
 
 .native-gauge-center {
@@ -2394,8 +2391,7 @@ tr:hover td {
   display: grid;
   place-items: start center;
   padding: 10vh 1rem 1rem;
-  background: rgba(5, 10, 16, 0.72);
-  backdrop-filter: blur(12px);
+  background: rgba(5, 10, 16, 0.96);
   z-index: 140;
 }
 

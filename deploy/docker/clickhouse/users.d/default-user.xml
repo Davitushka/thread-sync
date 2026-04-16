@@ -1,0 +1,15 @@
+<clickhouse>
+  <users>
+    <default remove="remove">
+    </default>
+    <siem>
+      <profile>default</profile>
+      <networks>
+        <ip>::/0</ip>
+      </networks>
+      <password>TestPass123</password>
+      <quota>default</quota>
+      <access_management>1</access_management>
+    </siem>
+  </users>
+</clickhouse>

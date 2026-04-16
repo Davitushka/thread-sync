@@ -31,6 +31,16 @@ spec:
         seccompProfile:
           type: RuntimeDefault
 
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: redpanda
+                topologyKey: kubernetes.io/hostname
+
       containers:
         - name: redpanda
           image: docker.redpanda.com/redpandadata/redpanda:v24.1.1

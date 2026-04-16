@@ -6,6 +6,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::query_helpers::severity_rank;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DetectionsOverview {
     pub stats: DetectionsStats,
@@ -298,16 +300,6 @@ fn sorted_counts(input: HashMap<String, u32>) -> Vec<DetectionBreakdown> {
     rows
 }
 
-fn severity_rank(value: &str) -> u8 {
-    match value {
-        "critical" => 7,
-        "high" | "error" => 6,
-        "warning" | "medium" => 5,
-        "info" | "low" => 4,
-        "debug" => 3,
-        _ => 1,
-    }
-}
 
 fn get_str(value: &Value, key: &str) -> Option<String> {
     value

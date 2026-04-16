@@ -21,6 +21,9 @@ deploy/docker/certs/
 !deploy/docker/secrets/README.md
 !deploy/docker/secrets/.gitkeep
 
+# K8s secret — не коммитить реальный файл с production паролями
+deploy/k8s/secret.yaml
+
 # GeoIP базы данных
 *.mmdb
 
@@ -51,3 +54,4 @@ siem-portal/static/index.html
 __pycache__/
 *.pyc
 
+.comate/build_log.txt

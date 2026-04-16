@@ -112,14 +112,15 @@ async fn main() -> Result<()> {
 
     metrics::init();
 
-    // Инициализация обогащения
-    let enricher = Enricher::new(&EnrichmentConfig {
+    // Инициализация обогащения (async — для Redis threat intel)
+    let enricher = Enricher::new_async(&EnrichmentConfig {
         geoip_city_db_path: config.geoip.city_db_path.clone(),
         geoip_asn_db_path: config.geoip.asn_db_path.clone(),
         user_cache_size: config.geoip.cache_size,
         intel_redis_url: config.intel.redis_url.clone(),
         ..Default::default()
-    });
+    })
+    .await;
 
     let pipeline = NormalizationPipeline::new(
         enricher,
@@ -228,20 +229,24 @@ async fn handle_parse(State(state): State<Arc<AppState>>, body: Bytes) -> impl I
 
     let mut processed = 0usize;
     let mut errors = 0usize;
-    let mut error_details = Vec::new();
+    const MAX_ERROR_DETAILS: usize = 50;
+    let mut error_details = Vec::with_capacity(8);
 
     for raw_event in request.events {
         let raw_bytes = Bytes::from(raw_event.raw.into_bytes());
         match state
             .pipeline
             .process(raw_bytes, &raw_event.source_type, &raw_event.host)
+            .await
         {
             Ok(normalized) => {
                 let payload = match serde_json::to_vec(&normalized) {
                     Ok(p) => p,
                     Err(e) => {
                         errors += 1;
-                        error_details.push(format!("Serialization error: {}", e));
+                        if error_details.len() < MAX_ERROR_DETAILS {
+                            error_details.push(format!("Serialization error: {}", e));
+                        }
                         continue;
                     }
                 };
@@ -259,14 +264,14 @@ async fn handle_parse(State(state): State<Arc<AppState>>, body: Bytes) -> impl I
                 match state.producer.send(record, Duration::from_secs(5)).await {
                     Ok(_) => {
                         metrics::KAFKA_PRODUCED_TOTAL
-                            .with_label_values(&[&topic, &"ok".to_string()])
+                            .with_label_values(&[&topic, "ok"])
                             .inc();
                         processed += 1;
                     }
                     Err((e, _)) => {
                         error!(error = %e, "Kafka produce failed");
                         metrics::KAFKA_PRODUCED_TOTAL
-                            .with_label_values(&[&topic, &"error".to_string()])
+                            .with_label_values(&[&topic, "error"])
                             .inc();
                         errors += 1;
                         error_details.push(format!("Kafka error: {}", e));
@@ -275,7 +280,9 @@ async fn handle_parse(State(state): State<Arc<AppState>>, body: Bytes) -> impl I
             }
             Err(e) => {
                 errors += 1;
-                error_details.push(format!("Parse error: {}", e));
+                if error_details.len() < MAX_ERROR_DETAILS {
+                    error_details.push(format!("Parse error: {}", e));
+                }
             }
         }
     }

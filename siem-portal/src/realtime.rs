@@ -589,7 +589,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, ws_query_token: O
                         }
                     }
                     Ok(_) => {}
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "broadcast lag — messages dropped");
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }

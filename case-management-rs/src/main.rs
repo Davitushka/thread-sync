@@ -7,7 +7,10 @@ mod validate;
 
 use std::time::Duration;
 
-use axum::http::StatusCode;
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{Request, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -30,6 +33,12 @@ pub struct AppState {
     pub grafana_base_url: String,
     pub http: reqwest::Client,
     pub portal_notify: Option<PortalNotifyConfig>,
+    /// Bearer token for API authentication. If empty, auth is disabled (dev mode).
+    pub api_key: String,
+    /// Bearer token that Alertmanager must send in Authorization header.
+    pub webhook_secret: String,
+    /// Semaphore to limit concurrent portal notification tasks
+    pub notify_sem: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
 pub struct ApiError {
@@ -108,6 +117,59 @@ async fn spa_handler(
 #[cfg(not(feature = "embed-spa"))]
 async fn spa_handler() -> StatusCode {
     StatusCode::NOT_FOUND
+}
+
+/// Bearer token authentication middleware.
+/// If `api_key` is set in state, requires `Authorization: Bearer <key>` on all /api/ routes.
+async fn auth_middleware(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    if state.api_key.is_empty() {
+        return next.run(req).await;
+    }
+    let ok = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|auth| {
+            auth.strip_prefix("Bearer ")
+                .or_else(|| auth.strip_prefix("bearer "))
+                .map(|t| t.trim() == state.api_key)
+        })
+        .unwrap_or(false);
+    if ok {
+        next.run(req).await
+    } else {
+        (StatusCode::UNAUTHORIZED, Json(json!({"error": "unauthorized"}))).into_response()
+    }
+}
+
+/// Webhook authentication: validates Alertmanager sends correct bearer token.
+async fn webhook_auth_middleware(
+    State(state): State<AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    if state.webhook_secret.is_empty() {
+        return next.run(req).await;
+    }
+    let ok = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|auth| {
+            auth.strip_prefix("Bearer ")
+                .or_else(|| auth.strip_prefix("bearer "))
+                .map(|t| t.trim() == state.webhook_secret)
+        })
+        .unwrap_or(false);
+    if ok {
+        next.run(req).await
+    } else {
+        (StatusCode::UNAUTHORIZED, Json(json!({"error": "unauthorized"}))).into_response()
+    }
 }
 
 async fn shutdown_signal() {
@@ -212,6 +274,19 @@ async fn main() {
         None
     };
 
+    let api_key = std::env::var("CASEMGMT_API_KEY")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if api_key.is_empty() {
+        tracing::warn!("CASEMGMT_API_KEY not set — API authentication disabled (dev mode)");
+    }
+
+    let webhook_secret = std::env::var("CASEMGMT_WEBHOOK_SECRET")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
     let http = reqwest::Client::builder()
         .use_rustls_tls()
         .timeout(Duration::from_secs(15))
@@ -229,10 +304,38 @@ async fn main() {
         grafana_base_url,
         http,
         portal_notify,
+        api_key,
+        webhook_secret,
+        notify_sem: std::sync::Arc::new(tokio::sync::Semaphore::new(16)),
     };
 
-    let app = Router::new()
-        .route("/health", get(handlers::health).head(handlers::health))
+    let allowed_origin = std::env::var("CASEMGMT_CORS_ORIGIN")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let cors = if allowed_origin.is_empty() {
+        CorsLayer::permissive()
+    } else {
+        let origin: axum::http::HeaderValue = allowed_origin.parse().unwrap_or_else(|_| {
+            tracing::warn!("Invalid CASEMGMT_CORS_ORIGIN, falling back to permissive CORS");
+            axum::http::HeaderValue::from_static("*")
+        });
+        CorsLayer::new()
+            .allow_origin(origin)
+            .allow_methods([
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::PATCH,
+                axum::http::Method::OPTIONS,
+            ])
+            .allow_headers([
+                axum::http::header::AUTHORIZATION,
+                axum::http::header::CONTENT_TYPE,
+            ])
+    };
+
+    // API routes with Bearer auth
+    let api_routes = Router::new()
         .route("/api/v1/cases", get(handlers::list_cases).post(handlers::create_case))
         .route(
             "/api/v1/cases/{id}/investigate",
@@ -245,9 +348,25 @@ async fn main() {
         .route("/api/v1/cases/{id}/timeline", post(handlers::add_timeline))
         .route("/api/v1/cases/{id}/events", post(handlers::link_event))
         .route("/api/v1/cases/{id}/alerts", post(handlers::link_alert))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    // Webhook route with separate secret
+    let webhook_routes = Router::new()
         .route("/webhooks/alertmanager", post(alertmanager::handle_alertmanager))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            webhook_auth_middleware,
+        ));
+
+    let app = Router::new()
+        .route("/health", get(handlers::health).head(handlers::health))
+        .merge(api_routes)
+        .merge(webhook_routes)
         .fallback(spa_handler)
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

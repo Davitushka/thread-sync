@@ -4,21 +4,19 @@
   "version": "0.1.0",
   "identifier": "com.siem-lite.desktop",
   "build": {
-    "devUrl": "http://localhost:8091",
-    "frontendDist": "http://localhost:8091"
+    "frontendDist": "./frontend"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
-        "title": "SIEM-Lite Operator",
+        "title": "SIEM-Lite",
         "width": 1360,
         "height": 860,
         "minWidth": 1040,
         "minHeight": 640,
         "center": true,
-        "resizable": true,
-        "url": "http://localhost:8091"
+        "resizable": true
       }
     ],
     "security": {

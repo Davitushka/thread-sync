@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-use anyhow::{anyhow, Result};
-use reqwest::Url;
+use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
+
+use crate::query_helpers::{
+    instant_scalar_sum, parse_prom_value_pair, query_prometheus, range_series_sum, unix_now,
+    MetricPoint,
+};
 
 const DEFAULT_WINDOW_HOURS: u16 = 24;
 const MIN_WINDOW_HOURS: u16 = 1;
@@ -126,12 +130,6 @@ pub struct OperationsService {
     prometheus: String,
 }
 
-#[derive(Debug, Clone)]
-struct MetricPoint {
-    ts: i64,
-    value: f64,
-}
-
 impl OperationsService {
     pub fn new(http: reqwest::Client, prometheus: String) -> Self {
         Self { http, prometheus }
@@ -161,24 +159,24 @@ impl OperationsService {
             redpanda_records_series,
             detection_processed_series,
         ) = tokio::try_join!(
-            self.instant_scalar(CLICKHOUSE_SELECT_QUERY, timeout),
-            self.instant_scalar(CLICKHOUSE_INSERT_QUERY, timeout),
-            self.instant_scalar(REDPANDA_RECORDS_QUERY, timeout),
-            self.instant_scalar(VECTOR_HTTP_INGEST_QUERY, timeout),
-            self.instant_scalar(VECTOR_TO_REDPANDA_QUERY, timeout),
-            self.instant_scalar(DETECTION_PROCESSED_QUERY, timeout),
-            self.instant_scalar(FIRING_ALERTS_QUERY, timeout),
-            self.instant_scalar(PARSER_IN_FLIGHT_QUERY, timeout),
-            self.instant_scalar(PARSE_ERRORS_24H_QUERY, timeout),
-            self.instant_scalar(DROPPED_ALERTS_24H_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, CLICKHOUSE_SELECT_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, CLICKHOUSE_INSERT_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, REDPANDA_RECORDS_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, VECTOR_HTTP_INGEST_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, VECTOR_TO_REDPANDA_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, DETECTION_PROCESSED_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, FIRING_ALERTS_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, PARSER_IN_FLIGHT_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, PARSE_ERRORS_24H_QUERY, timeout),
+            instant_scalar_sum(&self.http, &self.prometheus, DROPPED_ALERTS_24H_QUERY, timeout),
             self.component_status(timeout),
-            self.range_series_sum(CLICKHOUSE_SELECT_QUERY, start, end, request.step_sec, timeout),
-            self.range_series_sum(CLICKHOUSE_INSERT_QUERY, start, end, request.step_sec, timeout),
-            self.range_series_sum(CLICKHOUSE_FAILED_QUERY, start, end, request.step_sec, timeout),
-            self.range_series_sum(VECTOR_HTTP_INGEST_QUERY, start, end, request.step_sec, timeout),
-            self.range_series_sum(VECTOR_TO_REDPANDA_QUERY, start, end, request.step_sec, timeout),
-            self.range_series_sum(REDPANDA_RECORDS_QUERY, start, end, request.step_sec, timeout),
-            self.range_series_sum(DETECTION_PROCESSED_QUERY, start, end, request.step_sec, timeout),
+            range_series_sum(&self.http, &self.prometheus, CLICKHOUSE_SELECT_QUERY, start, end, request.step_sec, timeout),
+            range_series_sum(&self.http, &self.prometheus, CLICKHOUSE_INSERT_QUERY, start, end, request.step_sec, timeout),
+            range_series_sum(&self.http, &self.prometheus, CLICKHOUSE_FAILED_QUERY, start, end, request.step_sec, timeout),
+            range_series_sum(&self.http, &self.prometheus, VECTOR_HTTP_INGEST_QUERY, start, end, request.step_sec, timeout),
+            range_series_sum(&self.http, &self.prometheus, VECTOR_TO_REDPANDA_QUERY, start, end, request.step_sec, timeout),
+            range_series_sum(&self.http, &self.prometheus, REDPANDA_RECORDS_QUERY, start, end, request.step_sec, timeout),
+            range_series_sum(&self.http, &self.prometheus, DETECTION_PROCESSED_QUERY, start, end, request.step_sec, timeout),
         )?;
 
         let healthy_components = component_status.iter().filter(|item| item.up).count() as u32;
@@ -212,25 +210,16 @@ impl OperationsService {
         })
     }
 
-    async fn instant_scalar(&self, query: &str, timeout: Duration) -> Result<f64> {
-        let payload = self.query("/api/v1/query", query, &[], timeout).await?;
-        let result = payload
-            .get("data")
-            .and_then(|v| v.get("result"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-
-        Ok(result
-            .iter()
-            .filter_map(|row| row.get("value").and_then(parse_prom_value_pair))
-            .sum())
-    }
-
     async fn component_status(&self, timeout: Duration) -> Result<Vec<OperationsComponentStatus>> {
-        let payload = self
-            .query("/api/v1/query", COMPONENT_STATUS_QUERY, &[], timeout)
-            .await?;
+        let payload = query_prometheus(
+            &self.http,
+            &self.prometheus,
+            "/api/v1/query",
+            COMPONENT_STATUS_QUERY,
+            &[],
+            timeout,
+        )
+        .await?;
         let result = payload
             .get("data")
             .and_then(|v| v.get("result"))
@@ -263,83 +252,6 @@ impl OperationsService {
 
         rows.sort_by(|a, b| a.job.cmp(&b.job));
         Ok(rows)
-    }
-
-    async fn range_series_sum(
-        &self,
-        query: &str,
-        start: i64,
-        end: i64,
-        step: u32,
-        timeout: Duration,
-    ) -> Result<Vec<MetricPoint>> {
-        let payload = self
-            .query(
-                "/api/v1/query_range",
-                query,
-                &[
-                    ("start", start.to_string()),
-                    ("end", end.to_string()),
-                    ("step", step.to_string()),
-                ],
-                timeout,
-            )
-            .await?;
-
-        let result = payload
-            .get("data")
-            .and_then(|v| v.get("result"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-
-        let mut merged: BTreeMap<i64, f64> = BTreeMap::new();
-        for series in result {
-            let values = series
-                .get("values")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for pair in values {
-                if let Some((ts, value)) = parse_prom_series_pair(&pair) {
-                    *merged.entry(ts).or_insert(0.0) += value;
-                }
-            }
-        }
-
-        Ok(merged
-            .into_iter()
-            .map(|(ts, value)| MetricPoint { ts, value })
-            .collect())
-    }
-
-    async fn query(
-        &self,
-        path: &str,
-        query: &str,
-        extra: &[(&str, String)],
-        timeout: Duration,
-    ) -> Result<Value> {
-        let base: Url = self.prometheus.parse()?;
-        let mut url = base.join(path)?;
-        {
-            let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("query", query);
-            for (key, value) in extra {
-                pairs.append_pair(key, value);
-            }
-        }
-        let resp = self.http.get(url).timeout(timeout).send().await?;
-        let status = resp.status();
-        let body = resp.text().await?;
-        if !status.is_success() {
-            return Err(anyhow!("prometheus responded {}: {}", status, body));
-        }
-        let payload = serde_json::from_str::<Value>(&body)?;
-        if payload.get("status").and_then(Value::as_str) != Some("success") {
-            return Err(anyhow!("prometheus query failed: {}", body));
-        }
-        Ok(payload)
     }
 }
 
@@ -435,22 +347,3 @@ fn merge_pipeline_series(redpanda: Vec<MetricPoint>, detection: Vec<MetricPoint>
     merged.into_values().collect()
 }
 
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-}
-
-fn parse_prom_value_pair(value: &Value) -> Option<f64> {
-    let arr = value.as_array()?;
-    let raw = arr.get(1)?.as_str()?;
-    raw.parse::<f64>().ok()
-}
-
-fn parse_prom_series_pair(value: &Value) -> Option<(i64, f64)> {
-    let arr = value.as_array()?;
-    let ts = arr.first()?.as_f64()? as i64;
-    let raw = arr.get(1)?.as_str()?;
-    Some((ts, raw.parse::<f64>().ok()?))
-}

@@ -1,12 +1,15 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-use anyhow::{anyhow, Result};
-use reqwest::Url;
+use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::config::ClickHouseConfig;
+use crate::query_helpers::{
+    as_f64, as_u64, get_str, ident, instant_scalar_sum, parse_rows, query_clickhouse,
+    range_series_sum, unix_now, MetricPoint,
+};
 
 const DEFAULT_WINDOW_HOURS: u16 = 24;
 const MIN_WINDOW_HOURS: u16 = 1;
@@ -99,12 +102,6 @@ pub struct DataQualityService {
     prometheus: String,
 }
 
-#[derive(Debug, Clone)]
-struct MetricPoint {
-    ts: i64,
-    value: f64,
-}
-
 impl DataQualityService {
     pub fn new(http: reqwest::Client, clickhouse: ClickHouseConfig, prometheus: String) -> Self {
         Self {
@@ -144,14 +141,14 @@ impl DataQualityService {
 
         let (kpis_body, lag_body, parser_ok_rate, parser_error_rate, consumer_lag, parser_ok_series, parser_error_series, consumer_lag_series) =
             tokio::try_join!(
-                self.query_clickhouse(&sql_kpis, timeout),
-                self.query_clickhouse(&sql_lag, timeout),
-                self.instant_scalar(PARSER_OK_QUERY, timeout),
-                self.instant_scalar(PARSER_ERROR_QUERY, timeout),
-                self.instant_scalar(CONSUMER_LAG_QUERY, timeout),
-                self.range_series_sum(PARSER_OK_QUERY, start, end, request.step_sec, timeout),
-                self.range_series_sum(PARSER_ERROR_QUERY, start, end, request.step_sec, timeout),
-                self.range_series_sum(CONSUMER_LAG_QUERY, start, end, request.step_sec, timeout),
+                query_clickhouse(&self.http, &self.clickhouse, &sql_kpis, timeout),
+                query_clickhouse(&self.http, &self.clickhouse, &sql_lag, timeout),
+                instant_scalar_sum(&self.http, &self.prometheus, PARSER_OK_QUERY, timeout),
+                instant_scalar_sum(&self.http, &self.prometheus, PARSER_ERROR_QUERY, timeout),
+                instant_scalar_sum(&self.http, &self.prometheus, CONSUMER_LAG_QUERY, timeout),
+                range_series_sum(&self.http, &self.prometheus, PARSER_OK_QUERY, start, end, request.step_sec, timeout),
+                range_series_sum(&self.http, &self.prometheus, PARSER_ERROR_QUERY, start, end, request.step_sec, timeout),
+                range_series_sum(&self.http, &self.prometheus, CONSUMER_LAG_QUERY, start, end, request.step_sec, timeout),
             )?;
 
         let mut kpis = parse_rows(kpis_body)?
@@ -182,119 +179,6 @@ impl DataQualityService {
                 })
                 .collect(),
         })
-    }
-
-    async fn instant_scalar(&self, query: &str, timeout: Duration) -> Result<f64> {
-        let payload = self.query_prometheus("/api/v1/query", query, &[], timeout).await?;
-        let result = payload
-            .get("data")
-            .and_then(|v| v.get("result"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        Ok(result
-            .iter()
-            .filter_map(|row| row.get("value").and_then(parse_prom_value_pair))
-            .sum())
-    }
-
-    async fn range_series_sum(
-        &self,
-        query: &str,
-        start: i64,
-        end: i64,
-        step: u32,
-        timeout: Duration,
-    ) -> Result<Vec<MetricPoint>> {
-        let payload = self
-            .query_prometheus(
-                "/api/v1/query_range",
-                query,
-                &[
-                    ("start", start.to_string()),
-                    ("end", end.to_string()),
-                    ("step", step.to_string()),
-                ],
-                timeout,
-            )
-            .await?;
-
-        let result = payload
-            .get("data")
-            .and_then(|v| v.get("result"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-
-        let mut merged: BTreeMap<i64, f64> = BTreeMap::new();
-        for series in result {
-            let values = series
-                .get("values")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for pair in values {
-                if let Some((ts, value)) = parse_prom_series_pair(&pair) {
-                    *merged.entry(ts).or_insert(0.0) += value;
-                }
-            }
-        }
-
-        Ok(merged
-            .into_iter()
-            .map(|(ts, value)| MetricPoint { ts, value })
-            .collect())
-    }
-
-    async fn query_prometheus(
-        &self,
-        path: &str,
-        query: &str,
-        extra: &[(&str, String)],
-        timeout: Duration,
-    ) -> Result<Value> {
-        let base: Url = self.prometheus.parse()?;
-        let mut url = base.join(path)?;
-        {
-            let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("query", query);
-            for (key, value) in extra {
-                pairs.append_pair(key, value);
-            }
-        }
-        let resp = self.http.get(url).timeout(timeout).send().await?;
-        let status = resp.status();
-        let body = resp.text().await?;
-        if !status.is_success() {
-            return Err(anyhow!("prometheus responded {}: {}", status, body));
-        }
-        let payload = serde_json::from_str::<Value>(&body)?;
-        if payload.get("status").and_then(Value::as_str) != Some("success") {
-            return Err(anyhow!("prometheus query failed: {}", body));
-        }
-        Ok(payload)
-    }
-
-    async fn query_clickhouse(&self, sql: &str, timeout: Duration) -> Result<String> {
-        let mut url = Url::parse(&self.clickhouse.url)?;
-        {
-            let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("database", &self.clickhouse.database);
-            pairs.append_pair("query", sql);
-        }
-        let resp = self
-            .http
-            .get(url)
-            .basic_auth(&self.clickhouse.user, Some(&self.clickhouse.password))
-            .timeout(timeout)
-            .send()
-            .await?;
-        let status = resp.status();
-        let body = resp.text().await?;
-        if !status.is_success() {
-            return Err(anyhow!("clickhouse responded {}: {}", status, body));
-        }
-        Ok(body)
     }
 }
 
@@ -344,68 +228,3 @@ fn merge_parser_series(ok: Vec<MetricPoint>, error: Vec<MetricPoint>) -> Vec<Dat
     merged.into_values().collect()
 }
 
-fn ident(value: &str) -> Result<&str> {
-    if value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        && !value.is_empty()
-    {
-        Ok(value)
-    } else {
-        Err(anyhow!("invalid identifier"))
-    }
-}
-
-fn parse_rows(body: String) -> Result<Vec<Value>> {
-    let mut rows = Vec::new();
-    for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        rows.push(serde_json::from_str::<Value>(line)?);
-    }
-    Ok(rows)
-}
-
-fn get_str(v: &Value, key: &str) -> String {
-    v.get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn as_u64(v: &Value, key: &str) -> u64 {
-    v.get(key)
-        .and_then(Value::as_u64)
-        .or_else(|| v.get(key).and_then(Value::as_i64).map(|n| n.max(0) as u64))
-        .or_else(|| v.get(key).and_then(Value::as_str).and_then(|s| s.parse::<u64>().ok()))
-        .unwrap_or(0)
-}
-
-fn as_f64(v: &Value, key: &str) -> f64 {
-    v.get(key)
-        .and_then(Value::as_f64)
-        .or_else(|| v.get(key).and_then(Value::as_str).and_then(|s| s.parse::<f64>().ok()))
-        .unwrap_or(0.0)
-}
-
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-}
-
-fn parse_prom_value_pair(value: &Value) -> Option<f64> {
-    let arr = value.as_array()?;
-    let raw = arr.get(1)?.as_str()?;
-    raw.parse::<f64>().ok()
-}
-
-fn parse_prom_series_pair(value: &Value) -> Option<(i64, f64)> {
-    let arr = value.as_array()?;
-    let ts = arr.first()?.as_f64()? as i64;
-    let raw = arr.get(1)?.as_str()?;
-    Some((ts, raw.parse::<f64>().ok()?))
-}

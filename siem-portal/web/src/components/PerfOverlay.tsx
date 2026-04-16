@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 
 export default function PerfOverlay() {
-  const [fps, setFps] = useState(0);
-  const [long16, setLong16] = useState(0);
-  const [long33, setLong33] = useState(0);
+  const spanRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -22,9 +20,10 @@ export default function PerfOverlay() {
       if (dt > 16.7) l16 += 1;
       if (dt > 33.3) l33 += 1;
       if (ts - windowStart >= 1000) {
-        setFps(frames);
-        setLong16(l16);
-        setLong33(l33);
+        // Update all stats in a single DOM write — no re-render needed
+        if (spanRef.current) {
+          spanRef.current.textContent = `FPS: ${frames}  >16ms: ${l16}/s  >33ms: ${l33}/s`;
+        }
         frames = 0;
         l16 = 0;
         l33 = 0;
@@ -42,9 +41,7 @@ export default function PerfOverlay() {
   return (
     <div className="suite-perf-overlay">
       <strong>Perf</strong>
-      <span>FPS: {fps}</span>
-      <span>&gt;16ms: {long16}/s</span>
-      <span>&gt;33ms: {long33}/s</span>
+      <span ref={spanRef}>FPS: 0  &gt;16ms: 0/s  &gt;33ms: 0/s</span>
     </div>
   );
 }

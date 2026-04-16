@@ -25,7 +25,10 @@ use crate::{
 struct PortalAsset;
 
 pub async fn health() -> Json<Value> {
-    Json(json!({"status": "ok", "service": "siem-portal"}))
+    Json(json!({
+        "status": "ok",
+        "service": "siem-portal",
+    }))
 }
 
 pub(crate) fn ui_config_json(state: &AppState) -> Value {
@@ -502,7 +505,9 @@ async fn proxy_json_request(
     actor: Option<String>,
     body: Option<Bytes>,
 ) -> Result<Response, StatusCode> {
-    let mut req = client.request(reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap(), url.clone());
+    let http_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let mut req = client.request(http_method, url.clone());
     req = req.timeout(timeout);
     if let Some(actor) = actor.filter(|v| !v.trim().is_empty()) {
         req = req.header("X-SOC-Actor", actor);

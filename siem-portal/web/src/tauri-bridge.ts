@@ -5,6 +5,9 @@
  * the @tauri-apps/api invoke() works.
  * When loaded in a regular browser, all functions return null
  * so the portal works as a standalone web app.
+ *
+ * IMPORTANT: Tauri 2 uses Rust parameter names as JSON keys,
+ * so we must send snake_case keys (api_base, not apiBase).
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -91,17 +94,18 @@ async function safeInvoke<T>(cmd: string, args?: Record<string, unknown>): Promi
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
+// NOTE: all parameter keys use snake_case to match Rust parameter names
 
 export async function checkStackStatus(): Promise<StackStatus | null> {
   return safeInvoke<StackStatus>("check_stack_status");
 }
 
 export async function fetchPortalStackStatus(apiBase: string): Promise<PortalStackStatus | null> {
-  return safeInvoke<PortalStackStatus>("fetch_portal_stack_status", { apiBase });
+  return safeInvoke<PortalStackStatus>("fetch_portal_stack_status", { api_base: apiBase });
 }
 
 export async function fetchObservabilitySnapshot(apiBase: string): Promise<ObsSnapshot | null> {
-  return safeInvoke<ObsSnapshot>("fetch_observability_snapshot", { apiBase });
+  return safeInvoke<ObsSnapshot>("fetch_observability_snapshot", { api_base: apiBase });
 }
 
 export async function dockerComposeAction(action: "start" | "stop" | "restart" | "status"): Promise<string | null> {
@@ -126,7 +130,7 @@ export async function listAttacks(): Promise<AttackDef[] | null> {
 }
 
 export async function runAttack(attackIdx: number): Promise<AttackResult | null> {
-  return safeInvoke<AttackResult>("run_attack", { attackIdx });
+  return safeInvoke<AttackResult>("run_attack", { attack_idx: attackIdx });
 }
 
 export async function openExternal(url: string): Promise<boolean> {

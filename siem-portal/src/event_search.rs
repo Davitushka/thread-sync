@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Result};
-use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::ClickHouseConfig;
+use crate::query_helpers::{as_u64, get_opt_str, get_str, ident, parse_rows, query_clickhouse};
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct EventSearchParams {
@@ -119,7 +119,7 @@ impl EventSearchService {
     ) -> Result<EventSearchResponse> {
         let filters = SearchFilters::from_params(params, &self.cfg.database)?;
         let sql = filters.build_search_sql();
-        let body = self.query_json(&sql, timeout).await?;
+        let body = query_clickhouse(&self.http, &self.cfg, &sql, timeout).await?;
         let rows = parse_rows(body)?
             .into_iter()
             .map(EventRow::from_json)
@@ -169,7 +169,7 @@ impl EventSearchService {
             ident(&self.cfg.database)?,
             event_id,
         );
-        let body = self.query_json(&sql, timeout).await?;
+        let body = query_clickhouse(&self.http, &self.cfg, &sql, timeout).await?;
         let mut rows = parse_rows(body)?;
         let Some(row) = rows.pop() else {
             return Ok(None);
@@ -240,7 +240,7 @@ impl EventSearchService {
             descriptor.kind,
             escape_string(&display_value),
         );
-        let body = self.query_json(&sql, timeout).await?;
+        let body = query_clickhouse(&self.http, &self.cfg, &sql, timeout).await?;
         let mut rows = parse_rows(body)?;
         let row = rows.pop().unwrap_or_else(|| {
             serde_json::json!({
@@ -281,28 +281,6 @@ impl EventSearchService {
                 top_hosts,
             },
         })
-    }
-
-    async fn query_json(&self, sql: &str, timeout: std::time::Duration) -> Result<String> {
-        let mut url = Url::parse(&self.cfg.url)?;
-        {
-            let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("database", &self.cfg.database);
-            pairs.append_pair("query", sql);
-        }
-        let resp = self
-            .http
-            .get(url)
-            .basic_auth(&self.cfg.user, Some(&self.cfg.password))
-            .timeout(timeout)
-            .send()
-            .await?;
-        let status = resp.status();
-        let body = resp.text().await?;
-        if !status.is_success() {
-            return Err(anyhow!("clickhouse responded {}: {}", status, body));
-        }
-        Ok(body)
     }
 }
 
@@ -597,49 +575,4 @@ fn escape_like(v: &str) -> String {
     escape_string(v).replace('%', "\\%").replace('_', "\\_")
 }
 
-fn get_str(v: &Value, key: &str) -> String {
-    v.get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn get_opt_str(v: &Value, key: &str) -> Option<String> {
-    v.get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToString::to_string)
-}
-
-fn ident(value: &str) -> Result<&str> {
-    if value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        && !value.is_empty()
-    {
-        Ok(value)
-    } else {
-        Err(anyhow!("invalid identifier"))
-    }
-}
-
-fn parse_rows(body: String) -> Result<Vec<Value>> {
-    let mut rows = Vec::new();
-    for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        rows.push(serde_json::from_str::<Value>(line)?);
-    }
-    Ok(rows)
-}
-
-fn as_u64(v: &Value, key: &str) -> u64 {
-    v.get(key)
-        .and_then(Value::as_u64)
-        .or_else(|| v.get(key).and_then(Value::as_str).and_then(|s| s.parse::<u64>().ok()))
-        .unwrap_or(0)
-}
 

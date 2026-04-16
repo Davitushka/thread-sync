@@ -124,14 +124,12 @@ fn parse_json(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError
         }
     }
 
-    // HTTP-специфичные поля
-    if let Some(props) = obj.get("Properties").and_then(|v| v.as_object()) {
+    // HTTP-специфичные поля + metadata из Properties (zero-copy via take)
+    let mut value = value; // take ownership
+    if let Some(props) = value.get_mut("Properties").and_then(|v| v.as_object_mut()) {
         extract_http_fields(props, event);
-        // Остаток в metadata
-        let mut meta: HashMap<String, Value> = HashMap::new();
-        for (k, v) in props {
-            meta.insert(k.clone(), v.clone());
-        }
+        // Забираем весь Map без клонирования
+        let meta: HashMap<String, Value> = std::mem::take(props);
         event.metadata = meta;
     }
 

@@ -41,20 +41,39 @@ static CREDIT_CARD_RE: Lazy<Regex> = Lazy::new(|| {
 
 /// Маскирует PII в строке. Возвращает новую строку только если были замены.
 /// Для оптимизации: если замен нет — возвращает None (избегаем аллокации).
+/// Сначала проверяет наличие PII паттернов, аллоцирует только при match.
 pub fn mask_pii(input: &str) -> Option<String> {
-    let mut result = input.to_owned();
-    let mut modified = false;
+    // Quick scan: check if any pattern matches before allocating
+    let has_email = EMAIL_RE.is_match(Input::new(input));
+    let has_phone = PHONE_RE.is_match(Input::new(input));
+    let has_token = TOKEN_RE.is_match(Input::new(input));
+    let has_card = CREDIT_CARD_RE.is_match(Input::new(input));
 
-    modified |= replace_all(&mut result, &EMAIL_RE, "***@***.***");
-    modified |= replace_all(&mut result, &PHONE_RE, "[PHONE]");
-    modified |= replace_all(&mut result, &TOKEN_RE, "[REDACTED_TOKEN]");
-    modified |= replace_all(&mut result, &CREDIT_CARD_RE, "[CARD_REDACTED]");
-
-    if modified {
-        Some(result)
-    } else {
-        None
+    if !has_email && !has_phone && !has_token && !has_card {
+        return None;
     }
+
+    let mut result = String::with_capacity(input.len());
+    result.push_str(input);
+
+    if has_email {
+        crate::metrics::PII_MASKS_TOTAL.with_label_values(&["email"]).inc();
+        replace_all(&mut result, &EMAIL_RE, "***@***.***");
+    }
+    if has_phone {
+        crate::metrics::PII_MASKS_TOTAL.with_label_values(&["phone"]).inc();
+        replace_all(&mut result, &PHONE_RE, "[PHONE]");
+    }
+    if has_token {
+        crate::metrics::PII_MASKS_TOTAL.with_label_values(&["token"]).inc();
+        replace_all(&mut result, &TOKEN_RE, "[REDACTED_TOKEN]");
+    }
+    if has_card {
+        crate::metrics::PII_MASKS_TOTAL.with_label_values(&["credit_card"]).inc();
+        replace_all(&mut result, &CREDIT_CARD_RE, "[CARD_REDACTED]");
+    }
+
+    Some(result)
 }
 
 /// Маскирует PII и возвращает строку (всегда).
@@ -91,6 +110,7 @@ fn replace_all(text: &mut String, re: &Regex, replacement: &str) -> bool {
 }
 
 /// Маскирует конкретные ключи в JSON-объекте (без полного ре-парсинга).
+/// Использует case-insensitive comparison без аллокации (без .to_lowercase()).
 pub fn mask_sensitive_json_keys(value: &mut serde_json::Value) {
     const SENSITIVE_KEYS: &[&str] = &[
         "password",
@@ -115,7 +135,7 @@ pub fn mask_sensitive_json_keys(value: &mut serde_json::Value) {
             for (key, val) in map.iter_mut() {
                 if SENSITIVE_KEYS
                     .iter()
-                    .any(|k| key.to_lowercase().contains(k))
+                    .any(|k| key.eq_ignore_ascii_case(k))
                 {
                     *val = serde_json::Value::String("[REDACTED]".to_string());
                 } else {

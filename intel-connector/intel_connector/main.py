@@ -133,7 +133,8 @@ def fetch_misp_iocs(
         ],
     }
     out: list[Ioc] = []
-    with httpx.Client(timeout=120.0, verify=verify_ssl) as client:
+    transport = httpx.Transport(retries=3)
+    with httpx.Client(timeout=120.0, verify=verify_ssl, transport=transport) as client:
         r = client.post(url, headers=headers, json=body)
         r.raise_for_status()
         data = r.json()
@@ -180,7 +181,8 @@ def fetch_misp_iocs(
 
 
 def fetch_feed_iocs(feed_url: str, verify_ssl: bool) -> list[Ioc]:
-    with httpx.Client(timeout=60.0, verify=verify_ssl) as client:
+    transport = httpx.Transport(retries=3)
+    with httpx.Client(timeout=60.0, verify=verify_ssl, transport=transport) as client:
         r = client.get(feed_url)
         r.raise_for_status()
         data = r.json()
@@ -320,10 +322,20 @@ def upsert_iocs(
     return len(rows)
 
 
-def sync_redis(iocs: list[Ioc], redis_url: str) -> None:
-    import redis
+_redis_client = None
 
-    r = redis.from_url(redis_url, decode_responses=True)
+
+def _get_redis(redis_url: str):
+    """Lazy singleton Redis connection pool — reused across sync cycles."""
+    global _redis_client
+    if _redis_client is None:
+        import redis
+        _redis_client = redis.from_url(redis_url, decode_responses=True)
+    return _redis_client
+
+
+def sync_redis(iocs: list[Ioc], redis_url: str) -> None:
+    r = _get_redis(redis_url)
     pipe = r.pipeline()
     # Очищаем старые IPv4 для атомарной замены набора (только ключ коннектора)
     key_v4 = os.environ.get("INTEL_REDIS_SET_IPV4", "siem:intel:ipv4")
@@ -391,6 +403,26 @@ def run_once() -> None:
         sync_redis(all_for_redis, redis_url)
 
 
+def _health_server(port: int) -> None:
+    """Minimal health endpoint on /health for k8s liveness probes."""
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/health":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, *_args):
+            pass  # silence request logs
+
+    HTTPServer(("0.0.0.0", port), Handler).serve_forever()
+
+
 def main() -> None:
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
@@ -399,8 +431,13 @@ def main() -> None:
     )
     interval = int(os.environ.get("INTEL_POLL_INTERVAL_SEC", "3600"))
     run_immediately = _env_bool("INTEL_RUN_ONCE", False)
+    health_port = int(os.environ.get("INTEL_HEALTH_PORT", "8080"))
 
-    LOG.info("intel-connector starting poll_interval=%ss run_once=%s", interval, run_immediately)
+    LOG.info("intel-connector starting poll_interval=%ss run_once=%s health_port=%s", interval, run_immediately, health_port)
+
+    # Start health server in background thread
+    import threading
+    threading.Thread(target=_health_server, args=(health_port,), daemon=True).start()
 
     while True:
         try:

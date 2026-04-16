@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   getAlerts,
@@ -35,47 +35,80 @@ import { formatCompact, formatPercent, shortDateTime } from "../dashboard-utils"
 export default function OverviewPage() {
   const { openOrFocusWorkspace } = useWorkspaceShell();
   const navigate = useNavigate();
-  const [config, setConfig] = useState<UiConfig | null>(null);
-  const [stack, setStack] = useState<StackStatus | null>(null);
-  const [overview, setOverview] = useState<OverviewDashboard | null>(null);
-  const [casesCount, setCasesCount] = useState<number | null>(null);
-  const [alertsCount, setAlertsCount] = useState<number | null>(null);
-  const [stats, setStats] = useState<{ rules_count: number; pending_alerts: number } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+
+  // Consolidate 7 related states into a single reducer to batch updates
+  type PageState = {
+    config: UiConfig | null;
+    stack: StackStatus | null;
+    overview: OverviewDashboard | null;
+    casesCount: number | null;
+    alertsCount: number | null;
+    stats: { rules_count: number; pending_alerts: number } | null;
+    err: string | null;
+    loading: boolean;
+  };
+  const [state, dispatch] = useReducer(
+    (prev: PageState, action: Partial<PageState>) => ({ ...prev, ...action }),
+    {
+      config: null,
+      stack: null,
+      overview: null,
+      casesCount: null,
+      alertsCount: null,
+      stats: null,
+      err: null,
+      loading: false,
+    },
+  );
+  const { config, stack, overview, casesCount, alertsCount, stats, err, loading } = state;
+
   const [hours, setHours] = useState(24);
   const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
-  const [loading, setLoading] = useState(false);
   const mounted = useRef(true);
   const requestSeq = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(() => {
     if (!mounted.current) return;
     const seq = ++requestSeq.current;
-    setLoading(true);
-    Promise.all([uiConfig(), stackStatus(), getOverviewDashboard(hours), listCases({ limit: "1" }), getAlerts(), getCorrelatorStats()])
+    // Cancel any in-flight request
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    const signal = ac.signal;
+    dispatch({ loading: true });
+    Promise.all([
+      uiConfig(signal),
+      stackStatus(signal),
+      getOverviewDashboard(hours, signal),
+      listCases({ limit: "1" }, signal),
+      getAlerts(),
+      getCorrelatorStats(signal),
+    ])
       .then(([cfg, stackData, overviewData, cases, alerts, correlator]) => {
         if (!mounted.current || seq !== requestSeq.current) return;
-        setConfig(cfg);
-        setStack(stackData);
-        setOverview(overviewData);
-        setCasesCount(cases.total);
-        setAlertsCount(alerts.length);
-        setStats({ rules_count: correlator.rules_count, pending_alerts: correlator.pending_alerts });
-        setErr(null);
+        dispatch({
+          config: cfg,
+          stack: stackData,
+          overview: overviewData,
+          casesCount: cases.total,
+          alertsCount: alerts.length,
+          stats: { rules_count: correlator.rules_count, pending_alerts: correlator.pending_alerts },
+          err: null,
+          loading: false,
+        });
       })
       .catch((e) => {
+        if (signal.aborted) return;
         if (!mounted.current || seq !== requestSeq.current) return;
-        setErr(String(e));
-      })
-      .finally(() => {
-        if (!mounted.current || seq !== requestSeq.current) return;
-        setLoading(false);
+        dispatch({ err: String(e), loading: false });
       });
   }, [hours]);
 
   useEffect(() => {
     return () => {
       mounted.current = false;
+      abortRef.current?.abort();
     };
   }, []);
 
@@ -98,16 +131,16 @@ export default function OverviewPage() {
     ],
     useCallback(
       (topic, data) => {
-        if (topic === rtUiConfig()) setConfig(data as UiConfig);
-        else if (topic === rtStackStatus()) setStack(data as StackStatus);
-        else if (topic === rtOverviewTopic) setOverview(data as OverviewDashboard);
+        if (topic === rtUiConfig()) dispatch({ config: data as UiConfig });
+        else if (topic === rtStackStatus()) dispatch({ stack: data as StackStatus });
+        else if (topic === rtOverviewTopic) dispatch({ overview: data as OverviewDashboard });
         else if (topic === rtCorrelatorStats()) {
           const c = data as CorrelatorStats;
-          setStats({ rules_count: c.rules_count, pending_alerts: c.pending_alerts });
+          dispatch({ stats: { rules_count: c.rules_count, pending_alerts: c.pending_alerts } });
         } else if (topic === rtAlertmanagerAlerts()) {
-          setAlertsCount(Array.isArray(data) ? data.length : 0);
+          dispatch({ alertsCount: Array.isArray(data) ? data.length : 0 });
         } else if (topic === "cases.list?limit=1") {
-          setCasesCount((data as { total: number }).total);
+          dispatch({ casesCount: (data as { total: number }).total });
         }
       },
       [rtOverviewTopic]

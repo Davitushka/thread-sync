@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
 use axum::extract::State;
 use axum::Json;
@@ -127,17 +128,13 @@ fn soc_case_tags(alert: &AlertmanagerAlert) -> Vec<String> {
     tags
 }
 
-/// Только литерал IPv4 без кавычек/пробелов — для подсказки SQL в таймлайне (копипаст в Grafana).
-fn safe_ipv4_literal_for_hint(ip: &str) -> Option<&str> {
-    if ip.is_empty() || ip.len() > 39 || ip.contains('\'') || ip.contains('"') {
+/// Validates an IP address using standard parsing — for SQL hints in timeline.
+fn safe_ip_literal_for_hint(ip: &str) -> Option<&str> {
+    let ip = ip.trim();
+    if ip.is_empty() {
         return None;
     }
-    if ip.contains(':') {
-        return None;
-    }
-    ip.chars()
-        .all(|c| c.is_ascii_digit() || c == '.')
-        .then_some(ip)
+    std::net::IpAddr::from_str(ip).ok().map(|_| ip)
 }
 
 fn investigation_shortcuts(state: &AppState, alert: &AlertmanagerAlert) -> Value {
@@ -148,7 +145,7 @@ fn investigation_shortcuts(state: &AppState, alert: &AlertmanagerAlert) -> Value
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .unwrap_or("");
-    let ip = safe_ipv4_literal_for_hint(ip_raw).unwrap_or("");
+    let ip = safe_ip_literal_for_hint(ip_raw).unwrap_or("");
     let rule_id = alert
         .labels
         .get("rule_id")
@@ -312,9 +309,9 @@ async fn ingest_firing(
                 .unwrap_or_default();
             let desc_opt = if desc.is_empty() { None } else { Some(desc.as_str()) };
 
-            state
-                .store
-                .upsert_linked_alert(
+            // Run upsert and timeline in parallel — they are independent
+            let (upsert_res, timeline_res) = tokio::join!(
+                state.store.upsert_linked_alert(
                     case_id,
                     fp,
                     Some(&rule_id),
@@ -323,12 +320,8 @@ async fn ingest_firing(
                     desc_opt,
                     seen_at,
                     &labels_json,
-                )
-                .await?;
-
-            let _ = state
-                .store
-                .add_timeline(
+                ),
+                state.store.add_timeline(
                     case_id,
                     &state.default_actor,
                     "alert",
@@ -339,7 +332,11 @@ async fn ingest_firing(
                         "severity": sev,
                     }),
                 )
-                .await;
+            );
+            upsert_res?;
+            if let Err(e) = timeline_res {
+                tracing::warn!(error = %e, case_id = %case_id, "failed to add alert timeline");
+            }
 
             Ok((false, case_id))
         }
@@ -377,23 +374,24 @@ async fn ingest_firing(
             };
             let case = state.store.create_case(req).await?;
 
-            if let Some(ref url) = runbook {
-                let _ = state
-                    .store
-                    .add_timeline(
-                        case.id,
-                        &state.default_actor,
-                        "runbook",
-                        Some("Runbook linked"),
-                        json!({"url": url}),
-                    )
-                    .await;
-            }
-
+            // All post-creation writes are independent — run in parallel
+            let runbook_timeline = async {
+                if let Some(ref url) = runbook {
+                    let _ = state
+                        .store
+                        .add_timeline(
+                            case.id,
+                            &state.default_actor,
+                            "runbook",
+                            Some("Runbook linked"),
+                            json!({"url": url}),
+                        )
+                        .await;
+                }
+            };
             let shortcuts = investigation_shortcuts(state, alert);
-            let _ = state
-                .store
-                .add_timeline(
+            let shortcuts_timeline = async {
+                let _ = state.store.add_timeline(
                     case.id,
                     &state.default_actor,
                     "data_note",
@@ -401,16 +399,15 @@ async fn ingest_firing(
                     shortcuts,
                 )
                 .await;
-
+            };
             let mut meta = json!({"fingerprint": fp});
             if !group_key.is_empty() {
                 meta.as_object_mut()
                     .unwrap()
                     .insert("group_key".into(), json!(group_key));
             }
-            let _ = state
-                .store
-                .add_timeline(
+            let system_timeline = async {
+                let _ = state.store.add_timeline(
                     case.id,
                     &state.default_actor,
                     "system",
@@ -418,27 +415,31 @@ async fn ingest_firing(
                     meta,
                 )
                 .await;
-
+            };
             let alert_title = alert
                 .labels
                 .get("alertname")
                 .cloned()
                 .unwrap_or_default();
             let desc_opt = if desc.is_empty() { None } else { Some(desc.as_str()) };
+            let upsert = state.store.upsert_linked_alert(
+                case.id,
+                fp,
+                Some(&rule_id),
+                Some(&alert_title),
+                Some(sev),
+                desc_opt,
+                seen_at,
+                &labels_json,
+            );
 
-            state
-                .store
-                .upsert_linked_alert(
-                    case.id,
-                    fp,
-                    Some(&rule_id),
-                    Some(&alert_title),
-                    Some(sev),
-                    desc_opt,
-                    seen_at,
-                    &labels_json,
-                )
-                .await?;
+            let (_, _, _, r4) = tokio::join!(
+                runbook_timeline,
+                shortcuts_timeline,
+                system_timeline,
+                upsert,
+            );
+            r4?;
 
             Ok((true, case.id))
         }
@@ -457,7 +458,7 @@ async fn ingest_resolved(
         .get("alertname")
         .cloned()
         .unwrap_or_default();
-    let _ = state
+    if let Err(e) = state
         .store
         .add_timeline(
             case_id,
@@ -470,6 +471,9 @@ async fn ingest_resolved(
                 "ends_at": alert.ends_at,
             }),
         )
-        .await;
+        .await
+    {
+        tracing::warn!(error = %e, case_id = %case_id, "failed to add resolved timeline");
+    }
     Ok(case_id)
 }

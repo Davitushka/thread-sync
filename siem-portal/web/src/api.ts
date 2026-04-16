@@ -39,18 +39,20 @@ function normalizeRequestPath(path: string): string {
 
 const API_BASE = normalizeBasePath(RAW_API_BASE);
 
-const api = (path: string, init?: RequestInit) =>
+const api = (path: string, init?: RequestInit & { signal?: AbortSignal }) =>
   fetch(joinRequestPath(API_BASE, path), {
     ...init,
+    signal: init?.signal,
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers || {}),
     },
   });
 
-const suite = (path: string, init?: RequestInit) =>
+const suite = (path: string, init?: RequestInit & { signal?: AbortSignal }) =>
   fetch(normalizeRequestPath(path), {
     ...init,
+    signal: init?.signal,
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers || {}),
@@ -452,57 +454,57 @@ type PromQueryResponse = {
   };
 };
 
-export async function uiConfig(): Promise<UiConfig> {
-  const r = await api("/ui/config");
+export async function uiConfig(signal?: AbortSignal): Promise<UiConfig> {
+  const r = await api("/ui/config", { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function stackStatus(): Promise<StackStatus> {
-  const r = await api("/stack/status");
+export async function stackStatus(signal?: AbortSignal): Promise<StackStatus> {
+  const r = await api("/stack/status", { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getOverviewDashboard(hours = 24): Promise<OverviewDashboard> {
-  const r = await api(`/overview?hours=${hours}`);
+export async function getOverviewDashboard(hours = 24, signal?: AbortSignal): Promise<OverviewDashboard> {
+  const r = await api(`/overview?hours=${hours}`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getInfrastructureDashboard(hours = 6): Promise<InfrastructureDashboard> {
-  const r = await api(`/infrastructure?hours=${hours}`);
+export async function getInfrastructureDashboard(hours = 6, signal?: AbortSignal): Promise<InfrastructureDashboard> {
+  const r = await api(`/infrastructure?hours=${hours}`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getOperationsDashboard(hours = 24): Promise<OperationsDashboard> {
-  const r = await api(`/operations?hours=${hours}`);
+export async function getOperationsDashboard(hours = 24, signal?: AbortSignal): Promise<OperationsDashboard> {
+  const r = await api(`/operations?hours=${hours}`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getDataQualityDashboard(hours = 24): Promise<DataQualityDashboard> {
-  const r = await api(`/data-quality?hours=${hours}`);
+export async function getDataQualityDashboard(hours = 24, signal?: AbortSignal): Promise<DataQualityDashboard> {
+  const r = await api(`/data-quality?hours=${hours}`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function listCases(params: Record<string, string>): Promise<{ cases: Case[]; total: number }> {
+export async function listCases(params: Record<string, string>, signal?: AbortSignal): Promise<{ cases: Case[]; total: number }> {
   const q = new URLSearchParams(params);
-  const r = await api(`/proxy/cases?${q}`);
+  const r = await api(`/proxy/cases?${q}`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getCase(id: string): Promise<CaseDetail> {
-  const r = await api(`/proxy/cases/${id}`);
+export async function getCase(id: string, signal?: AbortSignal): Promise<CaseDetail> {
+  const r = await api(`/proxy/cases/${id}`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getInvestigation(id: string): Promise<Investigation> {
-  const r = await api(`/proxy/cases/${id}/investigate`);
+export async function getInvestigation(id: string, signal?: AbortSignal): Promise<Investigation> {
+  const r = await api(`/proxy/cases/${id}/investigate`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -588,14 +590,14 @@ export async function getAlerts(): Promise<AlertItem[]> {
   return r.json();
 }
 
-export async function getAlertsOverview(): Promise<AlertsOverview> {
-  const r = await api("/alerts/overview");
+export async function getAlertsOverview(signal?: AbortSignal): Promise<AlertsOverview> {
+  const r = await api("/alerts/overview", { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getCorrelatorStats(): Promise<CorrelatorStats> {
-  const r = await api("/proxy/correlator/stats");
+export async function getCorrelatorStats(signal?: AbortSignal): Promise<CorrelatorStats> {
+  const r = await api("/proxy/correlator/stats", { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -620,27 +622,27 @@ export async function getPromAlerts(): Promise<DetectionRow[]> {
   }));
 }
 
-export async function getDetectionsOverview(): Promise<DetectionsOverview> {
-  const r = await api("/detections/overview");
+export async function getDetectionsOverview(signal?: AbortSignal): Promise<DetectionsOverview> {
+  const r = await api("/detections/overview", { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function searchEvents(params: Record<string, string>): Promise<EventSearchResponse> {
+export async function searchEvents(params: Record<string, string>, signal?: AbortSignal): Promise<EventSearchResponse> {
   const q = new URLSearchParams(params);
-  const r = await api(`/events/search?${q.toString()}`);
+  const r = await api(`/events/search?${q.toString()}`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getEvent(id: string): Promise<EventDetail> {
-  const r = await api(`/events/${id}`);
+export async function getEvent(id: string, signal?: AbortSignal): Promise<EventDetail> {
+  const r = await api(`/events/${id}`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 
-export async function getEntityContext(kind: string, value: string): Promise<EntityContext> {
-  const r = await api(`/entities/${encodeURIComponent(kind)}/${encodeURIComponent(value)}/context`);
+export async function getEntityContext(kind: string, value: string, signal?: AbortSignal): Promise<EntityContext> {
+  const r = await api(`/entities/${encodeURIComponent(kind)}/${encodeURIComponent(value)}/context`, { signal });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }

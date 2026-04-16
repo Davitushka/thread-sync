@@ -1,3 +1,5 @@
+import React from "react";
+
 type Props = {
   iconKey: string;
   className?: string;
@@ -121,7 +123,7 @@ function iconPath(iconKey: string) {
   }
 }
 
-export default function ShellIcon({ iconKey, className, size = 18 }: Props) {
+const ShellIcon = React.memo(function ShellIcon({ iconKey, className, size = 18 }: Props) {
   return (
     <span className={className} aria-hidden="true">
       <svg viewBox="0 0 24 24" width={size} height={size}>
@@ -129,4 +131,6 @@ export default function ShellIcon({ iconKey, className, size = 18 }: Props) {
       </svg>
     </span>
   );
-}
+});
+
+export default ShellIcon;

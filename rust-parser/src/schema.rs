@@ -103,6 +103,17 @@ impl Severity {
             Self::Critical => 4,
         }
     }
+
+    /// Returns the severity as a `&'static str` without heap allocation.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warning => "warning",
+            Self::Error => "error",
+            Self::Critical => "critical",
+        }
+    }
 }
 
 impl std::fmt::Display for Severity {

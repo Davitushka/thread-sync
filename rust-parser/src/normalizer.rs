@@ -23,7 +23,7 @@ impl NormalizationPipeline {
     }
 
     /// Обрабатывает одно событие. Время <5ms p99 на 1KB события.
-    pub fn process(
+    pub async fn process(
         &self,
         raw: Bytes,
         source_type: &str,
@@ -32,7 +32,7 @@ impl NormalizationPipeline {
         let start = Instant::now();
         metrics::EVENTS_IN_FLIGHT.inc();
 
-        let result = self.process_inner(raw, source_type, host);
+        let result = self.process_inner(raw, source_type, host).await;
 
         let elapsed = start.elapsed();
         metrics::EVENTS_IN_FLIGHT.dec();
@@ -42,29 +42,34 @@ impl NormalizationPipeline {
             .with_label_values(&[source_type, "auto", status])
             .inc();
         if let Ok(event) = &result {
+            // Zero-alloc label construction for the hot path:
+            // - status_code: itoa formats u16 into a stack buffer, no heap
+            // - severity: as_str() returns &'static str
+            // - url_path: borrowed from event or metadata, Cow avoids clone
+            let mut status_code_buf = itoa::Buffer::new();
             let status_code = event
                 .status_code
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "none".to_string());
+                .map(|v| status_code_buf.format(v))
+                .unwrap_or("none");
+            let severity = event.severity.as_str();
             let url_path_value = event
                 .url_path
-                .clone()
+                .as_deref()
+                .filter(|s| !s.is_empty())
                 .or_else(|| metric_url_path_from_metadata(event))
                 .or_else(|| metric_url_path_from_message(event))
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| "none".to_string());
+                .unwrap_or("none");
             let source_ip = event
                 .source_ip
                 .as_deref()
                 .filter(|value| !value.is_empty())
                 .unwrap_or("none");
-            let severity = event.severity.to_string();
             metrics::SIEM_EVENTS_TOTAL
                 .with_label_values(&[
                     event.source_type.as_str(),
-                    severity.as_str(),
-                    status_code.as_str(),
-                    url_path_value.as_str(),
+                    severity,
+                    status_code,
+                    url_path_value,
                     source_ip,
                 ])
                 .inc();
@@ -85,7 +90,7 @@ impl NormalizationPipeline {
         result
     }
 
-    fn process_inner(
+    async fn process_inner(
         &self,
         raw: Bytes,
         source_type: &str,
@@ -99,10 +104,12 @@ impl NormalizationPipeline {
             if let Some(masked) = pii::mask_pii(&event.message) {
                 event.message = masked;
             }
-            pii::mask_sensitive_json_keys(
-                &mut serde_json::to_value(&event.metadata)
-                    .unwrap_or(serde_json::Value::Object(Default::default())),
-            );
+            if let Ok(mut val) = serde_json::to_value(&event.metadata) {
+                pii::mask_sensitive_json_keys(&mut val);
+                if let Ok(masked) = serde_json::from_value(val) {
+                    event.metadata = masked;
+                }
+            }
             if let Some(masked_path) = event.url_path.as_deref().and_then(pii::mask_pii) {
                 event.url_path = Some(masked_path);
             }
@@ -110,29 +117,31 @@ impl NormalizationPipeline {
 
         // 3. GeoIP + ASN обогащение
         if self.enable_geoip {
-            self.enricher.enrich(&mut event);
+            self.enricher.enrich(&mut event).await;
         }
 
         Ok(event)
     }
 }
 
-fn metric_url_path_from_metadata(event: &NormalizedEvent) -> Option<String> {
+/// Extracts the URL path from metadata, returning a borrowed &str when possible.
+/// Falls back to an allocated string only when stripping query params.
+fn metric_url_path_from_metadata(event: &NormalizedEvent) -> Option<&str> {
     event
         .metadata
         .get("RequestPath")
         .or_else(|| event.metadata.get("Path"))
         .or_else(|| event.metadata.get("Url"))
         .and_then(|value| value.as_str())
-        .map(|value| value.split('?').next().unwrap_or(value).to_string())
+        .map(|value| value.split('?').next().unwrap_or(value))
 }
 
-fn metric_url_path_from_message(event: &NormalizedEvent) -> Option<String> {
+fn metric_url_path_from_message(event: &NormalizedEvent) -> Option<&str> {
     event.message.split_whitespace().find_map(|token| {
         let trimmed = token
             .trim_matches(|c: char| matches!(c, '"' | '\'' | ',' | ';' | '(' | ')' | '[' | ']'));
         if trimmed.starts_with('/') {
-            Some(trimmed.split('?').next().unwrap_or(trimmed).to_string())
+            Some(trimmed.split('?').next().unwrap_or(trimmed))
         } else {
             None
         }
@@ -153,19 +162,20 @@ mod tests {
         NormalizationPipeline::new(enricher, true, false)
     }
 
-    #[test]
-    fn test_pii_masked_in_pipeline() {
+    #[tokio::test]
+    async fn test_pii_masked_in_pipeline() {
         let pipeline = make_pipeline();
         let raw = br#"{"Level":"Info","Message":"User admin@corp.com logged in with token=eyJhbGci.payload.sig"}"#;
         let event = pipeline
             .process(Bytes::from_static(raw), "dotnet", "test-host")
+            .await
             .unwrap();
         assert!(!event.message.contains("admin@corp.com"));
         assert!(!event.message.contains("eyJhbGci"));
     }
 
-    #[test]
-    fn test_sla_compliant() {
+    #[tokio::test]
+    async fn test_sla_compliant() {
         let pipeline = make_pipeline();
         let raw = bytes::Bytes::from(
             serde_json::json!({
@@ -182,7 +192,7 @@ mod tests {
         );
 
         let start = std::time::Instant::now();
-        let _event = pipeline.process(raw, "dotnet", "host").unwrap();
+        let _event = pipeline.process(raw, "dotnet", "host").await.unwrap();
         let elapsed = start.elapsed();
         // В тесте без GeoIP и с простым JSON — должно быть <1ms
         assert!(
@@ -200,7 +210,7 @@ mod tests {
             serde_json::Value::String("/api/auth/login?token=secret".to_string()),
         );
         assert_eq!(
-            metric_url_path_from_metadata(&event).as_deref(),
+            metric_url_path_from_metadata(&event),
             Some("/api/auth/login")
         );
     }
@@ -210,7 +220,7 @@ mod tests {
         let mut event = crate::schema::NormalizedEvent::new("dotnet");
         event.message = "Authentication failed on /api/auth/login from 203.0.113.5".to_string();
         assert_eq!(
-            metric_url_path_from_message(&event).as_deref(),
+            metric_url_path_from_message(&event),
             Some("/api/auth/login")
         );
     }

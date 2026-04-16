@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
+use rand::SeedableRng;
+use futures::StreamExt;
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
@@ -158,14 +160,12 @@ fn random_ip() -> String {
 }
 
 fn simple_rng() -> impl FnMut(u32) -> u32 {
-    let mut seed = std::time::SystemTime::now()
+    let seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
+        .expect("System clock before UNIX_EPOCH")
         .as_nanos() as u64;
-    move |range| {
-        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        ((seed >> 33) as u32) % range
-    }
+    let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
+    move |range| rand::Rng::random_range(&mut rng, 0..range)
 }
 
 fn build_attack_events(attack_idx: usize) -> Vec<serde_json::Value> {
@@ -236,33 +236,38 @@ fn json_event_custom(ip: &str, method: &str, path: &str, status: u16, user: &str
 // ── Docker compose helpers ──────────────────────────────────────────────────
 
 fn discover_compose_dir() -> Option<std::path::PathBuf> {
-    let candidates = [
-        "deploy/docker",
-        "../deploy/docker",
-        "../../deploy/docker",
-    ];
-    for candidate in &candidates {
-        let dir = std::path::PathBuf::from(candidate);
-        if dir.join("docker-compose.yml").exists() {
-            return Some(std::fs::canonicalize(&dir).ok().unwrap_or(dir));
+    // Use locate_repo_root to find the project root, then compose dir
+    if let Some(root) = locate_repo_root() {
+        let compose_dir = root.join("deploy").join("docker");
+        if compose_dir.join("docker-compose.yml").is_file() {
+            return Some(compose_dir);
         }
     }
-    // Try relative to executable
+
+    // Fallback: try relative paths from current dir and exe dir
+    let mut bases: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(dir) = std::env::current_dir() {
+        bases.push(dir);
+    }
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            for candidate in &candidates {
-                let dir = exe_dir.join(candidate);
-                if dir.join("docker-compose.yml").exists() {
-                    return Some(std::fs::canonicalize(&dir).ok().unwrap_or(dir));
+        if let Some(dir) = exe.parent() {
+            // Walk up from exe dir (could be deep: siem-desktop/target/release/)
+            for ancestor in dir.ancestors() {
+                let p = ancestor.to_path_buf();
+                if !bases.contains(&p) {
+                    bases.push(p);
                 }
             }
-            // Try project root
-            if exe_dir.join("deploy/docker/docker-compose.yml").exists() {
-                let dir = exe_dir.join("deploy/docker");
-                return Some(std::fs::canonicalize(&dir).ok().unwrap_or(dir));
-            }
         }
     }
+
+    for base in &bases {
+        let compose_dir = base.join("deploy").join("docker");
+        if compose_dir.join("docker-compose.yml").is_file() {
+            return Some(compose_dir);
+        }
+    }
+
     None
 }
 
@@ -286,20 +291,25 @@ async fn check_stack_status() -> Result<StackStatus, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut results = Vec::new();
-    for (name, url) in services {
-        let healthy = client
-            .get(url)
-            .send()
-            .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
-        results.push(ServiceStatus {
-            name: name.to_string(),
-            url: url.to_string(),
-            healthy,
-        });
-    }
+    let futures: Vec<_> = services
+        .iter()
+        .map(|(name, url)| {
+            let c = client.clone();
+            let n = name.to_string();
+            let u = url.to_string();
+            async move {
+                let healthy = c
+                    .get(&u)
+                    .send()
+                    .await
+                    .map(|r| r.status().is_success())
+                    .unwrap_or(false);
+                ServiceStatus { name: n, url: u, healthy }
+            }
+        })
+        .collect();
+
+    let results = futures::future::join_all(futures).await;
 
     Ok(StackStatus { services: results })
 }
@@ -425,8 +435,14 @@ async fn fetch_observability_snapshot(api_base: String) -> Result<ObsSnapshot, S
 
 #[tauri::command]
 async fn docker_compose_action(action: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let compose_dir = discover_compose_dir().ok_or("deploy/docker/docker-compose.yml not found")?;
+    let compose_dir = discover_compose_dir().ok_or_else(|| {
+        let msg = "deploy/docker/docker-compose.yml not found. Tried repo root and exe ancestors.".to_string();
+        eprintln!("[siem-desktop] {msg}");
+        msg
+    })?;
     let compose_path = compose_dir.join("docker-compose.yml");
+
+    eprintln!("[siem-desktop] docker compose {action} in {}", compose_dir.display());
 
     let cmd_str = match action.as_str() {
         "start" => format!("docker compose -f \"{}\" up -d", compose_path.display()),
@@ -475,8 +491,9 @@ fn get_settings(state: tauri::State<'_, AppState>) -> Result<AppSettings, String
 }
 
 #[tauri::command]
-fn save_settings(settings: AppSettings, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    settings.save()?;
+async fn save_settings(settings: AppSettings, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let s = settings.clone();
+    tokio::task::spawn_blocking(move || s.save()).await.map_err(|e| e.to_string())??;
     *state.settings.lock().map_err(|e| e.to_string())? = settings;
     Ok(())
 }
@@ -505,17 +522,21 @@ async fn run_attack(attack_idx: usize) -> Result<AttackResult, String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut errors = Vec::new();
-    for event in &events {
-        if let Err(e) = client
-            .post(&vector_url)
-            .json(event)
-            .send()
-            .await
-        {
-            errors.push(e.to_string());
+    // Batch send with concurrency limit of 16
+    let futures_stream = futures::stream::iter(events.into_iter().map(|event| {
+        let c = client.clone();
+        let url = vector_url.clone();
+        async move {
+            let res: Result<(), String> = c.post(&url).json(&event).send().await.map_err(|e| e.to_string()).map(|_| ());
+            res
         }
-    }
+    }));
+    let results = futures_stream
+        .buffer_unordered(16)
+        .collect::<Vec<Result<(), String>>>()
+        .await;
+
+    let errors: Vec<String> = results.into_iter().filter_map(|r: Result<(), String>| r.err()).collect();
 
     Ok(AttackResult {
         attack_name: attack.name.clone(),
@@ -560,6 +581,250 @@ fn get_env_url(key: String) -> Option<String> {
     std::env::var(&key).ok()
 }
 
+#[tauri::command]
+async fn diagnose_paths() -> serde_json::Value {
+    tokio::task::spawn_blocking(|| {
+        let compose_dir = discover_compose_dir();
+        let repo_root = locate_repo_root();
+        let exe = std::env::current_exe().ok();
+        let cwd = std::env::current_dir().ok();
+
+        serde_json::json!({
+            "compose_dir": compose_dir.map(|p| p.display().to_string()),
+            "repo_root": repo_root.map(|p| p.display().to_string()),
+            "exe": exe.map(|p| p.display().to_string()),
+            "cwd": cwd.map(|p| p.display().to_string()),
+        })
+    })
+    .await
+    .unwrap_or_else(|e| serde_json::json!({"error": e.to_string()}))
+}
+
+#[tauri::command]
+async fn check_portal_health() -> bool {
+    let portal_url = std::env::var("SIEM_PORTAL_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8091".to_string());
+    portal_healthy(&portal_url).await
+}
+
+#[tauri::command]
+async fn start_stack() -> Result<String, String> {
+    let portal_url = std::env::var("SIEM_PORTAL_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:8091".to_string());
+
+    // Already running?
+    if portal_healthy(&portal_url).await {
+        return Ok("Portal already running".to_string());
+    }
+
+    let Some(repo_root) = locate_repo_root() else {
+        return Err("Cannot find repo root (siem-portal/Cargo.toml not found in ancestors)".to_string());
+    };
+
+    // Start Docker — blocking call with output capture
+    let root_clone = repo_root.clone();
+    let docker_result = tokio::task::spawn_blocking(move || {
+        run_docker_compose_sync(&root_clone, "up -d --build")
+    }).await.map_err(|e| format!("Task error: {e}"))?;
+
+    match docker_result {
+        Ok(output) => eprintln!("[siem-desktop] Docker up OK: {}", output.chars().take(200).collect::<String>()),
+        Err(e) => {
+            eprintln!("[siem-desktop] Docker up error: {e}");
+            // Continue anyway — Docker might already be partially running
+        }
+    }
+
+    // Wait for services to come up (docker compose can take a while)
+    for i in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        if portal_healthy(&portal_url).await {
+            return Ok(format!("Portal healthy after {}s", (i + 1) * 2));
+        }
+        eprintln!("[siem-desktop] Waiting for portal... {}s", (i + 1) * 2);
+    }
+
+    // Try starting portal binary directly
+    match spawn_portal_process(&repo_root, &portal_url) {
+        Ok(_) => eprintln!("[siem-desktop] Portal binary spawned"),
+        Err(e) => return Err(format!("Docker did not start portal and portal binary failed: {e}")),
+    }
+
+    // Wait up to 30s for portal binary
+    for i in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        if portal_healthy(&portal_url).await {
+            return Ok(format!("Portal healthy after binary start ({}s)", i + 1));
+        }
+    }
+
+    Err("Portal did not become healthy within 70s total".to_string())
+}
+
+// ── Portal auto-start ──────────────────────────────────────────────────────
+
+fn locate_repo_root() -> Option<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(dir) = std::env::current_dir() {
+        for ancestor in dir.ancestors() {
+            candidates.push(ancestor.to_path_buf());
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            for ancestor in dir.ancestors() {
+                let p = ancestor.to_path_buf();
+                if !candidates.contains(&p) {
+                    candidates.push(p);
+                }
+            }
+        }
+    }
+    candidates.into_iter().find(|base| base.join("siem-portal").join("Cargo.toml").is_file())
+}
+
+fn portal_binary_candidates(repo_root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let exe = if cfg!(windows) { "siem-portal.exe" } else { "siem-portal" };
+    vec![
+        repo_root.join("siem-portal").join("target").join("release").join(exe),
+        repo_root.join("target").join("release").join(exe),
+    ]
+}
+
+#[cfg(windows)]
+fn configure_background_command(cmd: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn configure_background_command(_cmd: &mut std::process::Command) {}
+
+fn set_default_env(cmd: &mut std::process::Command, key: &str, value: &str) {
+    if std::env::var_os(key).is_none() {
+        cmd.env(key, value);
+    }
+}
+
+fn apply_portal_env(cmd: &mut std::process::Command, portal_url: &str) {
+    // Derive bind address from URL
+    if let Ok(url) = url::Url::parse(portal_url) {
+        if let Some(port) = url.port_or_known_default() {
+            cmd.env("SIEM_PORTAL_ADDR", format!("127.0.0.1:{port}"));
+        }
+    }
+
+    set_default_env(cmd, "SIEM_PORTAL_CASEMGMT_URL", "http://127.0.0.1:8088");
+    set_default_env(cmd, "SIEM_PORTAL_PROMETHEUS_URL", "http://127.0.0.1:9090");
+    set_default_env(cmd, "SIEM_PORTAL_ALERTMANAGER_URL", "http://127.0.0.1:9093");
+    set_default_env(cmd, "SIEM_PORTAL_CORRELATOR_URL", "http://127.0.0.1:9111");
+    set_default_env(cmd, "SIEM_PORTAL_GRAFANA_URL", "http://127.0.0.1:3000");
+    set_default_env(cmd, "SIEM_PORTAL_CLICKHOUSE_URL", "http://127.0.0.1:8123");
+    set_default_env(cmd, "SIEM_PORTAL_PUBLIC_GRAFANA", "http://127.0.0.1:3000");
+    set_default_env(cmd, "SIEM_PORTAL_PUBLIC_PROMETHEUS", "http://127.0.0.1:9090");
+    set_default_env(cmd, "SIEM_PORTAL_PUBLIC_ALERTMANAGER", "http://127.0.0.1:9093");
+    set_default_env(cmd, "SIEM_PORTAL_PUBLIC_CASEMGMT", "http://127.0.0.1:8088");
+}
+
+async fn portal_healthy(portal_url: &str) -> bool {
+    let health = format!("{}/health", portal_url.trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    match client.get(&health).send().await {
+        Ok(resp) => resp.status().is_success(),
+        Err(_) => false,
+    }
+}
+
+fn spawn_portal_process(repo_root: &std::path::Path, portal_url: &str) -> std::io::Result<std::process::Child> {
+    // 1. Explicit override
+    if let Ok(explicit) = std::env::var("SIEM_DESKTOP_PORTAL_BIN") {
+        let bin = explicit.trim().to_string();
+        if !bin.is_empty() {
+            let mut cmd = std::process::Command::new(&bin);
+            apply_portal_env(&mut cmd, portal_url);
+            cmd.stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            configure_background_command(&mut cmd);
+            return cmd.spawn();
+        }
+    }
+
+    // 2. Pre-built binary
+    for bin in portal_binary_candidates(repo_root) {
+        if bin.is_file() {
+            let mut cmd = std::process::Command::new(bin);
+            apply_portal_env(&mut cmd, portal_url);
+            cmd.stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            configure_background_command(&mut cmd);
+            return cmd.spawn();
+        }
+    }
+
+    // 3. cargo run --release
+    let manifest = repo_root.join("siem-portal").join("Cargo.toml");
+    if !manifest.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "siem-portal/Cargo.toml not found",
+        ));
+    }
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("run")
+        .arg("--release")
+        .arg("--manifest-path")
+        .arg(&manifest);
+    apply_portal_env(&mut cmd, portal_url);
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    configure_background_command(&mut cmd);
+    cmd.spawn()
+}
+
+/// Run docker compose and return output (blocking, for use in spawn_blocking)
+fn run_docker_compose_sync(repo_root: &std::path::Path, action: &str) -> Result<String, String> {
+    let compose_path = repo_root.join("deploy").join("docker").join("docker-compose.yml");
+    if !compose_path.is_file() {
+        return Err(format!("docker-compose.yml not found at {}", compose_path.display()));
+    }
+
+    let cmd_str = format!("docker compose -f \"{}\" {}", compose_path.display(), action);
+
+    #[cfg(windows)]
+    let output = std::process::Command::new("cmd")
+        .args(["/C", &cmd_str])
+        .current_dir(repo_root.join("deploy").join("docker"))
+        .output();
+
+    #[cfg(not(windows))]
+    let output = std::process::Command::new("sh")
+        .args(["-lc", &cmd_str])
+        .current_dir(repo_root.join("deploy").join("docker"))
+        .output();
+
+    let output = output.map_err(|e| format!("Failed to run docker: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = format!("{stdout}\n{stderr}").trim().to_string();
+
+    if !output.status.success() {
+        return Err(format!("docker compose {action} failed:\n{combined}"));
+    }
+
+    Ok(combined)
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -569,6 +834,8 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             check_stack_status,
+            check_portal_health,
+            start_stack,
             fetch_portal_stack_status,
             fetch_observability_snapshot,
             docker_compose_action,
@@ -581,6 +848,7 @@ pub fn run() {
             get_portal_url,
             get_app_version,
             get_env_url,
+            diagnose_paths,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SIEM-Lite Desktop");

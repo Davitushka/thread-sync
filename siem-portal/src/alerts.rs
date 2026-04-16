@@ -5,6 +5,8 @@ use anyhow::{anyhow, Result};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
+use crate::query_helpers::severity_rank;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AlertsOverview {
     pub totals: AlertTotals,
@@ -226,13 +228,3 @@ fn first_non_empty<'a>(values: &[Option<&'a str>]) -> Option<&'a str> {
         .find(|value| !value.is_empty())
 }
 
-fn severity_rank(value: &str) -> u8 {
-    match value {
-        "critical" => 7,
-        "high" | "error" => 6,
-        "warning" | "medium" => 5,
-        "info" | "low" => 4,
-        "debug" => 3,
-        _ => 1,
-    }
-}

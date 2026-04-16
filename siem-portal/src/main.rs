@@ -7,6 +7,7 @@ mod handlers;
 mod infrastructure;
 mod operations;
 mod overview;
+mod query_helpers;
 mod realtime;
 
 use std::sync::Arc;
@@ -51,6 +52,7 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Arc::new(config::Config::from_env());
     let http = reqwest::Client::builder()
         .use_rustls_tls()
+        .http1_only()
         .pool_max_idle_per_host(8)
         .build()?;
     let alerts = AlertsOverviewService::new(http.clone(), cfg.alertmanager.clone());

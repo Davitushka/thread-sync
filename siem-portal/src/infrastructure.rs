@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-use anyhow::{anyhow, Result};
-use reqwest::Url;
+use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
+
+use crate::query_helpers::{
+    instant_scalar_max, parse_prom_value_pair, parse_prom_series_pair, query_prometheus, unix_now,
+    MetricPoint,
+};
 
 const DEFAULT_WINDOW_HOURS: u16 = 6;
 const MIN_WINDOW_HOURS: u16 = 1;
@@ -93,12 +97,6 @@ pub struct InfrastructureHostSummary {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct MetricPoint {
-    pub ts: i64,
-    pub value: f64,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct NamedMetric {
     pub name: String,
     pub value: f64,
@@ -145,23 +143,23 @@ impl InfrastructureService {
             network_rx_series,
             network_tx_series,
         ) = tokio::try_join!(
-            self.instant_scalar(HOST_CPU_QUERY, timeout),
-            self.instant_scalar(HOST_MEMORY_QUERY, timeout),
-            self.instant_scalar(HOST_DISK_QUERY, timeout),
-            self.instant_scalar(HOST_RX_QUERY, timeout),
-            self.instant_scalar(HOST_TX_QUERY, timeout),
-            self.instant_scalar(HOST_UPTIME_QUERY, timeout),
-            self.instant_scalar(CONTAINER_COUNT_QUERY, timeout),
-            self.instant_scalar(CONTAINER_TOTAL_CPU_QUERY, timeout),
-            self.instant_scalar(CONTAINER_TOTAL_MEMORY_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, HOST_CPU_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, HOST_MEMORY_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, HOST_DISK_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, HOST_RX_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, HOST_TX_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, HOST_UPTIME_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, CONTAINER_COUNT_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, CONTAINER_TOTAL_CPU_QUERY, timeout),
+            instant_scalar_max(&self.http, &self.prometheus, CONTAINER_TOTAL_MEMORY_QUERY, timeout),
             self.instant_named_metrics(TOP_CPU_CONTAINERS_QUERY, "container", timeout),
             self.instant_named_metrics(TOP_MEMORY_CONTAINERS_QUERY, "container", timeout),
             self.instant_named_metrics(TOP_CPU_SERVICES_QUERY, "job", timeout),
             self.instant_named_metrics(TOP_MEMORY_SERVICES_QUERY, "job", timeout),
             self.component_status(timeout),
-            self.range_series(HOST_CPU_QUERY, start, end, request.step_sec, timeout),
-            self.range_series(HOST_RX_QUERY, start, end, request.step_sec, timeout),
-            self.range_series(HOST_TX_QUERY, start, end, request.step_sec, timeout),
+            self.range_series_avg(HOST_CPU_QUERY, start, end, request.step_sec, timeout),
+            self.range_series_avg(HOST_RX_QUERY, start, end, request.step_sec, timeout),
+            self.range_series_avg(HOST_TX_QUERY, start, end, request.step_sec, timeout),
         )?;
 
         let healthy_components = component_status.iter().filter(|item| item.up).count() as u32;
@@ -212,33 +210,13 @@ impl InfrastructureService {
         })
     }
 
-    async fn instant_scalar(&self, query: &str, timeout: Duration) -> Result<f64> {
-        let payload = self.query("/api/v1/query", query, &[], timeout).await?;
-        let result = payload
-            .get("data")
-            .and_then(|v| v.get("result"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-
-        if result.is_empty() {
-            return Ok(0.0);
-        }
-
-        let max_value = result
-            .iter()
-            .filter_map(|row| row.get("value").and_then(parse_prom_value_pair))
-            .fold(0.0_f64, f64::max);
-        Ok(max_value)
-    }
-
     async fn instant_named_metrics(
         &self,
         query: &str,
         label: &str,
         timeout: Duration,
     ) -> Result<Vec<NamedMetric>> {
-        let payload = self.query("/api/v1/query", query, &[], timeout).await?;
+        let payload = query_prometheus(&self.http, &self.prometheus, "/api/v1/query", query, &[], timeout).await?;
         let result = payload
             .get("data")
             .and_then(|v| v.get("result"))
@@ -271,9 +249,15 @@ impl InfrastructureService {
     }
 
     async fn component_status(&self, timeout: Duration) -> Result<Vec<ComponentStatus>> {
-        let payload = self
-            .query("/api/v1/query", COMPONENT_STATUS_QUERY, &[], timeout)
-            .await?;
+        let payload = query_prometheus(
+            &self.http,
+            &self.prometheus,
+            "/api/v1/query",
+            COMPONENT_STATUS_QUERY,
+            &[],
+            timeout,
+        )
+        .await?;
         let result = payload
             .get("data")
             .and_then(|v| v.get("result"))
@@ -308,7 +292,8 @@ impl InfrastructureService {
         Ok(rows)
     }
 
-    async fn range_series(
+    /// Range series with averaging across series (infrastructure-specific).
+    async fn range_series_avg(
         &self,
         query: &str,
         start: i64,
@@ -316,18 +301,19 @@ impl InfrastructureService {
         step: u32,
         timeout: Duration,
     ) -> Result<Vec<MetricPoint>> {
-        let payload = self
-            .query(
-                "/api/v1/query_range",
-                query,
-                &[
-                    ("start", start.to_string()),
-                    ("end", end.to_string()),
-                    ("step", step.to_string()),
-                ],
-                timeout,
-            )
-            .await?;
+        let payload = query_prometheus(
+            &self.http,
+            &self.prometheus,
+            "/api/v1/query_range",
+            query,
+            &[
+                ("start", start.to_string()),
+                ("end", end.to_string()),
+                ("step", step.to_string()),
+            ],
+            timeout,
+        )
+        .await?;
 
         let result = payload
             .get("data")
@@ -360,53 +346,5 @@ impl InfrastructureService {
             })
             .collect())
     }
-
-    async fn query(
-        &self,
-        path: &str,
-        query: &str,
-        extra: &[(&str, String)],
-        timeout: Duration,
-    ) -> Result<Value> {
-        let base: Url = self.prometheus.parse()?;
-        let mut url = base.join(path)?;
-        {
-            let mut pairs = url.query_pairs_mut();
-            pairs.append_pair("query", query);
-            for (key, value) in extra {
-                pairs.append_pair(key, value);
-            }
-        }
-        let resp = self.http.get(url).timeout(timeout).send().await?;
-        let status = resp.status();
-        let body = resp.text().await?;
-        if !status.is_success() {
-            return Err(anyhow!("prometheus responded {}: {}", status, body));
-        }
-        let payload = serde_json::from_str::<Value>(&body)?;
-        if payload.get("status").and_then(Value::as_str) != Some("success") {
-            return Err(anyhow!("prometheus query failed: {}", body));
-        }
-        Ok(payload)
-    }
 }
 
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
-}
-
-fn parse_prom_value_pair(value: &Value) -> Option<f64> {
-    let arr = value.as_array()?;
-    let raw = arr.get(1)?.as_str()?;
-    raw.parse::<f64>().ok()
-}
-
-fn parse_prom_series_pair(value: &Value) -> Option<(i64, f64)> {
-    let arr = value.as_array()?;
-    let ts = arr.first()?.as_f64()? as i64;
-    let raw = arr.get(1)?.as_str()?;
-    Some((ts, raw.parse::<f64>().ok()?))
-}

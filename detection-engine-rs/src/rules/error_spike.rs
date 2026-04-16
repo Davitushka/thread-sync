@@ -66,7 +66,9 @@ impl StatefulRule for ErrorSpikeRule {
         if state.get(&antispan_key).await.unwrap_or(0) > 0 {
             return None;
         }
-        let _ = state.increment(&antispan_key, self.window).await;
+        if let Err(e) = state.increment(&antispan_key, self.window).await {
+            tracing::warn!(error = %e, "antispan increment failed — alert may re-fire");
+        }
 
         let mut context = HashMap::new();
         context.insert("error_count".into(), serde_json::json!(count));
