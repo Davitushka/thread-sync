@@ -67,9 +67,16 @@ impl StatefulRule for BruteForceRule {
         let key = format!("bf:{}", ip);
         let count = state.increment(&key, self.window).await.ok()?;
 
-        if count != self.threshold {
+        if count < self.threshold {
             return None;
         }
+
+        // Anti-spam: fire only once per window per key
+        let antispan_key = format!("bf:fired:{}", ip);
+        if state.get(&antispan_key).await.unwrap_or(0) > 0 {
+            return None;
+        }
+        let _ = state.increment(&antispan_key, self.window).await;
 
         let path = Event::str_val(&event.url_path);
         let mut context = HashMap::new();

@@ -66,9 +66,16 @@ impl StatefulRule for CredentialStuffingRule {
         state.add_to_set(&key, ip, self.window).await.ok()?;
         let unique_ips = state.set_size(&key).await.ok()?;
 
-        if unique_ips != self.threshold {
+        if unique_ips < self.threshold {
             return None;
         }
+
+        // Anti-spam: fire only once per window per user
+        let antispan_key = format!("cs:fired:{}", user_id);
+        if state.get(&antispan_key).await.unwrap_or(0) > 0 {
+            return None;
+        }
+        let _ = state.increment(&antispan_key, self.window).await;
 
         let mut context = HashMap::new();
         context.insert("unique_ips".into(), serde_json::json!(unique_ips));

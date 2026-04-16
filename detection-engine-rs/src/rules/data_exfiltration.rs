@@ -11,14 +11,14 @@ use crate::state_store::StateStore;
 use super::{Rule, StatefulRule, format_duration};
 
 pub struct DataExfiltrationRule {
-    pub threshold_bytes: i64,
+    pub threshold_events: i64,
     pub window: Duration,
 }
 
 impl DataExfiltrationRule {
     pub fn new() -> Self {
         Self {
-            threshold_bytes: 100, // 100 large responses in window
+            threshold_events: 100, // 100 large responses in window
             window: Duration::from_secs(300),
         }
     }
@@ -68,9 +68,16 @@ impl StatefulRule for DataExfiltrationRule {
         let key = format!("exfil:{}:{}", ip, user_id);
         let count = state.increment(&key, self.window).await.ok()?;
 
-        if count != self.threshold_bytes {
+        if count < self.threshold_events {
             return None;
         }
+
+        // Anti-spam: fire only once per window per key
+        let antispan_key = format!("exfil:fired:{}:{}", ip, user_id);
+        if state.get(&antispan_key).await.unwrap_or(0) > 0 {
+            return None;
+        }
+        let _ = state.increment(&antispan_key, self.window).await;
 
         let mut context = HashMap::new();
         context.insert("large_response_count".into(), serde_json::json!(count));
@@ -98,7 +105,7 @@ impl StatefulRule for DataExfiltrationRule {
             severity: AlertSeverity::High,
             description: format!(
                 "Data exfiltration suspected: {} large responses to {} (user={}) in {}",
-                self.threshold_bytes,
+                self.threshold_events,
                 ip,
                 user_id,
                 format_duration(self.window),
@@ -125,7 +132,7 @@ mod tests {
     #[tokio::test]
     async fn fires_on_large_response_spike() {
         let rule = DataExfiltrationRule {
-            threshold_bytes: 2,
+            threshold_events: 2,
             window: Duration::from_secs(300),
         };
         let store = Arc::new(MockStateStore::default());

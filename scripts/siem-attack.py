@@ -551,9 +551,9 @@ def check_service(name: str, url: str, path: str = "/health") -> bool:
         return False
 
 
-def fetch_correlator_stats() -> dict | None:
+def fetch_correlator_stats(correlator_url: str = CORRELATOR_URL) -> dict | None:
     try:
-        resp = httpx.get(f"{CORRELATOR_URL}/api/v1/stats", timeout=5.0)
+        resp = httpx.get(f"{correlator_url}/api/v1/stats", timeout=5.0)
         if resp.status_code == 200:
             return resp.json()
     except (httpx.ConnectError, httpx.TimeoutException):
@@ -561,9 +561,9 @@ def fetch_correlator_stats() -> dict | None:
     return None
 
 
-def fetch_correlator_rules() -> list | None:
+def fetch_correlator_rules(correlator_url: str = CORRELATOR_URL) -> list | None:
     try:
-        resp = httpx.get(f"{CORRELATOR_URL}/api/v1/rules", timeout=5.0)
+        resp = httpx.get(f"{correlator_url}/api/v1/rules", timeout=5.0)
         if resp.status_code == 200:
             return resp.json()
     except (httpx.ConnectError, httpx.TimeoutException):
@@ -571,10 +571,10 @@ def fetch_correlator_rules() -> list | None:
     return None
 
 
-def fetch_alertmanager_alerts() -> list | None:
+def fetch_alertmanager_alerts(alertmanager_url: str = ALERTMANAGER_URL) -> list | None:
     try:
         resp = httpx.get(
-            f"{ALERTMANAGER_URL}/api/v2/alerts",
+            f"{alertmanager_url}/api/v2/alerts",
             headers={"Accept": "application/json"},
             timeout=5.0,
         )
@@ -585,7 +585,12 @@ def fetch_alertmanager_alerts() -> list | None:
     return None
 
 
-def fetch_recent_events(seconds: int = 30) -> list[dict] | None:
+def fetch_recent_events(
+    seconds: int = 30,
+    clickhouse_url: str = CLICKHOUSE_URL,
+    clickhouse_user: str = CLICKHOUSE_USER,
+    clickhouse_pass: str = CLICKHOUSE_PASS,
+) -> list[dict] | None:
     try:
         query = (
             f"SELECT event_id, source_type, source_ip, url_path, status_code, "
@@ -596,9 +601,9 @@ def fetch_recent_events(seconds: int = 30) -> list[dict] | None:
             f"FORMAT JSON"
         )
         resp = httpx.post(
-            CLICKHOUSE_URL,
+            clickhouse_url,
             content=query,
-            auth=(CLICKHOUSE_USER, CLICKHOUSE_PASS),
+            auth=(clickhouse_user, clickhouse_pass),
             timeout=10.0,
         )
         if resp.status_code == 200:
@@ -631,18 +636,20 @@ def format_alert_summary(alerts: list) -> str:
 @click.option("--vector-url", default=VECTOR_URL, help="Vector HTTP ingest URL")
 @click.option("--correlator-url", default=CORRELATOR_URL, help="Correlator URL")
 @click.option("--alertmanager-url", default=ALERTMANAGER_URL, help="Alertmanager URL")
+@click.option("--clickhouse-url", default=CLICKHOUSE_URL, help="ClickHouse URL")
 @click.pass_context
-def cli(ctx, vector_url, correlator_url, alertmanager_url):
-    """SIEM Attack Toolkit — генератор атак и мониторинг детекции."""
+def cli(ctx, vector_url, correlator_url, alertmanager_url, clickhouse_url):
+    """SIEM Attack Toolkit - attack generator and detection monitor."""
     ctx.ensure_object(dict)
     ctx.obj["vector_url"] = vector_url
     ctx.obj["correlator_url"] = correlator_url
     ctx.obj["alertmanager_url"] = alertmanager_url
+    ctx.obj["clickhouse_url"] = clickhouse_url
 
 
 @cli.command("list")
 def list_attacks():
-    """Показать доступные типы атак."""
+    """Show available attack types."""
     click.echo("\n  Available attack types:\n")
     click.echo(f"  {'Name':<25s} {'Rule ID':<30s} {'Severity':<10s} Description")
     click.echo(f"  {'-' * 25:<25s} {'-' * 30:<30s} {'-' * 10:<10s} {'-' * 40}")
@@ -660,7 +667,7 @@ def list_attacks():
 @click.option("--dry-run", is_flag=True, help="Print events without sending")
 @click.pass_context
 def attack_cmd(ctx, attack_type, count, delay, dry_run):
-    """Отправить атаку указанного типа."""
+    """Send attack of the specified type."""
     vector_url = ctx.obj["vector_url"]
 
     if attack_type == "all":
@@ -710,7 +717,8 @@ def attack_cmd(ctx, attack_type, count, delay, dry_run):
 @click.option("--clickhouse/--no-clickhouse", default=True, help="Poll ClickHouse for events")
 @click.pass_context
 def watch_cmd(ctx, interval, clickhouse):
-    """Мониторинг событий и алертов в реалтайме."""
+    """Monitor events and alerts in real time."""
+    urls = ctx.obj
     try:
         from rich.console import Console
         from rich.live import Live
@@ -723,12 +731,12 @@ def watch_cmd(ctx, interval, clickhouse):
         use_rich = False
 
     if use_rich:
-        _watch_rich(interval, clickhouse)
+        _watch_rich(interval, clickhouse, urls)
     else:
-        _watch_plain(interval, clickhouse)
+        _watch_plain(interval, clickhouse, urls)
 
 
-def _watch_rich(interval: int, use_clickhouse: bool):
+def _watch_rich(interval: int, use_clickhouse: bool, urls: dict):
     from rich.console import Console
     from rich.live import Live
     from rich.panel import Panel
@@ -737,6 +745,10 @@ def _watch_rich(interval: int, use_clickhouse: bool):
 
     console = Console()
     seen_alert_keys: set[str] = set()
+    vector_url = urls.get("vector_url", VECTOR_URL)
+    correlator_url = urls.get("correlator_url", CORRELATOR_URL)
+    alertmanager_url = urls.get("alertmanager_url", ALERTMANAGER_URL)
+    clickhouse_url = urls.get("clickhouse_url", CLICKHOUSE_URL)
 
     with Live(console=console, refresh_per_second=1) as live:
         while True:
@@ -748,10 +760,10 @@ def _watch_rich(interval: int, use_clickhouse: bool):
             services_table.add_column("Status")
 
             checks = [
-                ("Vector", VECTOR_URL, "/health"),
+                ("Vector", vector_url, "/health"),
                 ("Parser", PARSER_URL, "/health"),
-                ("Correlator", CORRELATOR_URL, "/health"),
-                ("Alertmanager", ALERTMANAGER_URL, "/-/healthy"),
+                ("Correlator", correlator_url, "/health"),
+                ("Alertmanager", alertmanager_url, "/-/healthy"),
             ]
             for name, url, path in checks:
                 ok = check_service(name, url, path)
@@ -759,7 +771,7 @@ def _watch_rich(interval: int, use_clickhouse: bool):
                 services_table.add_row(name, status)
 
             # Correlator stats
-            stats = fetch_correlator_stats()
+            stats = fetch_correlator_stats(correlator_url)
             stats_text = ""
             if stats:
                 stats_text = (
@@ -769,7 +781,7 @@ def _watch_rich(interval: int, use_clickhouse: bool):
                 )
 
             # Active alerts
-            alerts = fetch_alertmanager_alerts()
+            alerts = fetch_alertmanager_alerts(alertmanager_url)
             new_alerts = []
             if alerts:
                 for a in alerts:
@@ -805,7 +817,7 @@ def _watch_rich(interval: int, use_clickhouse: bool):
             # Recent events from ClickHouse
             events_panel = None
             if use_clickhouse:
-                events = fetch_recent_events(seconds=30)
+                events = fetch_recent_events(seconds=30, clickhouse_url=clickhouse_url)
                 if events:
                     events_table = Table(
                         title="Recent Events (last 30s)", show_header=True, box=None
@@ -855,8 +867,12 @@ def _watch_rich(interval: int, use_clickhouse: bool):
             time.sleep(interval)
 
 
-def _watch_plain(interval: int, use_clickhouse: bool):
+def _watch_plain(interval: int, use_clickhouse: bool, urls: dict):
     seen_alert_keys: set[str] = set()
+    vector_url = urls.get("vector_url", VECTOR_URL)
+    correlator_url = urls.get("correlator_url", CORRELATOR_URL)
+    alertmanager_url = urls.get("alertmanager_url", ALERTMANAGER_URL)
+    clickhouse_url = urls.get("clickhouse_url", CLICKHOUSE_URL)
 
     while True:
         now = datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -867,16 +883,16 @@ def _watch_plain(interval: int, use_clickhouse: bool):
         # Services
         click.echo("\n  Services:")
         for name, url, path in [
-            ("Vector", VECTOR_URL, "/health"),
+            ("Vector", vector_url, "/health"),
             ("Parser", PARSER_URL, "/health"),
-            ("Correlator", CORRELATOR_URL, "/health"),
-            ("Alertmanager", ALERTMANAGER_URL, "/-/healthy"),
+            ("Correlator", correlator_url, "/health"),
+            ("Alertmanager", alertmanager_url, "/-/healthy"),
         ]:
             ok = check_service(name, url, path)
             click.echo(f"    {name:15s} {'OK' if ok else 'DOWN'}")
 
         # Stats
-        stats = fetch_correlator_stats()
+        stats = fetch_correlator_stats(correlator_url)
         if stats:
             click.echo(
                 f"\n  Correlator: rules={stats.get('rules_count', '?')}  "
@@ -884,7 +900,7 @@ def _watch_plain(interval: int, use_clickhouse: bool):
             )
 
         # Alerts
-        alerts = fetch_alertmanager_alerts()
+        alerts = fetch_alertmanager_alerts(alertmanager_url)
         new_count = 0
         if alerts:
             for a in alerts:
@@ -903,7 +919,7 @@ def _watch_plain(interval: int, use_clickhouse: bool):
 
         # Events
         if use_clickhouse:
-            events = fetch_recent_events(seconds=30)
+            events = fetch_recent_events(seconds=30, clickhouse_url=clickhouse_url)
             if events:
                 click.echo(f"\n  Recent events ({len(events)}):")
                 for ev in events[:10]:
@@ -926,8 +942,9 @@ def _watch_plain(interval: int, use_clickhouse: bool):
 @click.option("--timeout", default=60, help="Max seconds to wait for alert")
 @click.pass_context
 def scan_cmd(ctx, attack_type, delay, timeout):
-    """Отправить атаку и дождаться детекции (атака + мониторинг)."""
+    """Send attack and wait for detection (attack + monitor)."""
     vector_url = ctx.obj["vector_url"]
+    alertmanager_url = ctx.obj["alertmanager_url"]
 
     if attack_type not in ATTACKS and attack_type != "all":
         click.echo(f"  [!] Unknown attack type: {attack_type}")
@@ -962,7 +979,7 @@ def scan_cmd(ctx, attack_type, delay, timeout):
 
         while time.time() - start < timeout:
             time.sleep(min(delay, timeout - (time.time() - start)))
-            alerts = fetch_alertmanager_alerts()
+            alerts = fetch_alertmanager_alerts(alertmanager_url)
             if alerts:
                 for a in alerts:
                     labels = a.get("labels", {})

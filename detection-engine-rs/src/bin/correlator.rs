@@ -188,7 +188,7 @@ async fn main() -> Result<()> {
     credential_stuffing.window = Duration::from_secs(300);
 
     let mut data_exfil = DataExfiltrationRule::new();
-    data_exfil.threshold_bytes = get_env("DATA_EXFIL_THRESHOLD", "100")
+    data_exfil.threshold_events = get_env("DATA_EXFIL_THRESHOLD", "100")
         .parse()
         .unwrap_or(100);
     data_exfil.window = Duration::from_secs(300);

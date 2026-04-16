@@ -105,6 +105,8 @@ struct OverviewCache {
     max_analyst: f32,
     sparkline_open: Vec<f32>,
     sparkline_critical: Vec<f32>,
+    alerts_series_f32: Vec<f32>,
+    eps_series_f32: Vec<f32>,
     case_count: usize, // tracks which case set this cache was built for
 }
 
@@ -296,8 +298,12 @@ pub struct OperatorApp {
     widget_audit: bool,
     playbook_steps: Vec<(String, bool)>,
     last_persist_blob: String,
+    // Track theme state to avoid re-applying every frame
+    theme_is_dark: bool,
+    theme_applied: bool,
     // Cached aggregates (rebuilt on data change, not every frame)
     overview_cache: OverviewCache,
+    egui_ctx: egui::Context,
     // Attack Lab
     attack_selected: usize,
     attack_sending: bool,
@@ -402,7 +408,10 @@ impl Default for OperatorApp {
                 ("Document evidence".to_string(), false),
             ],
             last_persist_blob: String::new(),
+            theme_is_dark: true,
+            theme_applied: false,
             overview_cache: OverviewCache::default(),
+            egui_ctx: egui::Context::default(),
             attack_selected: 0,
             attack_sending: false,
             attack_rx: None,
@@ -645,6 +654,10 @@ impl OperatorApp {
     }
 
     fn maybe_persist_state(&mut self) {
+        // Debounce: only serialize at most once per second
+        if self.last_auto_refresh_at.elapsed() < Duration::from_secs(1) {
+            return;
+        }
         let state = self.to_persisted_state();
         let Ok(blob) = serde_json::to_string(&state) else {
             return;
@@ -707,10 +720,10 @@ impl OperatorApp {
             self.fetch_portal_ui_config();
             self.last_auto_refresh_at = Instant::now();
             self.status = format!("Auto-refresh sync started ({}s)", interval);
-        } else {
+        } else if !self.has_active_fetches() {
+            // Schedule a single repaint when the next auto-refresh is due
             let remaining = Duration::from_secs(interval).saturating_sub(elapsed);
-            let ms = remaining.as_millis().clamp(200, 1000) as u64;
-            ctx.request_repaint_after(Duration::from_millis(ms));
+            ctx.request_repaint_after(remaining);
         }
     }
 
@@ -804,6 +817,7 @@ impl OperatorApp {
         let portal_url = format!("{}/api/v1/proxy/cases?limit=300", self.portal_base());
         let direct_url = format!("{}/api/v1/cases?limit=300", self.case_mgmt_base());
         let (tx, rx) = mpsc::channel();
+        let ctx = self.egui_ctx.clone();
         std::thread::spawn(move || {
             let result = (|| -> Result<CasesResponse, String> {
                 let client = Self::http_client(20)?;
@@ -816,6 +830,7 @@ impl OperatorApp {
                 Err("cases fetch failed via portal and direct API".to_string())
             })();
             let _ = tx.send(result);
+            ctx.request_repaint();
         });
         self.rx = Some(rx);
     }
@@ -1853,6 +1868,14 @@ impl OperatorApp {
         cache.max_sev = cache.by_severity.values().copied().max().unwrap_or(1) as f32;
         cache.max_analyst = cache.by_analyst.values().copied().max().unwrap_or(1) as f32;
 
+        // Pre-convert alerts_series and eps_series to f32 to avoid per-frame .collect()
+        if !self.alerts_series.is_empty() {
+            cache.alerts_series_f32 = self.alerts_series.iter().map(|v| *v as f32).collect();
+        }
+        if !self.eps_series.is_empty() {
+            cache.eps_series_f32 = self.eps_series.iter().map(|v| *v as f32).collect();
+        }
+
         self.overview_cache = cache;
     }
 
@@ -2869,25 +2892,25 @@ impl OperatorApp {
         ui.columns(columns.len(), |cols| {
             for (idx, col) in columns.iter().enumerate() {
                 cols[idx].label(egui::RichText::new(*col).strong());
-                let items: Vec<(usize, String, String)> = self
-                    .cases
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, c)| {
-                        c.status
-                            .as_bytes()
-                            .windows(col.len())
-                            .any(|w| w.eq_ignore_ascii_case(col.as_bytes()))
-                    })
-                    .take(6)
-                    .map(|(i, c)| (i, c.display_key.clone(), c.title.clone()))
-                    .collect();
-                for (case_idx, key, title) in items {
-                    let selected = self.selected == Some(case_idx);
-                    let text = format!("{key}: {title}");
-                    if cols[idx].selectable_label(selected, text).clicked() {
-                        self.selected = Some(case_idx);
+                let mut shown = 0;
+                for (i, c) in self.cases.iter().enumerate() {
+                    if shown >= 6 {
+                        break;
                     }
+                    if !c
+                        .status
+                        .as_bytes()
+                        .windows(col.len())
+                        .any(|w| w.eq_ignore_ascii_case(col.as_bytes()))
+                    {
+                        continue;
+                    }
+                    let selected = self.selected == Some(i);
+                    let text = format!("{}: {}", c.display_key, c.title);
+                    if cols[idx].selectable_label(selected, text).clicked() {
+                        self.selected = Some(i);
+                    }
+                    shown += 1;
                 }
             }
         });
@@ -3215,14 +3238,17 @@ impl OperatorApp {
             });
         ui.add_space(10.0);
 
-        let mut open_series = self.overview_cache.sparkline_open.clone();
-        let mut crit_series = self.overview_cache.sparkline_critical.clone();
-        if !self.alerts_series.is_empty() {
-            open_series = self.alerts_series.iter().map(|v| *v as f32).collect();
-        }
-        if !self.eps_series.is_empty() {
-            crit_series = self.eps_series.iter().map(|v| *v as f32).collect();
-        }
+        // Use pre-converted f32 series to avoid per-frame .iter().map().collect()
+        let open_series: &[f32] = if !self.alerts_series.is_empty() {
+            &self.overview_cache.alerts_series_f32
+        } else {
+            &self.overview_cache.sparkline_open
+        };
+        let crit_series: &[f32] = if !self.eps_series.is_empty() {
+            &self.overview_cache.eps_series_f32
+        } else {
+            &self.overview_cache.sparkline_critical
+        };
         let by_source = &self.overview_cache.by_source;
         let by_severity = &self.overview_cache.by_severity;
         let by_analyst = &self.overview_cache.by_analyst;
@@ -4609,7 +4635,14 @@ impl OperatorApp {
 impl eframe::App for OperatorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx();
-        theme::apply_theme(ctx, !self.use_light_theme);
+        // Store ctx for use in background thread callbacks
+        self.egui_ctx = ctx.clone();
+        let is_dark = !self.use_light_theme;
+        if !self.theme_applied || self.theme_is_dark != is_dark {
+            theme::apply_theme(ctx, is_dark);
+            self.theme_is_dark = is_dark;
+            self.theme_applied = true;
+        }
         self.apply_hotkeys(ctx);
         self.tick_auto_refresh(ctx);
         if let Some(rx) = &self.obs_rx {
@@ -4656,7 +4689,8 @@ impl eframe::App for OperatorApp {
                     self.status = format!("Ошибка: {e}");
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
-                    ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                    // Don't force repaint; the fetch thread will call
+                    // ctx.request_repaint() when data arrives.
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.rx = None;
@@ -4834,6 +4868,11 @@ impl eframe::App for OperatorApp {
                     self.mtta_series = mtta;
                     self.metrics_loading = false;
                     self.metrics_series_rx = None;
+                    // Pre-convert to f32 for sparkline rendering
+                    self.overview_cache.eps_series_f32 =
+                        self.eps_series.iter().map(|v| *v as f32).collect();
+                    self.overview_cache.alerts_series_f32 =
+                        self.alerts_series.iter().map(|v| *v as f32).collect();
                 }
                 Ok(Err(e)) => {
                     self.metrics_loading = false;
