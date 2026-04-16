@@ -3,15 +3,15 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
+use axum::Router;
 use axum::extract::State;
 use axum::routing::get;
-use axum::Router;
 use chrono::Utc;
 use prometheus::{Counter, Encoder, Opts, TextEncoder};
+use rdkafka::Message;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
-use rdkafka::Message;
 use serde::Serialize;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -19,9 +19,17 @@ use tracing::{error, info, warn};
 use detection_engine_rs::alert::Alert;
 use detection_engine_rs::engine::Engine;
 use detection_engine_rs::rules::brute_force::BruteForceRule;
+use detection_engine_rs::rules::command_injection::CommandInjectionRule;
+use detection_engine_rs::rules::credential_stuffing::CredentialStuffingRule;
+use detection_engine_rs::rules::data_exfiltration::DataExfiltrationRule;
+use detection_engine_rs::rules::error_spike::ErrorSpikeRule;
+use detection_engine_rs::rules::path_traversal::PathTraversalRule;
 use detection_engine_rs::rules::privilege_escalation::PrivilegeEscalationRule;
 use detection_engine_rs::rules::rate_limit::RateLimitEvasionRule;
 use detection_engine_rs::rules::sql_injection::SQLInjectionRule;
+use detection_engine_rs::rules::ssrf::SsrfRule;
+use detection_engine_rs::rules::unusual_http_methods::UnusualHttpMethodsRule;
+use detection_engine_rs::rules::xss::XssRule;
 use detection_engine_rs::rules::{Rule, StatefulRule};
 use detection_engine_rs::state_store::RedisStore;
 
@@ -120,8 +128,8 @@ struct AppState {
 async fn main() -> Result<()> {
     let cfg = CorrelatorConfig::load_from_env()?;
 
-    let filter = tracing_subscriber::EnvFilter::try_new(&cfg.log_level)
-        .unwrap_or_else(|_| "info".into());
+    let filter =
+        tracing_subscriber::EnvFilter::try_new(&cfg.log_level).unwrap_or_else(|_| "info".into());
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .json()
@@ -141,9 +149,8 @@ async fn main() -> Result<()> {
         "starting correlator",
     );
 
-    let redis_store = Arc::new(
-        RedisStore::new(&cfg.redis_addr, &cfg.redis_password, cfg.redis_db).await?,
-    );
+    let redis_store =
+        Arc::new(RedisStore::new(&cfg.redis_addr, &cfg.redis_password, cfg.redis_db).await?);
     if let Err(e) = redis_store.ping().await {
         warn!(addr = %cfg.redis_addr, %e, "Redis unavailable at startup — stateful rules disabled");
     } else {
@@ -164,12 +171,43 @@ async fn main() -> Result<()> {
     priv_esc.threshold = cfg.priv_esc_threshold;
 
     let sqli = SQLInjectionRule::new();
+    let cmd_injection = CommandInjectionRule::new();
+    let xss = XssRule::new();
+    let path_traversal = PathTraversalRule::new();
+    let ssrf = SsrfRule::new();
+    let unusual_http = UnusualHttpMethodsRule::new();
 
-    let stateless_rules: Vec<Box<dyn Rule>> = vec![Box::new(sqli)];
+    let mut error_spike = ErrorSpikeRule::new();
+    error_spike.threshold = get_env("ERROR_SPIKE_THRESHOLD", "20").parse().unwrap_or(20);
+    error_spike.window = Duration::from_secs(60);
+
+    let mut credential_stuffing = CredentialStuffingRule::new();
+    credential_stuffing.threshold = get_env("CREDENTIAL_STUFFING_THRESHOLD", "5")
+        .parse()
+        .unwrap_or(5);
+    credential_stuffing.window = Duration::from_secs(300);
+
+    let mut data_exfil = DataExfiltrationRule::new();
+    data_exfil.threshold_bytes = get_env("DATA_EXFIL_THRESHOLD", "100")
+        .parse()
+        .unwrap_or(100);
+    data_exfil.window = Duration::from_secs(300);
+
+    let stateless_rules: Vec<Box<dyn Rule>> = vec![
+        Box::new(sqli),
+        Box::new(cmd_injection),
+        Box::new(xss),
+        Box::new(path_traversal),
+        Box::new(ssrf),
+        Box::new(unusual_http),
+    ];
     let stateful_rules: Vec<Box<dyn StatefulRule>> = vec![
         Box::new(brute_force),
         Box::new(rate_limit),
         Box::new(priv_esc),
+        Box::new(error_spike),
+        Box::new(credential_stuffing),
+        Box::new(data_exfil),
     ];
 
     let state_store: Arc<dyn detection_engine_rs::state_store::StateStore> = redis_store.clone();
@@ -336,11 +374,7 @@ async fn forward_to_alertmanager(
     };
 
     let url = format!("{}/api/v2/alerts", base_url);
-    let resp = client
-        .post(&url)
-        .json(&[&am_alert])
-        .send()
-        .await?;
+    let resp = client.post(&url).json(&[&am_alert]).send().await?;
 
     if resp.status().as_u16() >= 300 {
         bail!("alertmanager responded {}", resp.status());
@@ -393,19 +427,19 @@ async fn run_kafka_consumer(
                     }
                 };
 
-                let event: detection_engine_rs::event::Event =
-                    match serde_json::from_slice(payload) {
-                        Ok(e) => e,
-                        Err(e) => {
-                            parse_errors_counter.inc();
-                            let preview_len = payload.len().min(200);
-                            let preview = std::str::from_utf8(&payload[..preview_len])
-                                .unwrap_or("<binary>");
-                            warn!(%e, raw = preview, "JSON parse error");
-                            let _ = consumer.commit_message(&msg, CommitMode::Async);
-                            continue;
-                        }
-                    };
+                let event: detection_engine_rs::event::Event = match serde_json::from_slice(payload)
+                {
+                    Ok(e) => e,
+                    Err(e) => {
+                        parse_errors_counter.inc();
+                        let preview_len = payload.len().min(200);
+                        let preview =
+                            std::str::from_utf8(&payload[..preview_len]).unwrap_or("<binary>");
+                        warn!(%e, raw = preview, "JSON parse error");
+                        let _ = consumer.commit_message(&msg, CommitMode::Async);
+                        continue;
+                    }
+                };
 
                 engine.process(&event).await;
                 events_counter.inc();
@@ -432,8 +466,7 @@ async fn run_stats_reporter(engine: Arc<Engine>, alert_tx: mpsc::Sender<Alert>) 
         let pending_alerts = alert_tx.max_capacity() - alert_tx.capacity();
         info!(
             active_rules = rule_count,
-            pending_alerts,
-            "correlator stats",
+            pending_alerts, "correlator stats",
         );
     }
 }
@@ -461,9 +494,7 @@ async fn handle_ready(
     if state.redis_store.ping().await.is_err() {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(
-                serde_json::json!({"status": "not_ready", "reason": "redis_unavailable"}),
-            ),
+            axum::Json(serde_json::json!({"status": "not_ready", "reason": "redis_unavailable"})),
         );
     }
 
@@ -482,22 +513,16 @@ async fn handle_ready(
     {
         Ok(Ok(_)) => (
             axum::http::StatusCode::OK,
-            axum::Json(
-                serde_json::json!({"status": "ready", "service": "correlator"}),
-            ),
+            axum::Json(serde_json::json!({"status": "ready", "service": "correlator"})),
         ),
         _ => (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(
-                serde_json::json!({"status": "not_ready", "reason": "kafka_unavailable"}),
-            ),
+            axum::Json(serde_json::json!({"status": "not_ready", "reason": "kafka_unavailable"})),
         ),
     }
 }
 
-async fn handle_stats(
-    State(state): State<AppState>,
-) -> axum::Json<serde_json::Value> {
+async fn handle_stats(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
     let rules_count = state.engine.rule_count().await;
     let pending = state.alert_tx.max_capacity() - state.alert_tx.capacity();
     let capacity = state.alert_tx.max_capacity();
@@ -510,9 +535,7 @@ async fn handle_stats(
     }))
 }
 
-async fn handle_rules(
-    State(state): State<AppState>,
-) -> axum::Json<serde_json::Value> {
+async fn handle_rules(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
     let cfg = &state.cfg;
     let rules = serde_json::json!([
         {
@@ -536,6 +559,44 @@ async fn handle_rules(
         {
             "id": "sql_injection_attempt",
             "type": "stateless",
+        },
+        {
+            "id": "command_injection",
+            "type": "stateless",
+        },
+        {
+            "id": "xss_attempt",
+            "type": "stateless",
+        },
+        {
+            "id": "path_traversal",
+            "type": "stateless",
+        },
+        {
+            "id": "ssrf_attempt",
+            "type": "stateless",
+        },
+        {
+            "id": "unusual_http_methods",
+            "type": "stateless",
+        },
+        {
+            "id": "error_spike",
+            "type": "stateful",
+            "threshold": get_env("ERROR_SPIKE_THRESHOLD", "20").parse::<i64>().unwrap_or(20),
+            "window": "1m",
+        },
+        {
+            "id": "credential_stuffing",
+            "type": "stateful",
+            "threshold": get_env("CREDENTIAL_STUFFING_THRESHOLD", "5").parse::<i64>().unwrap_or(5),
+            "window": "5m",
+        },
+        {
+            "id": "data_exfiltration",
+            "type": "stateful",
+            "threshold": get_env("DATA_EXFIL_THRESHOLD", "100").parse::<i64>().unwrap_or(100),
+            "window": "5m",
         },
     ]);
     axum::Json(rules)

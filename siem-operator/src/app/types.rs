@@ -10,6 +10,7 @@ pub(super) enum Section {
     Investigations,
     Assets,
     Cases,
+    AttackLab,
     StackControl,
     Settings,
 }

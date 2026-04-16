@@ -1,7 +1,15 @@
 pub mod brute_force;
+pub mod command_injection;
+pub mod credential_stuffing;
+pub mod data_exfiltration;
+pub mod error_spike;
+pub mod path_traversal;
 pub mod privilege_escalation;
 pub mod rate_limit;
 pub mod sql_injection;
+pub mod ssrf;
+pub mod unusual_http_methods;
+pub mod xss;
 
 use crate::alert::Alert;
 use crate::event::Event;

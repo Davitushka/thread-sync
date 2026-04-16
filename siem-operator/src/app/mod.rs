@@ -7,22 +7,21 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use eframe::egui;
 
-use crate::theme;
 use crate::models::{
     AlertItem, AlertState, CaseBrief, CaseDetailResponse, CaseTimelineEntry, CasesResponse,
-    CreateCaseRequest, CreatedCaseResponse, DetectionStats, InvestigationResponse, LinkAlertRequest,
-    PatchCaseRequest, PortalEvent, PortalPublicLinks, PortalUiConfig, PromQueryRangeResponse,
-    PromQueryResponse, TimelineCreateRequest,
+    CreateCaseRequest, CreatedCaseResponse, DetectionStats, InvestigationResponse,
+    LinkAlertRequest, PatchCaseRequest, PortalEvent, PortalPublicLinks, PortalUiConfig,
+    PromQueryRangeResponse, PromQueryResponse, TimelineCreateRequest,
 };
+use crate::theme;
 use crate::ui::widgets::{pill_label, section_nav_button, severity_color, stack_action_card};
-mod state;
-mod types;
 mod metrics;
 mod panels;
+mod state;
+mod types;
 
 use metrics::{average_hours, kpi_card, sparkline_card};
-use panels::build_case_sparkline_series;
-use state::{load_state, save_state, PersistedState};
+use state::{PersistedState, load_state, save_state};
 use types::{
     AssetFilters, AuditEntry, CaseFilters, DashboardPreset, DetectionFilters, EventFilters,
     PendingAction, SavedView, Section, UserRole,
@@ -68,6 +67,154 @@ struct PortalAlertsEnvelope {
     #[serde(default)]
     data: Vec<PortalEvent>,
 }
+
+#[derive(Debug, Clone)]
+struct AttackLogEntry {
+    timestamp: String,
+    attack_name: String,
+    rule_id: String,
+    events_sent: usize,
+    events_failed: usize,
+    alert_detected: bool,
+    alert_severity: String,
+}
+
+#[derive(Debug, Clone)]
+struct AttackLabResult {
+    attack_name: String,
+    rule_id: String,
+    events_sent: usize,
+    events_failed: usize,
+    alert_detected: bool,
+    alert_severity: String,
+    alert_description: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct OverviewCache {
+    open_count: usize,
+    critical_count: usize,
+    stale_count: usize,
+    mttr_hours: i64,
+    mtta_hours: i64,
+    by_source: std::collections::BTreeMap<String, usize>,
+    by_severity: std::collections::BTreeMap<String, usize>,
+    by_analyst: std::collections::BTreeMap<String, usize>,
+    max_source: f32,
+    max_sev: f32,
+    max_analyst: f32,
+    sparkline_open: Vec<f32>,
+    sparkline_critical: Vec<f32>,
+    case_count: usize, // tracks which case set this cache was built for
+}
+
+struct AttackDef {
+    name: &'static str,
+    rule_id: &'static str,
+    severity: &'static str,
+    mitre: &'static str,
+    description: &'static str,
+    event_count: usize,
+}
+
+const ATTACKS: [AttackDef; 12] = [
+    AttackDef {
+        name: "Brute Force",
+        rule_id: "brute_force_api",
+        severity: "high",
+        mitre: "T1110",
+        description: "15 failed logins from one IP",
+        event_count: 15,
+    },
+    AttackDef {
+        name: "SQL Injection",
+        rule_id: "sql_injection_attempt",
+        severity: "high",
+        mitre: "T1190",
+        description: "UNION SELECT, DROP TABLE, NoSQL",
+        event_count: 5,
+    },
+    AttackDef {
+        name: "Command Injection",
+        rule_id: "command_injection",
+        severity: "high",
+        mitre: "T1059",
+        description: "; cat /etc/passwd, $(wget shell)",
+        event_count: 5,
+    },
+    AttackDef {
+        name: "XSS",
+        rule_id: "xss_attempt",
+        severity: "high",
+        mitre: "T1189",
+        description: "<script>, onerror, javascript: URI",
+        event_count: 5,
+    },
+    AttackDef {
+        name: "Path Traversal",
+        rule_id: "path_traversal",
+        severity: "high",
+        mitre: "T1083",
+        description: "../../etc/passwd, encoded variants",
+        event_count: 5,
+    },
+    AttackDef {
+        name: "SSRF",
+        rule_id: "ssrf_attempt",
+        severity: "high",
+        mitre: "T1190",
+        description: "Internal IPs, metadata endpoints",
+        event_count: 4,
+    },
+    AttackDef {
+        name: "Privilege Escalation",
+        rule_id: "privilege_escalation_attempt",
+        severity: "high",
+        mitre: "T1068",
+        description: "403 on admin + role bypass",
+        event_count: 10,
+    },
+    AttackDef {
+        name: "Rate Limit",
+        rule_id: "rate_limit_evasion",
+        severity: "medium",
+        mitre: "T1595",
+        description: "600 requests from one IP",
+        event_count: 600,
+    },
+    AttackDef {
+        name: "Error Spike",
+        rule_id: "error_spike",
+        severity: "high",
+        mitre: "T1190",
+        description: "25 5xx errors on one endpoint",
+        event_count: 25,
+    },
+    AttackDef {
+        name: "Credential Stuffing",
+        rule_id: "credential_stuffing",
+        severity: "high",
+        mitre: "T1110.004",
+        description: "6 IPs, same user, failed login",
+        event_count: 6,
+    },
+    AttackDef {
+        name: "Unusual HTTP Methods",
+        rule_id: "unusual_http_methods",
+        severity: "medium",
+        mitre: "T1190",
+        description: "DELETE/PUT on admin endpoints",
+        event_count: 4,
+    },
+    AttackDef {
+        name: "Data Exfiltration",
+        rule_id: "data_exfiltration",
+        severity: "high",
+        mitre: "T1048",
+        description: "Large response volume from one IP",
+        event_count: 100,
+    },
+];
 
 pub struct OperatorApp {
     api_base: String,
@@ -149,12 +296,26 @@ pub struct OperatorApp {
     widget_audit: bool,
     playbook_steps: Vec<(String, bool)>,
     last_persist_blob: String,
+    // Cached aggregates (rebuilt on data change, not every frame)
+    overview_cache: OverviewCache,
+    // Attack Lab
+    attack_selected: usize,
+    attack_sending: bool,
+    attack_rx: Option<Receiver<Result<AttackLabResult, String>>>,
+    attack_result: Option<AttackLabResult>,
+    attack_log: Vec<AttackLogEntry>,
+
+    // Pagination
+    case_page: usize,
+    event_page: usize,
+    asset_page: usize,
+    page_size: usize,
 }
 
 impl Default for OperatorApp {
     fn default() -> Self {
-        let api_base =
-            std::env::var("SIEM_OPERATOR_API").unwrap_or_else(|_| "http://127.0.0.1:8091".to_string());
+        let api_base = std::env::var("SIEM_OPERATOR_API")
+            .unwrap_or_else(|_| "http://127.0.0.1:8091".to_string());
         let mut app = Self {
             api_base,
             section: Section::default(),
@@ -241,6 +402,16 @@ impl Default for OperatorApp {
                 ("Document evidence".to_string(), false),
             ],
             last_persist_blob: String::new(),
+            overview_cache: OverviewCache::default(),
+            attack_selected: 0,
+            attack_sending: false,
+            attack_rx: None,
+            attack_result: None,
+            attack_log: Vec::new(),
+            case_page: 0,
+            event_page: 0,
+            asset_page: 0,
+            page_size: 50,
         };
         app.load_persisted_state_if_exists();
         app
@@ -312,14 +483,8 @@ impl OperatorApp {
     }
 
     fn alertmanager_alerts_urls(&self) -> Vec<String> {
-        let proxy = format!(
-            "{}/api/v1/proxy/alertmanager/v2/alerts",
-            self.portal_base()
-        );
-        let direct = format!(
-            "{}/api/v2/alerts",
-            self.alertmanager_direct_base()
-        );
+        let proxy = format!("{}/api/v1/proxy/alertmanager/v2/alerts", self.portal_base());
+        let direct = format!("{}/api/v2/alerts", self.alertmanager_direct_base());
         vec![proxy, direct]
     }
 
@@ -401,6 +566,7 @@ impl OperatorApp {
             Section::Investigations => "investigations",
             Section::Assets => "assets",
             Section::Cases => "cases",
+            Section::AttackLab => "attack_lab",
             Section::StackControl => "stack_control",
             Section::Settings => "settings",
         }
@@ -414,6 +580,7 @@ impl OperatorApp {
             "investigations" => Section::Investigations,
             "assets" => Section::Assets,
             "cases" => Section::Cases,
+            "attack_lab" => Section::AttackLab,
             "stack_control" => Section::StackControl,
             "settings" => Section::Settings,
             _ => Section::Overview,
@@ -670,7 +837,8 @@ impl OperatorApp {
                             let raw = resp.text().map_err(|e| e.to_string())?;
                             let body = serde_json::from_str::<Vec<PortalEvent>>(&raw)
                                 .or_else(|_| {
-                                    serde_json::from_str::<PortalAlertsEnvelope>(&raw).map(|x| x.data)
+                                    serde_json::from_str::<PortalAlertsEnvelope>(&raw)
+                                        .map(|x| x.data)
                                 })
                                 .map_err(|e| format!("decode failed: {e}"))?;
                             let rows = body
@@ -719,7 +887,9 @@ impl OperatorApp {
                         }
                     }
                 }
-                Err(format!("alerts/events: портал и Alertmanager недоступны ({last_err})"))
+                Err(format!(
+                    "alerts/events: портал и Alertmanager недоступны ({last_err})"
+                ))
             })();
             let _ = tx.send(result);
         });
@@ -740,7 +910,8 @@ impl OperatorApp {
                             let raw = resp.text().map_err(|e| e.to_string())?;
                             let body = serde_json::from_str::<Vec<PortalEvent>>(&raw)
                                 .or_else(|_| {
-                                    serde_json::from_str::<PortalAlertsEnvelope>(&raw).map(|x| x.data)
+                                    serde_json::from_str::<PortalAlertsEnvelope>(&raw)
+                                        .map(|x| x.data)
                                 })
                                 .map_err(|e| format!("decode failed: {e}"))?;
                             let mapped = body
@@ -789,7 +960,9 @@ impl OperatorApp {
                         }
                     }
                 }
-                Err(format!("alerts: портал и Alertmanager недоступны ({last_err})"))
+                Err(format!(
+                    "alerts: портал и Alertmanager недоступны ({last_err})"
+                ))
             })();
             let _ = tx.send(result);
         });
@@ -844,7 +1017,11 @@ impl OperatorApp {
                             .unwrap_or_else(|| value.to_string());
                         rows.push(StackServiceStatus {
                             service: service.clone(),
-                            status: if ok { "up".to_string() } else { "down".to_string() },
+                            status: if ok {
+                                "up".to_string()
+                            } else {
+                                "down".to_string()
+                            },
                             detail,
                         });
                     }
@@ -878,8 +1055,9 @@ impl OperatorApp {
     fn open_public_link(&mut self, url: &str, label: &str) {
         let u = url.trim();
         if u.is_empty() {
-            self.status =
-                format!("{label}: URL пуст — нажми «Обновить ссылки с портала» (GET /api/v1/ui/config)");
+            self.status = format!(
+                "{label}: URL пуст — нажми «Обновить ссылки с портала» (GET /api/v1/ui/config)"
+            );
             return;
         }
         match webbrowser::open(u) {
@@ -922,7 +1100,10 @@ impl OperatorApp {
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             if ui
-                .add_enabled(!overview.is_empty(), egui::Button::new("Дашборд SIEM Overview"))
+                .add_enabled(
+                    !overview.is_empty(),
+                    egui::Button::new("Дашборд SIEM Overview"),
+                )
                 .clicked()
             {
                 self.open_public_link(&overview, "SIEM Overview");
@@ -946,7 +1127,10 @@ impl OperatorApp {
                 self.open_public_link(&alertmanager, "Alertmanager");
             }
             if ui
-                .add_enabled(!case_mgmt.is_empty(), egui::Button::new("Case management (веб)"))
+                .add_enabled(
+                    !case_mgmt.is_empty(),
+                    egui::Button::new("Case management (веб)"),
+                )
                 .clicked()
             {
                 self.open_public_link(&case_mgmt, "Case management");
@@ -956,11 +1140,7 @@ impl OperatorApp {
 
     fn fetch_case_timeline(&mut self, case_id: &str) {
         self.timeline_loading = true;
-        let url = format!(
-            "{}/api/v1/cases/{}",
-            self.case_mgmt_base(),
-            case_id.trim()
-        );
+        let url = format!("{}/api/v1/cases/{}", self.case_mgmt_base(), case_id.trim());
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| -> Result<Vec<CaseTimelineEntry>, String> {
@@ -969,7 +1149,9 @@ impl OperatorApp {
                 if !resp.status().is_success() {
                     return Err(format!("HTTP {}", resp.status()));
                 }
-                let detail = resp.json::<CaseDetailResponse>().map_err(|e| e.to_string())?;
+                let detail = resp
+                    .json::<CaseDetailResponse>()
+                    .map_err(|e| e.to_string())?;
                 Ok(detail.timeline)
             })();
             let _ = tx.send(result);
@@ -982,9 +1164,15 @@ impl OperatorApp {
         let end = Utc::now().timestamp();
         let start = end - 24 * 3600;
         let base = self.portal_base();
-        let q_eps = format!("{base}/api/v1/proxy/prometheus/query_range?query=sum(rate(ALERTS[5m]))&start={start}&end={end}&step=300");
-        let q_alerts = format!("{base}/api/v1/proxy/prometheus/query_range?query=count(ALERTS)&start={start}&end={end}&step=300");
-        let q_mtta = format!("{base}/api/v1/proxy/prometheus/query_range?query=avg_over_time(up[30m])&start={start}&end={end}&step=300");
+        let q_eps = format!(
+            "{base}/api/v1/proxy/prometheus/query_range?query=sum(rate(ALERTS[5m]))&start={start}&end={end}&step=300"
+        );
+        let q_alerts = format!(
+            "{base}/api/v1/proxy/prometheus/query_range?query=count(ALERTS)&start={start}&end={end}&step=300"
+        );
+        let q_mtta = format!(
+            "{base}/api/v1/proxy/prometheus/query_range?query=avg_over_time(up[30m])&start={start}&end={end}&step=300"
+        );
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), String> {
@@ -1032,16 +1220,32 @@ impl OperatorApp {
                 if !resp.status().is_success() {
                     return Err(format!("HTTP {}", resp.status()));
                 }
-                let body = resp.json::<PromQueryResponse>().map_err(|e| e.to_string())?;
+                let body = resp
+                    .json::<PromQueryResponse>()
+                    .map_err(|e| e.to_string())?;
                 let rows = body
                     .data
                     .result
                     .into_iter()
                     .map(|s| {
-                        let rule = s.metric["alertname"].as_str().unwrap_or("alert").to_string();
-                        let severity = s.metric["severity"].as_str().unwrap_or("unknown").to_string();
-                        let state = s.metric["alertstate"].as_str().unwrap_or("firing").to_string();
-                        let signal = s.value.get(1).and_then(|v| v.as_str()).unwrap_or("0").to_string();
+                        let rule = s.metric["alertname"]
+                            .as_str()
+                            .unwrap_or("alert")
+                            .to_string();
+                        let severity = s.metric["severity"]
+                            .as_str()
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let state = s.metric["alertstate"]
+                            .as_str()
+                            .unwrap_or("firing")
+                            .to_string();
+                        let signal = s
+                            .value
+                            .get(1)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("0")
+                            .to_string();
                         DetectionRow {
                             rule,
                             severity,
@@ -1063,8 +1267,14 @@ impl OperatorApp {
             return;
         }
         self.investigation_loading = true;
-        let portal_url = format!("{}/api/v1/proxy/cases/{entity}/investigate", self.portal_base());
-        let direct_url = format!("{}/api/v1/cases/{entity}/investigate", self.case_mgmt_base());
+        let portal_url = format!(
+            "{}/api/v1/proxy/cases/{entity}/investigate",
+            self.portal_base()
+        );
+        let direct_url = format!(
+            "{}/api/v1/cases/{entity}/investigate",
+            self.case_mgmt_base()
+        );
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = (|| -> Result<InvestigationResponse, String> {
@@ -1133,7 +1343,10 @@ impl OperatorApp {
     }
 
     fn discover_compose_dir() -> Option<PathBuf> {
-        let mut candidates = vec![PathBuf::from("../deploy/docker"), PathBuf::from("deploy/docker")];
+        let mut candidates = vec![
+            PathBuf::from("../deploy/docker"),
+            PathBuf::from("deploy/docker"),
+        ];
         if let Ok(exe) = std::env::current_exe() {
             if let Some(bin_dir) = exe.parent() {
                 let root_guess = bin_dir
@@ -1182,7 +1395,10 @@ impl OperatorApp {
                     c.arg("-lc").arg(command);
                     c
                 };
-                let output = cmd.current_dir(Path::new(&workdir)).output().map_err(|e| e.to_string())?;
+                let output = cmd
+                    .current_dir(Path::new(&workdir))
+                    .output()
+                    .map_err(|e| e.to_string())?;
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 let merged = if stderr.trim().is_empty() {
@@ -1234,11 +1450,16 @@ impl OperatorApp {
         if !resp.status().is_success() {
             return Err(format!("Create case failed: HTTP {}", resp.status()));
         }
-        resp.json::<CreatedCaseResponse>().map_err(|e| e.to_string())
+        resp.json::<CreatedCaseResponse>()
+            .map_err(|e| e.to_string())
     }
 
     fn add_timeline_remote(&self, case_id: &str, body: &str) -> Result<(), String> {
-        let url = format!("{}/api/v1/cases/{}/timeline", self.case_mgmt_base(), case_id);
+        let url = format!(
+            "{}/api/v1/cases/{}/timeline",
+            self.case_mgmt_base(),
+            case_id
+        );
         let client = Self::http_client(15)?;
         let req = TimelineCreateRequest {
             body: body.to_string(),
@@ -1263,7 +1484,10 @@ impl OperatorApp {
             rule_id: None,
             rule_title: Some(alert.title.clone()),
             severity: Some(alert.severity.clone()),
-            description: Some(format!("source={} fired_at={}", alert.source, alert.fired_at)),
+            description: Some(format!(
+                "source={} fired_at={}",
+                alert.source, alert.fired_at
+            )),
             context: serde_json::json!({
                 "source": alert.source,
                 "mitre_tactic": alert.mitre_tactic,
@@ -1293,7 +1517,10 @@ impl OperatorApp {
                 match self.patch_case_remote(&case.id, &req) {
                     Ok(_) => {
                         self.status = format!("{} assigned to {}", case.display_key, self.whoami);
-                        self.append_audit(format!("Assigned {} to {}", case.display_key, self.whoami));
+                        self.append_audit(format!(
+                            "Assigned {} to {}",
+                            case.display_key, self.whoami
+                        ));
                         self.fetch_cases();
                     }
                     Err(e) => self.status = format!("Assign failed: {e}"),
@@ -1400,7 +1627,10 @@ impl OperatorApp {
         self.link_alert_remote(&created.id, alert)?;
         self.add_timeline_remote(
             &created.id,
-            &format!("Promoted alert {} to case {}", alert.id, created.display_key),
+            &format!(
+                "Promoted alert {} to case {}",
+                alert.id, created.display_key
+            ),
         )?;
         self.fetch_cases();
         Ok(())
@@ -1427,7 +1657,10 @@ impl OperatorApp {
         let created = self.create_case_remote(&req)?;
         self.add_timeline_remote(
             &created.id,
-            &format!("Investigation {} promoted to case", self.investigation_entity),
+            &format!(
+                "Investigation {} promoted to case",
+                self.investigation_entity
+            ),
         )?;
         self.fetch_cases();
         Ok(())
@@ -1485,7 +1718,7 @@ impl OperatorApp {
     }
 
     fn is_closed_status(status: &str) -> bool {
-        let s = status.to_lowercase();
+        let s = status.to_ascii_lowercase();
         s.contains("closed") || s.contains("resolved") || s.contains("done")
     }
 
@@ -1507,12 +1740,20 @@ impl OperatorApp {
     }
 
     fn inferred_source(case: &CaseBrief) -> &'static str {
-        let title = case.title.to_lowercase();
-        if title.contains("auth") || title.contains("login") {
+        let title = case.title.as_bytes();
+        if title.windows(4).any(|w| w.eq_ignore_ascii_case(b"auth"))
+            || title.windows(5).any(|w| w.eq_ignore_ascii_case(b"login"))
+        {
             "Identity"
-        } else if title.contains("network") || title.contains("scan") {
+        } else if title.windows(7).any(|w| w.eq_ignore_ascii_case(b"network"))
+            || title.windows(4).any(|w| w.eq_ignore_ascii_case(b"scan"))
+        {
             "Network"
-        } else if title.contains("endpoint") || title.contains("edr") {
+        } else if title
+            .windows(8)
+            .any(|w| w.eq_ignore_ascii_case(b"endpoint"))
+            || title.windows(3).any(|w| w.eq_ignore_ascii_case(b"edr"))
+        {
             "Endpoint"
         } else {
             "SIEM"
@@ -1520,44 +1761,143 @@ impl OperatorApp {
     }
 
     fn inferred_mitre(case: &CaseBrief) -> &'static str {
-        let title = case.title.to_lowercase();
-        if title.contains("phish") {
+        let title = case.title.as_bytes();
+        if title.windows(5).any(|w| w.eq_ignore_ascii_case(b"phish")) {
             "TA0001 Initial Access"
-        } else if title.contains("credential") || title.contains("auth") {
+        } else if title
+            .windows(10)
+            .any(|w| w.eq_ignore_ascii_case(b"credential"))
+            || title.windows(4).any(|w| w.eq_ignore_ascii_case(b"auth"))
+        {
             "TA0006 Credential Access"
-        } else if title.contains("lateral") {
+        } else if title.windows(7).any(|w| w.eq_ignore_ascii_case(b"lateral")) {
             "TA0008 Lateral Movement"
         } else {
             "TA0005 Defense Evasion"
         }
     }
 
+    /// Rebuild all overview aggregates in a single pass over cases.
+    /// Call this once after cases are refreshed, NOT every frame.
+    fn rebuild_overview_cache(&mut self) {
+        let mut cache = OverviewCache {
+            case_count: self.cases.len(),
+            sparkline_open: vec![0.0_f32; 8],
+            sparkline_critical: vec![0.0_f32; 8],
+            ..Default::default()
+        };
+        let mut closed_ages: Vec<i64> = Vec::new();
+        let mut all_ages: Vec<i64> = Vec::new();
+
+        for c in &self.cases {
+            let is_closed = Self::is_closed_status(&c.status);
+            let is_critical = c.severity.eq_ignore_ascii_case("critical");
+
+            if !is_closed {
+                cache.open_count += 1;
+            }
+            if is_critical && !is_closed {
+                cache.critical_count += 1;
+            }
+            if Self::is_stale(c) {
+                cache.stale_count += 1;
+            }
+
+            if let Some(hours) = Self::case_age_hours(c) {
+                if is_closed {
+                    closed_ages.push(hours);
+                }
+                all_ages.push(hours);
+
+                // Sparkline bucketing (same logic as build_case_sparkline_series)
+                let bucket = usize::min((hours / 3) as usize, 7);
+                let idx = 7usize.saturating_sub(bucket);
+                if !is_closed {
+                    cache.sparkline_open[idx] += 1.0;
+                }
+                if is_critical {
+                    cache.sparkline_critical[idx] += 1.0;
+                }
+            }
+
+            *cache
+                .by_source
+                .entry(Self::inferred_source(c).to_string())
+                .or_insert(0) += 1;
+            *cache
+                .by_severity
+                .entry(c.severity.to_ascii_lowercase())
+                .or_insert(0) += 1;
+            *cache
+                .by_analyst
+                .entry(
+                    c.assignee
+                        .clone()
+                        .unwrap_or_else(|| "unassigned".to_string()),
+                )
+                .or_insert(0) += 1;
+        }
+
+        cache.mttr_hours = if closed_ages.is_empty() {
+            0
+        } else {
+            closed_ages.iter().sum::<i64>() / closed_ages.len() as i64
+        };
+        cache.mtta_hours = if all_ages.is_empty() {
+            0
+        } else {
+            all_ages.iter().sum::<i64>() / all_ages.len() as i64
+        };
+
+        cache.max_source = cache.by_source.values().copied().max().unwrap_or(1) as f32;
+        cache.max_sev = cache.by_severity.values().copied().max().unwrap_or(1) as f32;
+        cache.max_analyst = cache.by_analyst.values().copied().max().unwrap_or(1) as f32;
+
+        self.overview_cache = cache;
+    }
+
     fn filtered_case_indices(&self) -> Vec<usize> {
+        let search_needle = if !self.filters.search.trim().is_empty() {
+            Some(self.filters.search.to_ascii_lowercase())
+        } else {
+            None
+        };
+        let severity_match = if self.filters.severity != "All" {
+            Some(self.filters.severity.as_bytes())
+        } else {
+            None
+        };
+        let status_needle = if self.filters.status != "All" {
+            Some(self.filters.status.to_ascii_lowercase())
+        } else {
+            None
+        };
         self.cases
             .iter()
             .enumerate()
             .filter(|(_, c)| {
-                if !self.filters.search.trim().is_empty() {
-                    let needle = self.filters.search.to_lowercase();
-                    let hay = format!(
-                        "{} {} {} {}",
-                        c.display_key,
-                        c.title,
-                        c.assignee.clone().unwrap_or_default(),
-                        c.status
-                    )
-                    .to_lowercase();
-                    if !hay.contains(&needle) {
+                if let Some(ref needle) = search_needle {
+                    let matches = c.display_key.to_ascii_lowercase().contains(needle)
+                        || c.title.to_ascii_lowercase().contains(needle)
+                        || c.assignee
+                            .as_deref()
+                            .unwrap_or_default()
+                            .to_ascii_lowercase()
+                            .contains(needle)
+                        || c.status.to_ascii_lowercase().contains(needle);
+                    if !matches {
                         return false;
                     }
                 }
-                if self.filters.severity != "All" && c.severity.to_lowercase() != self.filters.severity.to_lowercase() {
-                    return false;
+                if let Some(sev_bytes) = severity_match {
+                    if !c.severity.as_bytes().eq_ignore_ascii_case(sev_bytes) {
+                        return false;
+                    }
                 }
-                if self.filters.status != "All"
-                    && !c.status.to_lowercase().contains(&self.filters.status.to_lowercase())
-                {
-                    return false;
+                if let Some(ref sn) = status_needle {
+                    if !c.status.to_ascii_lowercase().contains(sn) {
+                        return false;
+                    }
                 }
                 if self.filters.assignee == "Unassigned" && c.assignee.is_some() {
                     return false;
@@ -1614,83 +1954,131 @@ impl OperatorApp {
                     egui::vec2(ui.available_width(), nav_height),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
-                        egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-                            ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                ui.vertical(|ui| {
-                                    ui.label(
-                                        egui::RichText::new("SIEM-Lite")
-                                            .strong()
-                                            .size(20.0)
-                                            .color(p.text_on_sidebar),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new("Operator")
-                                            .size(13.0)
-                                            .color(p.accent),
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    ui.vertical(|ui| {
+                                        ui.label(
+                                            egui::RichText::new("SIEM-Lite")
+                                                .strong()
+                                                .size(20.0)
+                                                .color(p.text_on_sidebar),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new("Operator")
+                                                .size(13.0)
+                                                .color(p.accent),
+                                        );
+                                    });
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if ui
+                                                .add_sized(
+                                                    [74.0, 32.0],
+                                                    egui::Button::new(
+                                                        egui::RichText::new("Settings")
+                                                            .size(12.5)
+                                                            .color(p.text_on_sidebar),
+                                                    ),
+                                                )
+                                                .on_hover_text("Settings")
+                                                .clicked()
+                                            {
+                                                self.section = Section::Settings;
+                                            }
+                                        },
                                     );
                                 });
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui
-                                        .add_sized(
-                                            [74.0, 32.0],
-                                            egui::Button::new(
-                                                egui::RichText::new("Settings")
-                                                    .size(12.5)
-                                                    .color(p.text_on_sidebar),
-                                            ),
-                                        )
-                                        .on_hover_text("Settings")
-                                        .clicked()
-                                    {
-                                        self.section = Section::Settings;
-                                    }
-                                });
+                                ui.add_space(20.0);
+                                ui.label(
+                                    egui::RichText::new("Разделы").small().color(p.text_subtle),
+                                );
+                                ui.add_space(8.0);
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Overview",
+                                    "KPI и SLA",
+                                    self.section == Section::Overview,
+                                ) {
+                                    self.section = Section::Overview;
+                                }
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Detections",
+                                    "Rules и сигналы",
+                                    self.section == Section::Detections,
+                                ) {
+                                    self.section = Section::Detections;
+                                }
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Alerts",
+                                    "Inbox и Promote",
+                                    self.section == Section::Alerts,
+                                ) {
+                                    self.section = Section::Alerts;
+                                }
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Events",
+                                    "Поток и триаж",
+                                    self.section == Section::Events,
+                                ) {
+                                    self.section = Section::Events;
+                                }
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Investigations",
+                                    "Timeline и workbench",
+                                    self.section == Section::Investigations,
+                                ) {
+                                    self.section = Section::Investigations;
+                                }
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Assets",
+                                    "Хосты и риск",
+                                    self.section == Section::Assets,
+                                ) {
+                                    self.section = Section::Assets;
+                                }
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Cases",
+                                    "Lifecycle response",
+                                    self.section == Section::Cases,
+                                ) {
+                                    self.section = Section::Cases;
+                                }
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Attack Lab",
+                                    "Test attacks & detect",
+                                    self.section == Section::AttackLab,
+                                ) {
+                                    self.section = Section::AttackLab;
+                                }
+                                if section_nav_button(
+                                    ui,
+                                    &p,
+                                    "Stack Control",
+                                    "Docker и health",
+                                    self.section == Section::StackControl,
+                                ) {
+                                    self.section = Section::StackControl;
+                                }
                             });
-                            ui.add_space(20.0);
-                            ui.label(
-                                egui::RichText::new("Разделы")
-                                    .small()
-                                    .color(p.text_subtle),
-                            );
-                            ui.add_space(8.0);
-                            if section_nav_button(ui, &p, "Overview", "KPI и SLA", self.section == Section::Overview) {
-                                self.section = Section::Overview;
-                            }
-                            if section_nav_button(ui, &p, "Detections", "Rules и сигналы", self.section == Section::Detections) {
-                                self.section = Section::Detections;
-                            }
-                            if section_nav_button(ui, &p, "Alerts", "Inbox и Promote", self.section == Section::Alerts) {
-                                self.section = Section::Alerts;
-                            }
-                            if section_nav_button(ui, &p, "Events", "Поток и триаж", self.section == Section::Events) {
-                                self.section = Section::Events;
-                            }
-                            if section_nav_button(
-                                ui,
-                                &p,
-                                "Investigations",
-                                "Timeline и workbench",
-                                self.section == Section::Investigations,
-                            ) {
-                                self.section = Section::Investigations;
-                            }
-                            if section_nav_button(ui, &p, "Assets", "Хосты и риск", self.section == Section::Assets) {
-                                self.section = Section::Assets;
-                            }
-                            if section_nav_button(ui, &p, "Cases", "Lifecycle response", self.section == Section::Cases) {
-                                self.section = Section::Cases;
-                            }
-                            if section_nav_button(
-                                ui,
-                                &p,
-                                "Stack Control",
-                                "Docker и health",
-                                self.section == Section::StackControl,
-                            ) {
-                                self.section = Section::StackControl;
-                            }
-                        });
                     },
                 );
                 ui.separator();
@@ -1700,13 +2088,12 @@ impl OperatorApp {
                         .small()
                         .color(p.text_footer),
                 );
-                ui.label(
-                    egui::RichText::new("v0.2")
-                        .small()
-                        .color(p.text_footer),
-                );
+                ui.label(egui::RichText::new("v0.2").small().color(p.text_footer));
                 if ui
-                    .add_sized([ui.available_width(), 36.0], egui::Button::new("Выход из приложения"))
+                    .add_sized(
+                        [ui.available_width(), 36.0],
+                        egui::Button::new("Выход из приложения"),
+                    )
                     .clicked()
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1734,11 +2121,7 @@ impl OperatorApp {
                             .color(p.text_muted),
                     );
                     ui.separator();
-                    ui.label(
-                        egui::RichText::new(nav_hint)
-                            .small()
-                            .color(p.text_footer),
-                    );
+                    ui.label(egui::RichText::new(nav_hint).small().color(p.text_footer));
                     ui.separator();
                     ui.label(
                         egui::RichText::new(refresh_hint)
@@ -1758,6 +2141,7 @@ impl OperatorApp {
             Section::Investigations => "Investigations",
             Section::Assets => "Assets",
             Section::Cases => "Cases",
+            Section::AttackLab => "Attack Lab",
             Section::StackControl => "Stack Control",
             Section::Settings => "Settings",
         }
@@ -1792,21 +2176,35 @@ impl OperatorApp {
                         );
                         ui.separator();
                         ui.label(
-                            egui::RichText::new(format!("theme: {}", if self.use_light_theme { "light" } else { "dark" }))
-                                .small()
-                                .color(p.text_toolbar_secondary),
+                            egui::RichText::new(format!(
+                                "theme: {}",
+                                if self.use_light_theme {
+                                    "light"
+                                } else {
+                                    "dark"
+                                }
+                            ))
+                            .small()
+                            .color(p.text_toolbar_secondary),
                         );
                         ui.separator();
                         ui.label(
-                            egui::RichText::new(format!("refresh: {}s", self.auto_refresh_interval_sec))
-                                .small()
-                                .color(p.text_toolbar_secondary),
+                            egui::RichText::new(format!(
+                                "refresh: {}s",
+                                self.auto_refresh_interval_sec
+                            ))
+                            .small()
+                            .color(p.text_toolbar_secondary),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
-                                egui::RichText::new(format!("{} ({})", self.whoami, self.role_label()))
-                                    .small()
-                                    .color(p.text_toolbar_tertiary),
+                                egui::RichText::new(format!(
+                                    "{} ({})",
+                                    self.whoami,
+                                    self.role_label()
+                                ))
+                                .small()
+                                .color(p.text_toolbar_tertiary),
                             );
                         });
                     });
@@ -1902,26 +2300,35 @@ impl OperatorApp {
     fn show_cases_panel(&mut self, ui: &mut egui::Ui) {
         let p = self.theme_palette();
         theme::elevated_card_frame(&p).show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        egui::RichText::new("Cases")
-                            .strong()
-                            .size(24.0)
-                            .color(p.text_on_sidebar),
-                    );
-                    ui.label(
-                        egui::RichText::new("Incident lifecycle, ownership and SLA actions")
-                            .small()
-                            .color(p.text_muted),
-                    );
-                    if ui.button("Refresh").clicked() {
-                        self.fetch_cases();
-                    }
-                });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    egui::RichText::new("Cases")
+                        .strong()
+                        .size(24.0)
+                        .color(p.text_on_sidebar),
+                );
+                ui.label(
+                    egui::RichText::new("Incident lifecycle, ownership and SLA actions")
+                        .small()
+                        .color(p.text_muted),
+                );
+                if ui.button("Refresh").clicked() {
+                    self.fetch_cases();
+                }
             });
+        });
         ui.add_space(6.0);
         let filtered = self.filtered_case_indices();
-        ui.label(egui::RichText::new(format!("Показано: {} · В ответе: {} · Всего: {}", filtered.len(), self.cases.len(), self.total)).size(13.0).color(egui::Color32::from_rgb(150, 160, 178)));
+        ui.label(
+            egui::RichText::new(format!(
+                "Показано: {} · В ответе: {} · Всего: {}",
+                filtered.len(),
+                self.cases.len(),
+                self.total
+            ))
+            .size(13.0)
+            .color(egui::Color32::from_rgb(150, 160, 178)),
+        );
         ui.add_space(14.0);
 
         ui.horizontal_wrapped(|ui| {
@@ -1955,47 +2362,128 @@ impl OperatorApp {
                                 .desired_width(f32::INFINITY),
                         );
                         egui::ComboBox::from_label("Severity")
-                            .selected_text(if self.filters.severity.is_empty() { "All" } else { &self.filters.severity })
+                            .selected_text(if self.filters.severity.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.severity
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "critical", "high", "medium", "low", "info"] {
-                                    if ui.selectable_label(self.filters.severity == v || (self.filters.severity.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.severity == v
+                                                || (self.filters.severity.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.severity = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("Status")
-                            .selected_text(if self.filters.status.is_empty() { "All" } else { &self.filters.status })
+                            .selected_text(if self.filters.status.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.status
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "new", "in progress", "escalated", "closed"] {
-                                    if ui.selectable_label(self.filters.status == v || (self.filters.status.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.status = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.status == v
+                                                || (self.filters.status.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.status = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("Assignee")
-                            .selected_text(if self.filters.assignee.is_empty() { "All" } else { &self.filters.assignee })
+                            .selected_text(if self.filters.assignee.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.assignee
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "Assigned", "Unassigned"] {
-                                    if ui.selectable_label(self.filters.assignee == v || (self.filters.assignee.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.assignee = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.assignee == v
+                                                || (self.filters.assignee.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.assignee = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("Source")
-                            .selected_text(if self.filters.source.is_empty() { "All" } else { &self.filters.source })
+                            .selected_text(if self.filters.source.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.source
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
-                                    if ui.selectable_label(self.filters.source == v || (self.filters.source.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.source = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.source == v
+                                                || (self.filters.source.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.source = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("MITRE")
-                            .selected_text(if self.filters.mitre.is_empty() { "All" } else { &self.filters.mitre })
+                            .selected_text(if self.filters.mitre.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.mitre
+                            })
                             .show_ui(ui, |ui| {
-                                for v in ["All", "TA0001 Initial Access", "TA0006 Credential Access", "TA0008 Lateral Movement", "TA0005 Defense Evasion"] {
-                                    if ui.selectable_label(self.filters.mitre == v || (self.filters.mitre.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.mitre = if v == "All" { String::new() } else { v.to_string() };
+                                for v in [
+                                    "All",
+                                    "TA0001 Initial Access",
+                                    "TA0006 Credential Access",
+                                    "TA0008 Lateral Movement",
+                                    "TA0005 Defense Evasion",
+                                ] {
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.mitre == v
+                                                || (self.filters.mitre.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.mitre = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -2010,20 +2498,50 @@ impl OperatorApp {
                                 .desired_width(220.0),
                         );
                         egui::ComboBox::from_label("Severity")
-                            .selected_text(if self.filters.severity.is_empty() { "All" } else { &self.filters.severity })
+                            .selected_text(if self.filters.severity.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.severity
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "critical", "high", "medium", "low", "info"] {
-                                    if ui.selectable_label(self.filters.severity == v || (self.filters.severity.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.severity == v
+                                                || (self.filters.severity.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.severity = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("Status")
-                            .selected_text(if self.filters.status.is_empty() { "All" } else { &self.filters.status })
+                            .selected_text(if self.filters.status.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.status
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "new", "in progress", "escalated", "closed"] {
-                                    if ui.selectable_label(self.filters.status == v || (self.filters.status.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.status = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.status == v
+                                                || (self.filters.status.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.status = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -2031,29 +2549,80 @@ impl OperatorApp {
                     ui.add_space(6.0);
                     ui.horizontal_wrapped(|ui| {
                         egui::ComboBox::from_label("Assignee")
-                            .selected_text(if self.filters.assignee.is_empty() { "All" } else { &self.filters.assignee })
+                            .selected_text(if self.filters.assignee.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.assignee
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "Assigned", "Unassigned"] {
-                                    if ui.selectable_label(self.filters.assignee == v || (self.filters.assignee.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.assignee = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.assignee == v
+                                                || (self.filters.assignee.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.assignee = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("Source")
-                            .selected_text(if self.filters.source.is_empty() { "All" } else { &self.filters.source })
+                            .selected_text(if self.filters.source.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.source
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
-                                    if ui.selectable_label(self.filters.source == v || (self.filters.source.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.source = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.source == v
+                                                || (self.filters.source.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.source = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("MITRE")
-                            .selected_text(if self.filters.mitre.is_empty() { "All" } else { &self.filters.mitre })
+                            .selected_text(if self.filters.mitre.is_empty() {
+                                "All"
+                            } else {
+                                &self.filters.mitre
+                            })
                             .show_ui(ui, |ui| {
-                                for v in ["All", "TA0001 Initial Access", "TA0006 Credential Access", "TA0008 Lateral Movement", "TA0005 Defense Evasion"] {
-                                    if ui.selectable_label(self.filters.mitre == v || (self.filters.mitre.is_empty() && v == "All"), v).clicked() {
-                                        self.filters.mitre = if v == "All" { String::new() } else { v.to_string() };
+                                for v in [
+                                    "All",
+                                    "TA0001 Initial Access",
+                                    "TA0006 Credential Access",
+                                    "TA0008 Lateral Movement",
+                                    "TA0005 Defense Evasion",
+                                ] {
+                                    if ui
+                                        .selectable_label(
+                                            self.filters.mitre == v
+                                                || (self.filters.mitre.is_empty() && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.filters.mitre = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -2066,8 +2635,10 @@ impl OperatorApp {
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add(
-                    egui::Button::new(egui::RichText::new("Веб-главная").color(egui::Color32::WHITE))
-                        .min_size(egui::vec2(0.0, 36.0)),
+                    egui::Button::new(
+                        egui::RichText::new("Веб-главная").color(egui::Color32::WHITE),
+                    )
+                    .min_size(egui::vec2(0.0, 36.0)),
                 )
                 .clicked()
             {
@@ -2077,15 +2648,20 @@ impl OperatorApp {
             if ui
                 .add_enabled(
                     has_sel,
-                    egui::Button::new(egui::RichText::new("Карточка кейса").color(egui::Color32::WHITE))
-                        .min_size(egui::vec2(0.0, 36.0)),
+                    egui::Button::new(
+                        egui::RichText::new("Карточка кейса").color(egui::Color32::WHITE),
+                    )
+                    .min_size(egui::vec2(0.0, 36.0)),
                 )
                 .clicked()
             {
                 if let Some(i) = self.selected {
                     if let Some(c) = self.cases.get(i) {
-                        let _ =
-                            webbrowser::open(&format!("{}/cases/{}", self.api_base.trim_end_matches('/'), c.id));
+                        let _ = webbrowser::open(&format!(
+                            "{}/cases/{}",
+                            self.api_base.trim_end_matches('/'),
+                            c.id
+                        ));
                     }
                 }
             }
@@ -2093,7 +2669,8 @@ impl OperatorApp {
                 .add_enabled(
                     has_sel,
                     egui::Button::new(
-                        egui::RichText::new("Рабочий стол расследования").color(egui::Color32::WHITE),
+                        egui::RichText::new("Рабочий стол расследования")
+                            .color(egui::Color32::WHITE),
                     )
                     .min_size(egui::vec2(0.0, 36.0)),
                 )
@@ -2128,7 +2705,8 @@ impl OperatorApp {
                             if let Some(i) = self.selected {
                                 if let Some(case) = self.cases.get_mut(i) {
                                     case.severity = sev.to_string();
-                                    self.status = format!("{} severity -> {}", case.display_key, sev);
+                                    self.status =
+                                        format!("{} severity -> {}", case.display_key, sev);
                                 }
                             }
                         }
@@ -2193,7 +2771,14 @@ impl OperatorApp {
                                 .color(egui::Color32::from_rgb(200, 210, 225)),
                         );
                         ui.end_row();
-                        for i in &filtered {
+                        let total = filtered.len();
+                        let pages = (total + self.page_size - 1) / self.page_size;
+                        if self.case_page >= pages && pages > 0 {
+                            self.case_page = pages - 1;
+                        }
+                        let start = self.case_page * self.page_size;
+                        let end = usize::min(start + self.page_size, total);
+                        for i in &filtered[start..end] {
                             let i = *i;
                             let c = &self.cases[i];
                             let sel = self.selected == Some(i);
@@ -2232,6 +2817,25 @@ impl OperatorApp {
                         }
                     });
             });
+        // Pagination controls
+        let total = filtered.len();
+        let pages = (total + self.page_size - 1) / self.page_size;
+        if pages > 1 {
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "Страница {} из {} ({} записей)",
+                    self.case_page + 1,
+                    pages,
+                    total
+                ));
+                if ui.button("<").clicked() && self.case_page > 0 {
+                    self.case_page -= 1;
+                }
+                if ui.button(">").clicked() && self.case_page + 1 < pages {
+                    self.case_page += 1;
+                }
+            });
+        }
         ui.add_space(14.0);
         self.show_kanban_panel(ui);
         ui.add_space(14.0);
@@ -2239,7 +2843,11 @@ impl OperatorApp {
     }
 
     fn show_kanban_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("Kanban (quick move)").strong().size(18.0));
+        ui.label(
+            egui::RichText::new("Kanban (quick move)")
+                .strong()
+                .size(18.0),
+        );
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             if ui.button("Move -> New").clicked() {
@@ -2265,7 +2873,12 @@ impl OperatorApp {
                     .cases
                     .iter()
                     .enumerate()
-                    .filter(|(_, c)| c.status.to_lowercase().contains(&col.to_lowercase()))
+                    .filter(|(_, c)| {
+                        c.status
+                            .as_bytes()
+                            .windows(col.len())
+                            .any(|w| w.eq_ignore_ascii_case(col.as_bytes()))
+                    })
                     .take(6)
                     .map(|(i, c)| (i, c.display_key.clone(), c.title.clone()))
                     .collect();
@@ -2366,126 +2979,128 @@ impl OperatorApp {
     }
 
     fn show_home_panel(&mut self, ui: &mut egui::Ui) {
-        let open_count = self.cases.iter().filter(|c| !Self::is_closed_status(&c.status)).count();
-        let critical_count = self
-            .cases
-            .iter()
-            .filter(|c| c.severity.to_lowercase() == "critical" && !Self::is_closed_status(&c.status))
-            .count();
-        let stale_count = self.cases.iter().filter(|c| Self::is_stale(c)).count();
-        let mttr_proxy = average_hours(
-            self.cases
-                .iter()
-                .filter(|c| Self::is_closed_status(&c.status))
-                .filter_map(Self::case_age_hours),
-        );
-        let mtta_proxy = average_hours(
-            self.cases
-                .iter()
-                .filter(|c| !Self::is_closed_status(&c.status) && c.assignee.is_none())
-                .filter_map(Self::case_age_hours),
-        );
+        // Use cached aggregates instead of iterating cases every frame
+        let open_count = self.overview_cache.open_count;
+        let critical_count = self.overview_cache.critical_count;
+        let stale_count = self.overview_cache.stale_count;
+        let mttr_proxy = self.overview_cache.mttr_hours;
+        let mtta_proxy = self.overview_cache.mtta_hours;
         let p = self.theme_palette();
 
         theme::elevated_card_frame(&p).show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        egui::RichText::new("SOC Overview")
-                            .strong()
-                            .size(24.0)
-                            .color(p.text_on_sidebar),
-                    );
-                    ui.label(
-                        egui::RichText::new("Live posture, triage pressure, SLA and stack control")
-                            .small()
-                            .color(p.text_muted),
-                    );
-                });
-                ui.add_space(8.0);
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("Refresh All").clicked() {
-                        self.fetch_cases();
-                        self.fetch_alerts();
-                        self.fetch_events();
-                        self.fetch_detection_stats();
-                        self.fetch_stack_status();
-                        self.fetch_overview_metrics_series();
-                        self.fetch_observability_snapshot();
-                        self.fetch_portal_ui_config();
-                        self.fetch_assets();
-                    }
-                    if ui.button("Refresh Cases").clicked() {
-                        self.fetch_cases();
-                    }
-                    if ui.button("Refresh Events").clicked() {
-                        self.fetch_events();
-                    }
-                    if ui
-                        .add_enabled(self.selected.is_some(), egui::Button::new("Export selected report"))
-                        .clicked()
-                    {
-                        self.export_selected_case_markdown();
-                    }
-                });
-                if let Some(stats) = &self.detection_stats {
-                    ui.add_space(8.0);
-                    ui.horizontal_wrapped(|ui| {
-                        kpi_card(
-                            ui,
-                            &p,
-                            "Rules",
-                            &stats.rules_count.to_string(),
-                            egui::Color32::from_rgb(110, 165, 235),
-                        );
-                        kpi_card(
-                            ui,
-                            &p,
-                            "Pending alerts",
-                            &stats.pending_alerts.to_string(),
-                            egui::Color32::from_rgb(245, 140, 70),
-                        );
-                        kpi_card(
-                            ui,
-                            &p,
-                            "Kafka lag",
-                            &stats.kafka_lag.to_string(),
-                            egui::Color32::from_rgb(235, 195, 80),
-                        );
-                    });
-                }
-                ui.add_space(8.0);
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Role:");
-                    egui::ComboBox::from_id_salt("role_selector")
-                        .selected_text(self.role_label())
-                        .show_ui(ui, |ui| {
-                            if ui.selectable_label(matches!(self.role, UserRole::Analyst), "Analyst").clicked() {
-                                self.role = UserRole::Analyst;
-                            }
-                            if ui.selectable_label(matches!(self.role, UserRole::Senior), "Senior").clicked() {
-                                self.role = UserRole::Senior;
-                            }
-                            if ui.selectable_label(matches!(self.role, UserRole::Manager), "Manager").clicked() {
-                                self.role = UserRole::Manager;
-                            }
-                        });
-                    ui.checkbox(&mut self.auto_triage_enabled, "Auto-triage");
-                    ui.checkbox(&mut self.auto_refresh_enabled, "Auto-refresh");
-                    ui.add(
-                        egui::Slider::new(&mut self.auto_refresh_interval_sec, 10..=120)
-                            .text("interval")
-                            .suffix("s"),
-                    );
-                    if ui.button("Run triage now").clicked() {
-                        self.apply_auto_triage_rules();
-                    }
-                });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    egui::RichText::new("SOC Overview")
+                        .strong()
+                        .size(24.0)
+                        .color(p.text_on_sidebar),
+                );
+                ui.label(
+                    egui::RichText::new("Live posture, triage pressure, SLA and stack control")
+                        .small()
+                        .color(p.text_muted),
+                );
             });
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Refresh All").clicked() {
+                    self.fetch_cases();
+                    self.fetch_alerts();
+                    self.fetch_events();
+                    self.fetch_detection_stats();
+                    self.fetch_stack_status();
+                    self.fetch_overview_metrics_series();
+                    self.fetch_observability_snapshot();
+                    self.fetch_portal_ui_config();
+                    self.fetch_assets();
+                }
+                if ui.button("Refresh Cases").clicked() {
+                    self.fetch_cases();
+                }
+                if ui.button("Refresh Events").clicked() {
+                    self.fetch_events();
+                }
+                if ui
+                    .add_enabled(
+                        self.selected.is_some(),
+                        egui::Button::new("Export selected report"),
+                    )
+                    .clicked()
+                {
+                    self.export_selected_case_markdown();
+                }
+            });
+            if let Some(stats) = &self.detection_stats {
+                ui.add_space(8.0);
+                ui.horizontal_wrapped(|ui| {
+                    kpi_card(
+                        ui,
+                        &p,
+                        "Rules",
+                        &stats.rules_count.to_string(),
+                        egui::Color32::from_rgb(110, 165, 235),
+                    );
+                    kpi_card(
+                        ui,
+                        &p,
+                        "Pending alerts",
+                        &stats.pending_alerts.to_string(),
+                        egui::Color32::from_rgb(245, 140, 70),
+                    );
+                    kpi_card(
+                        ui,
+                        &p,
+                        "Kafka lag",
+                        &stats.kafka_lag.to_string(),
+                        egui::Color32::from_rgb(235, 195, 80),
+                    );
+                });
+            }
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Role:");
+                egui::ComboBox::from_id_salt("role_selector")
+                    .selected_text(self.role_label())
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_label(matches!(self.role, UserRole::Analyst), "Analyst")
+                            .clicked()
+                        {
+                            self.role = UserRole::Analyst;
+                        }
+                        if ui
+                            .selectable_label(matches!(self.role, UserRole::Senior), "Senior")
+                            .clicked()
+                        {
+                            self.role = UserRole::Senior;
+                        }
+                        if ui
+                            .selectable_label(matches!(self.role, UserRole::Manager), "Manager")
+                            .clicked()
+                        {
+                            self.role = UserRole::Manager;
+                        }
+                    });
+                ui.checkbox(&mut self.auto_triage_enabled, "Auto-triage");
+                ui.checkbox(&mut self.auto_refresh_enabled, "Auto-refresh");
+                ui.add(
+                    egui::Slider::new(&mut self.auto_refresh_interval_sec, 10..=120)
+                        .text("interval")
+                        .suffix("s"),
+                );
+                if ui.button("Run triage now").clicked() {
+                    self.apply_auto_triage_rules();
+                }
+            });
+        });
         ui.add_space(10.0);
         egui::Frame::new()
             .fill(egui::Color32::from_rgb(24, 30, 42))
             .corner_radius(egui::CornerRadius::same(12))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 110, 160)))
+            .stroke(egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgb(70, 110, 160),
+            ))
             .inner_margin(egui::Margin::symmetric(14, 12))
             .show(ui, |ui| {
                 self.show_portal_grafana_links(ui);
@@ -2494,11 +3109,18 @@ impl OperatorApp {
         egui::Frame::new()
             .fill(egui::Color32::from_rgb(26, 32, 45))
             .corner_radius(egui::CornerRadius::same(10))
-            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(70, 120, 210)))
+            .stroke(egui::Stroke::new(
+                1.0,
+                egui::Color32::from_rgb(70, 120, 210),
+            ))
             .inner_margin(egui::Margin::same(12))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new("Docker Stack Control").strong().size(18.0));
+                    ui.label(
+                        egui::RichText::new("Docker Stack Control")
+                            .strong()
+                            .size(18.0),
+                    );
                     if self.docker_loading {
                         ui.spinner();
                         ui.label("running...");
@@ -2533,14 +3155,16 @@ impl OperatorApp {
                     }
                 });
                 ui.add_space(6.0);
-                egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(&self.docker_last_output)
-                            .monospace()
-                            .small()
-                            .color(egui::Color32::from_rgb(180, 192, 210)),
-                    );
-                });
+                egui::ScrollArea::vertical()
+                    .max_height(120.0)
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(&self.docker_last_output)
+                                .monospace()
+                                .small()
+                                .color(egui::Color32::from_rgb(180, 192, 210)),
+                        );
+                    });
             });
         ui.add_space(12.0);
         egui::Frame::new()
@@ -2552,7 +3176,10 @@ impl OperatorApp {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new("Custom Dashboard").strong());
                     if ui
-                        .selectable_label(matches!(self.dashboard_preset, DashboardPreset::Soc), "SOC preset")
+                        .selectable_label(
+                            matches!(self.dashboard_preset, DashboardPreset::Soc),
+                            "SOC preset",
+                        )
                         .clicked()
                     {
                         self.apply_dashboard_preset(DashboardPreset::Soc);
@@ -2567,7 +3194,10 @@ impl OperatorApp {
                         self.apply_dashboard_preset(DashboardPreset::Executive);
                     }
                     if ui
-                        .selectable_label(matches!(self.dashboard_preset, DashboardPreset::Hunting), "Hunting preset")
+                        .selectable_label(
+                            matches!(self.dashboard_preset, DashboardPreset::Hunting),
+                            "Hunting preset",
+                        )
                         .clicked()
                     {
                         self.apply_dashboard_preset(DashboardPreset::Hunting);
@@ -2585,37 +3215,61 @@ impl OperatorApp {
             });
         ui.add_space(10.0);
 
-        let (mut open_series, mut crit_series) = build_case_sparkline_series(&self.cases);
+        let mut open_series = self.overview_cache.sparkline_open.clone();
+        let mut crit_series = self.overview_cache.sparkline_critical.clone();
         if !self.alerts_series.is_empty() {
             open_series = self.alerts_series.iter().map(|v| *v as f32).collect();
         }
         if !self.eps_series.is_empty() {
             crit_series = self.eps_series.iter().map(|v| *v as f32).collect();
         }
-        let mut by_source: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-        let mut by_severity: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-        let mut by_analyst: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-        for c in &self.cases {
-            *by_source.entry(Self::inferred_source(c).to_string()).or_insert(0) += 1;
-            *by_severity.entry(c.severity.to_lowercase()).or_insert(0) += 1;
-            *by_analyst
-                .entry(c.assignee.clone().unwrap_or_else(|| "unassigned".to_string()))
-                .or_insert(0) += 1;
-        }
-        let max_source = by_source.values().copied().max().unwrap_or(1) as f32;
-        let max_sev = by_severity.values().copied().max().unwrap_or(1) as f32;
-        let max_analyst = by_analyst.values().copied().max().unwrap_or(1) as f32;
+        let by_source = &self.overview_cache.by_source;
+        let by_severity = &self.overview_cache.by_severity;
+        let by_analyst = &self.overview_cache.by_analyst;
+        let max_source = self.overview_cache.max_source;
+        let max_sev = self.overview_cache.max_sev;
+        let max_analyst = self.overview_cache.max_analyst;
 
         let compact_dashboard = ui.available_width() < 1200.0;
         if compact_dashboard {
             if self.widget_kpi {
                 ui.label(egui::RichText::new("KPI").strong());
                 ui.horizontal_wrapped(|ui| {
-                    kpi_card(ui, &p, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
-                    kpi_card(ui, &p, "Critical", &critical_count.to_string(), egui::Color32::from_rgb(235, 75, 85));
-                    kpi_card(ui, &p, "SLA breaches", &stale_count.to_string(), egui::Color32::from_rgb(245, 140, 70));
-                    kpi_card(ui, &p, "MTTA proxy", &format!("{}h", mtta_proxy), egui::Color32::from_rgb(235, 195, 80));
-                    kpi_card(ui, &p, "MTTR proxy", &format!("{}h", mttr_proxy), egui::Color32::from_rgb(90, 200, 140));
+                    kpi_card(
+                        ui,
+                        &p,
+                        "Open",
+                        &open_count.to_string(),
+                        egui::Color32::from_rgb(120, 190, 255),
+                    );
+                    kpi_card(
+                        ui,
+                        &p,
+                        "Critical",
+                        &critical_count.to_string(),
+                        egui::Color32::from_rgb(235, 75, 85),
+                    );
+                    kpi_card(
+                        ui,
+                        &p,
+                        "SLA breaches",
+                        &stale_count.to_string(),
+                        egui::Color32::from_rgb(245, 140, 70),
+                    );
+                    kpi_card(
+                        ui,
+                        &p,
+                        "MTTA proxy",
+                        &format!("{}h", mtta_proxy),
+                        egui::Color32::from_rgb(235, 195, 80),
+                    );
+                    kpi_card(
+                        ui,
+                        &p,
+                        "MTTR proxy",
+                        &format!("{}h", mttr_proxy),
+                        egui::Color32::from_rgb(90, 200, 140),
+                    );
                 });
                 ui.add_space(10.0);
             }
@@ -2649,9 +3303,11 @@ impl OperatorApp {
                             ui.horizontal(|ui| {
                                 ui.label(name);
                                 ui.add(
-                                    egui::ProgressBar::new((*count as f32 / max_source).clamp(0.0, 1.0))
-                                        .desired_width(220.0)
-                                        .text(count.to_string()),
+                                    egui::ProgressBar::new(
+                                        (*count as f32 / max_source).clamp(0.0, 1.0),
+                                    )
+                                    .desired_width(220.0)
+                                    .text(count.to_string()),
                                 );
                             });
                         }
@@ -2670,9 +3326,11 @@ impl OperatorApp {
                             ui.horizontal(|ui| {
                                 pill_label(ui, sev, severity_color(sev));
                                 ui.add(
-                                    egui::ProgressBar::new((*count as f32 / max_sev).clamp(0.0, 1.0))
-                                        .desired_width(220.0)
-                                        .text(count.to_string()),
+                                    egui::ProgressBar::new(
+                                        (*count as f32 / max_sev).clamp(0.0, 1.0),
+                                    )
+                                    .desired_width(220.0)
+                                    .text(count.to_string()),
                                 );
                             });
                         }
@@ -2683,11 +3341,41 @@ impl OperatorApp {
                 if self.widget_kpi {
                     cols[0].label(egui::RichText::new("KPI").strong());
                     cols[0].horizontal_wrapped(|ui| {
-                        kpi_card(ui, &p, "Open", &open_count.to_string(), egui::Color32::from_rgb(120, 190, 255));
-                        kpi_card(ui, &p, "Critical", &critical_count.to_string(), egui::Color32::from_rgb(235, 75, 85));
-                        kpi_card(ui, &p, "SLA breaches", &stale_count.to_string(), egui::Color32::from_rgb(245, 140, 70));
-                        kpi_card(ui, &p, "MTTA proxy", &format!("{}h", mtta_proxy), egui::Color32::from_rgb(235, 195, 80));
-                        kpi_card(ui, &p, "MTTR proxy", &format!("{}h", mttr_proxy), egui::Color32::from_rgb(90, 200, 140));
+                        kpi_card(
+                            ui,
+                            &p,
+                            "Open",
+                            &open_count.to_string(),
+                            egui::Color32::from_rgb(120, 190, 255),
+                        );
+                        kpi_card(
+                            ui,
+                            &p,
+                            "Critical",
+                            &critical_count.to_string(),
+                            egui::Color32::from_rgb(235, 75, 85),
+                        );
+                        kpi_card(
+                            ui,
+                            &p,
+                            "SLA breaches",
+                            &stale_count.to_string(),
+                            egui::Color32::from_rgb(245, 140, 70),
+                        );
+                        kpi_card(
+                            ui,
+                            &p,
+                            "MTTA proxy",
+                            &format!("{}h", mtta_proxy),
+                            egui::Color32::from_rgb(235, 195, 80),
+                        );
+                        kpi_card(
+                            ui,
+                            &p,
+                            "MTTR proxy",
+                            &format!("{}h", mttr_proxy),
+                            egui::Color32::from_rgb(90, 200, 140),
+                        );
                     });
                     cols[0].add_space(10.0);
                 }
@@ -2703,9 +3391,11 @@ impl OperatorApp {
                                 ui.horizontal(|ui| {
                                     ui.label(name);
                                     ui.add(
-                                        egui::ProgressBar::new((*count as f32 / max_source).clamp(0.0, 1.0))
-                                            .desired_width(170.0)
-                                            .text(count.to_string()),
+                                        egui::ProgressBar::new(
+                                            (*count as f32 / max_source).clamp(0.0, 1.0),
+                                        )
+                                        .desired_width(170.0)
+                                        .text(count.to_string()),
                                     );
                                 });
                             }
@@ -2744,9 +3434,11 @@ impl OperatorApp {
                                 ui.horizontal(|ui| {
                                     pill_label(ui, sev, severity_color(sev));
                                     ui.add(
-                                        egui::ProgressBar::new((*count as f32 / max_sev).clamp(0.0, 1.0))
-                                            .desired_width(170.0)
-                                            .text(count.to_string()),
+                                        egui::ProgressBar::new(
+                                            (*count as f32 / max_sev).clamp(0.0, 1.0),
+                                        )
+                                        .desired_width(170.0)
+                                        .text(count.to_string()),
                                     );
                                 });
                             }
@@ -2768,9 +3460,11 @@ impl OperatorApp {
                         ui.horizontal(|ui| {
                             ui.label(name);
                             ui.add(
-                                egui::ProgressBar::new((*count as f32 / max_analyst).clamp(0.0, 1.0))
-                                    .desired_width(260.0)
-                                    .text(count.to_string()),
+                                egui::ProgressBar::new(
+                                    (*count as f32 / max_analyst).clamp(0.0, 1.0),
+                                )
+                                .desired_width(260.0)
+                                .text(count.to_string()),
                             );
                         });
                     }
@@ -2780,19 +3474,21 @@ impl OperatorApp {
         if self.widget_audit {
             ui.add_space(10.0);
             ui.label(egui::RichText::new("Audit trail (latest)").strong());
-            egui::ScrollArea::vertical().max_height(130.0).show(ui, |ui| {
-                if self.audit_log.is_empty() {
-                    ui.label("No audit events yet.");
-                } else {
-                    for event in self.audit_log.iter().take(10) {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(egui::RichText::new(&event.timestamp).monospace().small());
-                            ui.label(egui::RichText::new(&event.actor).strong());
-                            ui.label(&event.action);
-                        });
+            egui::ScrollArea::vertical()
+                .max_height(130.0)
+                .show(ui, |ui| {
+                    if self.audit_log.is_empty() {
+                        ui.label("No audit events yet.");
+                    } else {
+                        for event in self.audit_log.iter().take(10) {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(egui::RichText::new(&event.timestamp).monospace().small());
+                                ui.label(egui::RichText::new(&event.actor).strong());
+                                ui.label(&event.action);
+                            });
+                        }
                     }
-                }
-            });
+                });
         }
         ui.add_space(8.0);
         ui.label("Custom dashboard widgets inspired by Grafana-style panel composition.");
@@ -2814,51 +3510,59 @@ impl OperatorApp {
         let p = self.theme_palette();
 
         theme::elevated_card_frame(&p).show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        egui::RichText::new("Alerts Triage")
-                            .strong()
-                            .size(24.0)
-                            .color(p.text_on_sidebar),
-                    );
-                    ui.label(
-                        egui::RichText::new("Queue for ack, investigation, enrichment and case promotion")
-                            .small()
-                            .color(p.text_muted),
-                    );
-                });
-                ui.add_space(10.0);
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("Refresh live alerts").clicked() {
-                        self.fetch_alerts();
-                    }
-                    if self.alerts_loading {
-                        ui.spinner();
-                    }
-                    kpi_card(ui, &p, "Total", &total_alerts.to_string(), egui::Color32::from_rgb(110, 165, 235));
-                    kpi_card(
-                        ui,
-                        &p,
-                        "Firing",
-                        &firing_alerts.to_string(),
-                        egui::Color32::from_rgb(235, 75, 85),
-                    );
-                    kpi_card(
-                        ui,
-                        &p,
-                        "Critical",
-                        &critical_alerts.to_string(),
-                        egui::Color32::from_rgb(245, 140, 70),
-                    );
-                    kpi_card(
-                        ui,
-                        &p,
-                        "Acknowledged",
-                        &ack_alerts.to_string(),
-                        egui::Color32::from_rgb(90, 200, 140),
-                    );
-                });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    egui::RichText::new("Alerts Triage")
+                        .strong()
+                        .size(24.0)
+                        .color(p.text_on_sidebar),
+                );
+                ui.label(
+                    egui::RichText::new(
+                        "Queue for ack, investigation, enrichment and case promotion",
+                    )
+                    .small()
+                    .color(p.text_muted),
+                );
             });
+            ui.add_space(10.0);
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Refresh live alerts").clicked() {
+                    self.fetch_alerts();
+                }
+                if self.alerts_loading {
+                    ui.spinner();
+                }
+                kpi_card(
+                    ui,
+                    &p,
+                    "Total",
+                    &total_alerts.to_string(),
+                    egui::Color32::from_rgb(110, 165, 235),
+                );
+                kpi_card(
+                    ui,
+                    &p,
+                    "Firing",
+                    &firing_alerts.to_string(),
+                    egui::Color32::from_rgb(235, 75, 85),
+                );
+                kpi_card(
+                    ui,
+                    &p,
+                    "Critical",
+                    &critical_alerts.to_string(),
+                    egui::Color32::from_rgb(245, 140, 70),
+                );
+                kpi_card(
+                    ui,
+                    &p,
+                    "Acknowledged",
+                    &ack_alerts.to_string(),
+                    egui::Color32::from_rgb(90, 200, 140),
+                );
+            });
+        });
         ui.add_space(10.0);
         let mut promote_idx: Option<usize> = None;
         let mut audit_ack: Option<String> = None;
@@ -2928,7 +3632,8 @@ impl OperatorApp {
         if let Some(alert_id) = ack_alert_id {
             if let Some(i) = self.selected {
                 if let Some(case) = self.cases.get(i) {
-                    let _ = self.add_timeline_remote(&case.id, &format!("Acknowledged alert {alert_id}"));
+                    let _ = self
+                        .add_timeline_remote(&case.id, &format!("Acknowledged alert {alert_id}"));
                 }
             }
         }
@@ -2983,7 +3688,13 @@ impl OperatorApp {
         if let Some(s) = &self.obs_snapshot {
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
-                kpi_card(ui, &p, "Prometheus version", &s.prom_version, egui::Color32::from_rgb(110, 165, 235));
+                kpi_card(
+                    ui,
+                    &p,
+                    "Prometheus version",
+                    &s.prom_version,
+                    egui::Color32::from_rgb(110, 165, 235),
+                );
                 kpi_card(
                     ui,
                     &p,
@@ -3010,26 +3721,28 @@ impl OperatorApp {
         if !self.stack_status.is_empty() {
             ui.add_space(8.0);
             ui.label(egui::RichText::new("Portal health checks").strong());
-            egui::Grid::new("stack_panel_grid").striped(true).show(ui, |ui| {
-                ui.strong("Service");
-                ui.strong("Status");
-                ui.strong("Details");
-                ui.end_row();
-                for row in &self.stack_status {
-                    ui.label(&row.service);
-                    pill_label(
-                        ui,
-                        &row.status,
-                        if row.status.eq_ignore_ascii_case("up") {
-                            egui::Color32::from_rgb(90, 200, 140)
-                        } else {
-                            egui::Color32::from_rgb(235, 75, 85)
-                        },
-                    );
-                    ui.label(&row.detail);
+            egui::Grid::new("stack_panel_grid")
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.strong("Service");
+                    ui.strong("Status");
+                    ui.strong("Details");
                     ui.end_row();
-                }
-            });
+                    for row in &self.stack_status {
+                        ui.label(&row.service);
+                        pill_label(
+                            ui,
+                            &row.status,
+                            if row.status.eq_ignore_ascii_case("up") {
+                                egui::Color32::from_rgb(90, 200, 140)
+                            } else {
+                                egui::Color32::from_rgb(235, 75, 85)
+                            },
+                        );
+                        ui.label(&row.detail);
+                        ui.end_row();
+                    }
+                });
         }
 
         ui.vertical(|ui| {
@@ -3113,7 +3826,8 @@ impl OperatorApp {
                         .add_sized(
                             [140.0, 38.0],
                             egui::Button::new(
-                                egui::RichText::new("Сохранить и обновить").color(egui::Color32::WHITE),
+                                egui::RichText::new("Сохранить и обновить")
+                                    .color(egui::Color32::WHITE),
                             ),
                         )
                         .clicked()
@@ -3181,18 +3895,26 @@ impl OperatorApp {
     }
 
     fn filtered_events(&self) -> Vec<&EventRow> {
+        let search_needle = if !self.event_filters.search.trim().is_empty() {
+            Some(self.event_filters.search.to_ascii_lowercase())
+        } else {
+            None
+        };
         self.events
             .iter()
             .filter(|e| {
-                if !self.event_filters.search.trim().is_empty() {
-                    let n = self.event_filters.search.to_lowercase();
-                    let hay = format!("{} {} {}", e.title, e.source, e.id).to_lowercase();
-                    if !hay.contains(&n) {
+                if let Some(ref needle) = search_needle {
+                    let matches = e.title.to_ascii_lowercase().contains(needle)
+                        || e.source.to_ascii_lowercase().contains(needle)
+                        || e.id.to_ascii_lowercase().contains(needle);
+                    if !matches {
                         return false;
                     }
                 }
                 if !self.event_filters.severity.is_empty()
-                    && !e.severity.eq_ignore_ascii_case(&self.event_filters.severity)
+                    && !e
+                        .severity
+                        .eq_ignore_ascii_case(&self.event_filters.severity)
                 {
                     return false;
                 }
@@ -3210,13 +3932,18 @@ impl OperatorApp {
     }
 
     fn filtered_assets(&self) -> Vec<&AssetRow> {
+        let search_needle = if !self.asset_filters.search.trim().is_empty() {
+            Some(self.asset_filters.search.to_ascii_lowercase())
+        } else {
+            None
+        };
         self.assets
             .iter()
             .filter(|a| {
-                if !self.asset_filters.search.trim().is_empty()
-                    && !a.name.to_lowercase().contains(&self.asset_filters.search.to_lowercase())
-                {
-                    return false;
+                if let Some(ref needle) = search_needle {
+                    if !a.name.to_ascii_lowercase().contains(needle) {
+                        return false;
+                    }
                 }
                 if !self.asset_filters.risk.is_empty()
                     && !a.risk.eq_ignore_ascii_case(&self.asset_filters.risk)
@@ -3274,20 +4001,52 @@ impl OperatorApp {
                                 .desired_width(f32::INFINITY),
                         );
                         egui::ComboBox::from_label("Severity")
-                            .selected_text(if self.event_filters.severity.is_empty() { "All" } else { &self.event_filters.severity })
+                            .selected_text(if self.event_filters.severity.is_empty() {
+                                "All"
+                            } else {
+                                &self.event_filters.severity
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "critical", "high", "medium", "low"] {
-                                    if ui.selectable_label(self.event_filters.severity == v || (self.event_filters.severity.is_empty() && v == "All"), v).clicked() {
-                                        self.event_filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.event_filters.severity == v
+                                                || (self.event_filters.severity.is_empty()
+                                                    && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.event_filters.severity = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("State")
-                            .selected_text(if self.event_filters.state.is_empty() { "All" } else { &self.event_filters.state })
+                            .selected_text(if self.event_filters.state.is_empty() {
+                                "All"
+                            } else {
+                                &self.event_filters.state
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "active", "suppressed", "unprocessed"] {
-                                    if ui.selectable_label(self.event_filters.state == v || (self.event_filters.state.is_empty() && v == "All"), v).clicked() {
-                                        self.event_filters.state = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.event_filters.state == v
+                                                || (self.event_filters.state.is_empty()
+                                                    && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.event_filters.state = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -3296,22 +4055,57 @@ impl OperatorApp {
                 } else {
                     ui.horizontal_wrapped(|ui| {
                         ui.label("Search:");
-                        ui.add(egui::TextEdit::singleline(&mut self.event_filters.search).id_source("event_search"));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.event_filters.search)
+                                .id_source("event_search"),
+                        );
                         egui::ComboBox::from_label("Severity")
-                            .selected_text(if self.event_filters.severity.is_empty() { "All" } else { &self.event_filters.severity })
+                            .selected_text(if self.event_filters.severity.is_empty() {
+                                "All"
+                            } else {
+                                &self.event_filters.severity
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "critical", "high", "medium", "low"] {
-                                    if ui.selectable_label(self.event_filters.severity == v || (self.event_filters.severity.is_empty() && v == "All"), v).clicked() {
-                                        self.event_filters.severity = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.event_filters.severity == v
+                                                || (self.event_filters.severity.is_empty()
+                                                    && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.event_filters.severity = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("State")
-                            .selected_text(if self.event_filters.state.is_empty() { "All" } else { &self.event_filters.state })
+                            .selected_text(if self.event_filters.state.is_empty() {
+                                "All"
+                            } else {
+                                &self.event_filters.state
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "active", "suppressed", "unprocessed"] {
-                                    if ui.selectable_label(self.event_filters.state == v || (self.event_filters.state.is_empty() && v == "All"), v).clicked() {
-                                        self.event_filters.state = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.event_filters.state == v
+                                                || (self.event_filters.state.is_empty()
+                                                    && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.event_filters.state = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -3320,29 +4114,72 @@ impl OperatorApp {
                 }
             });
         ui.add_space(8.0);
-        let rows = self.filtered_events();
-        ui.label(format!("Events shown: {}", rows.len()));
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for e in rows {
-                egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(30, 36, 48))
-                    .inner_margin(egui::Margin::same(10))
-                    .corner_radius(egui::CornerRadius::same(8))
-                    .show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            pill_label(ui, &e.severity, severity_color(&e.severity));
-                            ui.label(egui::RichText::new(&e.state).small());
-                            if e.silenced {
-                                pill_label(ui, "silenced", egui::Color32::from_rgb(235, 195, 80));
-                            }
-                            ui.label(egui::RichText::new(&e.id).monospace().small());
-                        });
-                        ui.label(egui::RichText::new(&e.title).strong());
-                        ui.label(format!("source: {} · started: {}", e.source, e.started_at));
-                    });
-                ui.add_space(6.0);
-            }
-        });
+        let (total, pages, event_page) = {
+            let rows = self.filtered_events();
+            let total = rows.len();
+            let pages = (total + self.page_size - 1) / self.page_size;
+            let event_page = if self.event_page >= pages && pages > 0 {
+                pages - 1
+            } else {
+                self.event_page
+            };
+            let start = event_page * self.page_size;
+            let end = usize::min(start + self.page_size, total);
+            let page_rows = &rows[start..end];
+            ui.label(format!("Events shown: {}", total));
+            let row_height = 72.0_f32;
+            egui::ScrollArea::vertical().max_height(600.0).show_rows(
+                ui,
+                row_height,
+                page_rows.len(),
+                |ui, row_range| {
+                    for e in &page_rows[row_range] {
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_rgb(30, 36, 48))
+                            .inner_margin(egui::Margin::same(10))
+                            .corner_radius(egui::CornerRadius::same(8))
+                            .show(ui, |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    pill_label(ui, &e.severity, severity_color(&e.severity));
+                                    ui.label(egui::RichText::new(&e.state).small());
+                                    if e.silenced {
+                                        pill_label(
+                                            ui,
+                                            "silenced",
+                                            egui::Color32::from_rgb(235, 195, 80),
+                                        );
+                                    }
+                                    ui.label(egui::RichText::new(&e.id).monospace().small());
+                                });
+                                ui.label(egui::RichText::new(&e.title).strong());
+                                ui.label(format!(
+                                    "source: {} · started: {}",
+                                    e.source, e.started_at
+                                ));
+                            });
+                        ui.add_space(6.0);
+                    }
+                },
+            );
+            (total, pages, event_page)
+        };
+        self.event_page = event_page;
+        if pages > 1 {
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "Страница {} из {} ({} записей)",
+                    self.event_page + 1,
+                    pages,
+                    total
+                ));
+                if ui.button("<").clicked() && self.event_page > 0 {
+                    self.event_page -= 1;
+                }
+                if ui.button(">").clicked() && self.event_page + 1 < pages {
+                    self.event_page += 1;
+                }
+            });
+        }
     }
 
     fn show_assets_panel(&mut self, ui: &mut egui::Ui) {
@@ -3376,22 +4213,57 @@ impl OperatorApp {
                 if self.is_compact(ui) {
                     ui.vertical(|ui| {
                         ui.label("Search:");
-                        ui.add(egui::TextEdit::singleline(&mut self.asset_filters.search).desired_width(f32::INFINITY));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.asset_filters.search)
+                                .desired_width(f32::INFINITY),
+                        );
                         egui::ComboBox::from_label("Risk")
-                            .selected_text(if self.asset_filters.risk.is_empty() { "All" } else { &self.asset_filters.risk })
+                            .selected_text(if self.asset_filters.risk.is_empty() {
+                                "All"
+                            } else {
+                                &self.asset_filters.risk
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "critical", "high", "normal"] {
-                                    if ui.selectable_label(self.asset_filters.risk == v || (self.asset_filters.risk.is_empty() && v == "All"), v).clicked() {
-                                        self.asset_filters.risk = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.asset_filters.risk == v
+                                                || (self.asset_filters.risk.is_empty()
+                                                    && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.asset_filters.risk = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("Source")
-                            .selected_text(if self.asset_filters.source.is_empty() { "All" } else { &self.asset_filters.source })
+                            .selected_text(if self.asset_filters.source.is_empty() {
+                                "All"
+                            } else {
+                                &self.asset_filters.source
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
-                                    if ui.selectable_label(self.asset_filters.source == v || (self.asset_filters.source.is_empty() && v == "All"), v).clicked() {
-                                        self.asset_filters.source = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.asset_filters.source == v
+                                                || (self.asset_filters.source.is_empty()
+                                                    && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.asset_filters.source = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -3402,20 +4274,52 @@ impl OperatorApp {
                         ui.label("Search:");
                         ui.add(egui::TextEdit::singleline(&mut self.asset_filters.search));
                         egui::ComboBox::from_label("Risk")
-                            .selected_text(if self.asset_filters.risk.is_empty() { "All" } else { &self.asset_filters.risk })
+                            .selected_text(if self.asset_filters.risk.is_empty() {
+                                "All"
+                            } else {
+                                &self.asset_filters.risk
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "critical", "high", "normal"] {
-                                    if ui.selectable_label(self.asset_filters.risk == v || (self.asset_filters.risk.is_empty() && v == "All"), v).clicked() {
-                                        self.asset_filters.risk = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.asset_filters.risk == v
+                                                || (self.asset_filters.risk.is_empty()
+                                                    && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.asset_filters.risk = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
                         egui::ComboBox::from_label("Source")
-                            .selected_text(if self.asset_filters.source.is_empty() { "All" } else { &self.asset_filters.source })
+                            .selected_text(if self.asset_filters.source.is_empty() {
+                                "All"
+                            } else {
+                                &self.asset_filters.source
+                            })
                             .show_ui(ui, |ui| {
                                 for v in ["All", "SIEM", "Identity", "Network", "Endpoint"] {
-                                    if ui.selectable_label(self.asset_filters.source == v || (self.asset_filters.source.is_empty() && v == "All"), v).clicked() {
-                                        self.asset_filters.source = if v == "All" { String::new() } else { v.to_string() };
+                                    if ui
+                                        .selectable_label(
+                                            self.asset_filters.source == v
+                                                || (self.asset_filters.source.is_empty()
+                                                    && v == "All"),
+                                            v,
+                                        )
+                                        .clicked()
+                                    {
+                                        self.asset_filters.source = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -3424,24 +4328,53 @@ impl OperatorApp {
                 }
             });
         ui.add_space(8.0);
-        let rows = self.filtered_assets();
-        ui.label(format!("Assets shown: {}", rows.len()));
-        egui::Grid::new("assets_grid").striped(true).show(ui, |ui| {
-            ui.strong("Asset");
-            ui.strong("Source");
-            ui.strong("Risk");
-            ui.strong("Open cases");
-            ui.strong("SLA stale");
-            ui.end_row();
-            for a in rows {
-                ui.label(&a.name);
-                ui.label(&a.source);
-                pill_label(ui, &a.risk, severity_color(&a.risk));
-                ui.label(a.open_cases.to_string());
-                ui.label(a.stale_cases.to_string());
+        let (total, pages, asset_page) = {
+            let rows = self.filtered_assets();
+            let total = rows.len();
+            ui.label(format!("Assets shown: {}", total));
+            let pages = (total + self.page_size - 1) / self.page_size;
+            let asset_page = if self.asset_page >= pages && pages > 0 {
+                pages - 1
+            } else {
+                self.asset_page
+            };
+            let start = asset_page * self.page_size;
+            let end = usize::min(start + self.page_size, total);
+            egui::Grid::new("assets_grid").striped(true).show(ui, |ui| {
+                ui.strong("Asset");
+                ui.strong("Source");
+                ui.strong("Risk");
+                ui.strong("Open cases");
+                ui.strong("SLA stale");
                 ui.end_row();
-            }
-        });
+                for a in &rows[start..end] {
+                    ui.label(&a.name);
+                    ui.label(&a.source);
+                    pill_label(ui, &a.risk, severity_color(&a.risk));
+                    ui.label(a.open_cases.to_string());
+                    ui.label(a.stale_cases.to_string());
+                    ui.end_row();
+                }
+            });
+            (total, pages, asset_page)
+        };
+        self.asset_page = asset_page;
+        if pages > 1 {
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "Страница {} из {} ({} записей)",
+                    self.asset_page + 1,
+                    pages,
+                    total
+                ));
+                if ui.button("<").clicked() && self.asset_page > 0 {
+                    self.asset_page -= 1;
+                }
+                if ui.button(">").clicked() && self.asset_page + 1 < pages {
+                    self.asset_page += 1;
+                }
+            });
+        }
     }
 
     fn show_settings_panel(&mut self, ui: &mut egui::Ui) {
@@ -3468,7 +4401,10 @@ impl OperatorApp {
             .show(ui, |ui| {
                 ui.label(egui::RichText::new("Appearance").strong());
                 ui.checkbox(&mut self.use_light_theme, "Light theme");
-                ui.checkbox(&mut self.compact_mode, "Compact mode (force compact layout)");
+                ui.checkbox(
+                    &mut self.compact_mode,
+                    "Compact mode (force compact layout)",
+                );
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("Custom wallpaper").strong());
                 ui.horizontal_wrapped(|ui| {
@@ -3604,12 +4540,14 @@ impl OperatorApp {
                     .build()
                     .map_err(|e| e.to_string())?;
 
-                let prom_build_url = format!("{base}/api/v1/proxy/prometheus/query?query=prometheus_build_info");
+                let prom_build_url =
+                    format!("{base}/api/v1/proxy/prometheus/query?query=prometheus_build_info");
                 let prom_ver_resp = client
                     .get(&prom_build_url)
                     .send()
                     .map_err(|e| format!("prom buildinfo: {e}"))?;
-                let prom_ver: serde_json::Value = prom_ver_resp.json().map_err(|e| e.to_string())?;
+                let prom_ver: serde_json::Value =
+                    prom_ver_resp.json().map_err(|e| e.to_string())?;
                 let prom_version = prom_ver["data"]["result"][0]["metric"]["version"]
                     .as_str()
                     .unwrap_or("unknown")
@@ -3620,7 +4558,8 @@ impl OperatorApp {
                     .get(&prom_targets_url)
                     .send()
                     .map_err(|e| format!("prom targets: {e}"))?;
-                let prom_targets: serde_json::Value = prom_targets_resp.json().map_err(|e| e.to_string())?;
+                let prom_targets: serde_json::Value =
+                    prom_targets_resp.json().map_err(|e| e.to_string())?;
                 let active = prom_targets["data"]["result"]
                     .as_array()
                     .cloned()
@@ -3665,7 +4604,6 @@ impl OperatorApp {
         });
         self.obs_rx = Some(rx);
     }
-
 }
 
 impl eframe::App for OperatorApp {
@@ -3705,6 +4643,7 @@ impl eframe::App for OperatorApp {
                         self.apply_auto_triage_rules();
                     }
                     self.rebuild_assets_from_cases();
+                    self.rebuild_overview_cache();
                     self.status = format!(
                         "OK · кейсов в списке: {} · всего в базе: {}",
                         self.cases.len(),
@@ -3951,6 +4890,7 @@ impl eframe::App for OperatorApp {
                         Section::Investigations => self.show_investigations_panel(ui),
                         Section::Assets => self.show_assets_panel(ui),
                         Section::Cases => self.show_cases_panel(ui),
+                        Section::AttackLab => self.show_attack_lab_panel(ui),
                         Section::StackControl => self.show_stack_control_panel(ui),
                         Section::Settings => self.show_settings_panel(ui),
                     });
@@ -3958,7 +4898,11 @@ impl eframe::App for OperatorApp {
         self.show_critical_confirmation(ctx);
         self.show_command_palette(ctx);
 
-        if self.cases.is_empty() && !self.loading && self.rx.is_none() && self.status.contains("Нажми") {
+        if self.cases.is_empty()
+            && !self.loading
+            && self.rx.is_none()
+            && self.status.contains("Нажми")
+        {
             self.fetch_cases();
             self.fetch_alerts();
             self.fetch_events();
@@ -3973,4 +4917,3 @@ impl eframe::App for OperatorApp {
         self.maybe_persist_state();
     }
 }
-

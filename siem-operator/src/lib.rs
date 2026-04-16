@@ -35,7 +35,10 @@ fn normalize_portal_url(raw: &str) -> String {
     let Ok(mut url) = Url::parse(trimmed) else {
         return trimmed.to_string();
     };
-    if matches!(url.host_str(), Some("localhost") | Some("::1") | Some("[::1]")) {
+    if matches!(
+        url.host_str(),
+        Some("localhost") | Some("::1") | Some("[::1]")
+    ) {
         let _ = url.set_host(Some("127.0.0.1"));
     }
     if url.path().is_empty() {
@@ -80,7 +83,10 @@ fn portal_health_urls(raw: &str) -> Vec<String> {
     primary.set_query(None);
     primary.set_fragment(None);
     out.push(primary.to_string());
-    if matches!(url.host_str(), Some("localhost") | Some("::1") | Some("[::1]")) {
+    if matches!(
+        url.host_str(),
+        Some("localhost") | Some("::1") | Some("[::1]")
+    ) {
         let mut fallback = url;
         if fallback.set_host(Some("127.0.0.1")).is_ok() {
             fallback.set_path("/health");
@@ -191,7 +197,11 @@ fn portal_binary_candidates(repo_root: &Path) -> Vec<PathBuf> {
     };
 
     vec![
-        repo_root.join("siem-portal").join("target").join("release").join(exe),
+        repo_root
+            .join("siem-portal")
+            .join("target")
+            .join("release")
+            .join(exe),
         repo_root.join("target").join("release").join(exe),
     ]
 }
@@ -225,8 +235,16 @@ fn apply_local_portal_defaults(cmd: &mut Command, portal_url: &str) {
     set_default_portal_env(cmd, "SIEM_PORTAL_GRAFANA_URL", "http://127.0.0.1:3000");
     set_default_portal_env(cmd, "SIEM_PORTAL_CLICKHOUSE_URL", "http://127.0.0.1:8123");
     set_default_portal_env(cmd, "SIEM_PORTAL_PUBLIC_GRAFANA", "http://127.0.0.1:3000");
-    set_default_portal_env(cmd, "SIEM_PORTAL_PUBLIC_PROMETHEUS", "http://127.0.0.1:9090");
-    set_default_portal_env(cmd, "SIEM_PORTAL_PUBLIC_ALERTMANAGER", "http://127.0.0.1:9093");
+    set_default_portal_env(
+        cmd,
+        "SIEM_PORTAL_PUBLIC_PROMETHEUS",
+        "http://127.0.0.1:9090",
+    );
+    set_default_portal_env(
+        cmd,
+        "SIEM_PORTAL_PUBLIC_ALERTMANAGER",
+        "http://127.0.0.1:9093",
+    );
     set_default_portal_env(cmd, "SIEM_PORTAL_PUBLIC_CASEMGMT", "http://127.0.0.1:8088");
     set_default_portal_env(
         cmd,

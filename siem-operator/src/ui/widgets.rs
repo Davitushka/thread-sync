@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use crate::theme::{u8_radius, ThemePalette};
+use crate::theme::{ThemePalette, u8_radius};
 
 pub fn severity_color(sev: &str) -> egui::Color32 {
     match sev.to_lowercase().as_str() {
@@ -14,8 +14,7 @@ pub fn severity_color(sev: &str) -> egui::Color32 {
 }
 
 fn pill_text_on_accent(accent: egui::Color32) -> egui::Color32 {
-    let luma =
-        accent.r() as u32 * 299 + accent.g() as u32 * 587 + accent.b() as u32 * 114;
+    let luma = accent.r() as u32 * 299 + accent.g() as u32 * 587 + accent.b() as u32 * 114;
     if luma > 150_000 {
         egui::Color32::from_rgb(22, 24, 28)
     } else {
@@ -26,11 +25,9 @@ fn pill_text_on_accent(accent: egui::Color32) -> egui::Color32 {
 pub fn pill_label(ui: &mut egui::Ui, text: impl Into<String>, color: egui::Color32) {
     let text = text.into();
     let fg = pill_text_on_accent(color);
-    let galley = ui.painter().layout_no_wrap(
-        text.clone(),
-        egui::FontId::proportional(12.0),
-        fg,
-    );
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.clone(), egui::FontId::proportional(12.0), fg);
     let pad = egui::vec2(8.0, 3.0);
     let size = galley.size() + pad * 2.0;
     let (rect, _resp) = ui.allocate_at_least(size, egui::Sense::hover());
@@ -111,7 +108,13 @@ pub fn section_nav_button(
     clicked
 }
 
-pub fn stack_action_card(ui: &mut egui::Ui, p: &ThemePalette, title: &str, url: &str, description: &str) {
+pub fn stack_action_card(
+    ui: &mut egui::Ui,
+    p: &ThemePalette,
+    title: &str,
+    url: &str,
+    description: &str,
+) {
     let frame = egui::Frame::new()
         .fill(p.card_fill)
         .stroke(egui::Stroke::new(1.0, p.card_stroke))

