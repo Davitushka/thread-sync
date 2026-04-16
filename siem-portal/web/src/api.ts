@@ -78,6 +78,10 @@ export type UiConfig = {
   suite?: {
     api_base: string;
     modules: string[];
+    realtime?: {
+      protocol: number;
+      path: string;
+    };
   };
 };
 

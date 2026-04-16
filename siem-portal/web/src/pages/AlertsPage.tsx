@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { createCase, getAlertsOverview, linkAlert, type AlertsOverview } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
+import { LiveCompactNumber } from "../components/LiveNumbers";
 import { ObservabilityBarPanel, ObservabilityGaugePanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtAlertsOverview } from "../realtime/topics";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 function severity(value?: string) {
@@ -23,6 +27,10 @@ export default function AlertsPage() {
   const [stateFilter, setStateFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
+  const mounted = useRef(true);
+  const requestSeq = useRef(0);
 
   const applyInboxState = useCallback(
     (patch: Partial<{ severity: string; state: string; source: string; q: string; selected: string }>, replace = true) => {
@@ -42,20 +50,49 @@ export default function AlertsPage() {
     [q, selected, setSearchParams, severityFilter, sourceFilter, stateFilter]
   );
 
-  const load = useCallback(
-    () =>
-      getAlertsOverview()
-        .then((payload) => {
-          setData(payload);
-          setSelected((current) => current ?? payload.alerts[0]?.fingerprint ?? null);
-        })
-        .catch((e) => setErr(String(e))),
-    []
-  );
+  const load = useCallback(() => {
+    if (!mounted.current) return;
+    const seq = ++requestSeq.current;
+    setLoading(true);
+    getAlertsOverview()
+      .then((payload) => {
+        if (!mounted.current || seq !== requestSeq.current) return;
+        setData(payload);
+        setErr(null);
+        setSelected((current) => current ?? payload.alerts[0]?.fingerprint ?? null);
+      })
+      .catch((e) => {
+        if (!mounted.current || seq !== requestSeq.current) return;
+        setErr(String(e));
+      })
+      .finally(() => {
+        if (!mounted.current || seq !== requestSeq.current) return;
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  useSuiteRealtimeTopics(
+    [rtAlertsOverview()],
+    useCallback((_topic, d) => {
+      const payload = d as AlertsOverview;
+      setData(payload);
+      setErr(null);
+      setSelected((current) => current ?? payload.alerts[0]?.fingerprint ?? null);
+    }, [])
+  );
 
   useEffect(() => {
     setSeverityFilter(searchParams.get("severity") ?? "");
@@ -306,7 +343,9 @@ export default function AlertsPage() {
       <DashboardToolbar
         title="Alert command center"
         subtitle="Native Alertmanager triage workspace with queue pressure, direct pivots, and structured response handoff."
-        loading={creating != null}
+        autoRefreshSec={autoRefreshSec}
+        onAutoRefreshChange={setAutoRefreshSec}
+        loading={loading || creating != null}
         onRefresh={load}
         refreshButtonLabel="Refresh inbox"
         className="triage-toolbar"
@@ -322,25 +361,35 @@ export default function AlertsPage() {
         }
       >
         <div className="summary-grid">
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Total alerts</span>
-            <strong>{formatCompact(data?.totals.total)}</strong>
+            <strong>
+              <LiveCompactNumber value={data?.totals.total} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Active</span>
-            <strong>{formatCompact(data?.totals.active)}</strong>
+            <strong>
+              <LiveCompactNumber value={data?.totals.active} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Critical</span>
-            <strong>{formatCompact(data?.totals.critical)}</strong>
+            <strong>
+              <LiveCompactNumber value={data?.totals.critical} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Silenced</span>
-            <strong>{formatCompact(data?.totals.silenced)}</strong>
+            <strong>
+              <LiveCompactNumber value={data?.totals.silenced} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Unique sources</span>
-            <strong>{formatCompact(data?.totals.unique_sources)}</strong>
+            <strong>
+              <LiveCompactNumber value={data?.totals.unique_sources} />
+            </strong>
           </div>
         </div>
         <div className="triage-filterbar triage-filterbar-wide">
@@ -395,7 +444,9 @@ export default function AlertsPage() {
         )}
         <div className="toolbar-status-row">
           <span>Inbox rows</span>
-          <strong>{formatCompact(filteredAlerts.length)}</strong>
+          <strong>
+            <LiveCompactNumber value={filteredAlerts.length} />
+          </strong>
           <span>Focused workspace</span>
           <strong>{selectedAlert?.name || "No selection"}</strong>
         </div>
@@ -408,7 +459,11 @@ export default function AlertsPage() {
           value={activeShare}
           formatter={(value) => `${value.toFixed(1)}%`}
           kicker="Queue gauge"
-          footer={<p className="meta stat-subtle">{formatCompact(data?.totals.active)} active alerts in the current inbox.</p>}
+          footer={
+            <p className="meta stat-subtle">
+              <LiveCompactNumber value={data?.totals.active} /> active alerts in the current inbox.
+            </p>
+          }
         />
         <ObservabilityGaugePanel
           title="Critical share"
@@ -416,7 +471,11 @@ export default function AlertsPage() {
           value={criticalShare}
           formatter={(value) => `${value.toFixed(1)}%`}
           kicker="Risk gauge"
-          footer={<p className="meta stat-subtle">{formatCompact(data?.totals.critical)} alerts currently sit in the highest-priority bucket.</p>}
+          footer={
+            <p className="meta stat-subtle">
+              <LiveCompactNumber value={data?.totals.critical} /> alerts currently sit in the highest-priority bucket.
+            </p>
+          }
         />
         <ObservabilityGaugePanel
           title="Silenced share"
@@ -424,7 +483,11 @@ export default function AlertsPage() {
           value={silencedShare}
           formatter={(value) => `${value.toFixed(1)}%`}
           kicker="State gauge"
-          footer={<p className="meta stat-subtle">{formatCompact(data?.totals.silenced)} alerts are currently suppressed or silenced.</p>}
+          footer={
+            <p className="meta stat-subtle">
+              <LiveCompactNumber value={data?.totals.silenced} /> alerts are currently suppressed or silenced.
+            </p>
+          }
         />
         <ObservabilityGaugePanel
           title="Source spread"
@@ -432,7 +495,11 @@ export default function AlertsPage() {
           value={sourceSpread}
           formatter={(value) => `${value.toFixed(1)}%`}
           kicker="Source gauge"
-          footer={<p className="meta stat-subtle">{formatCompact(data?.totals.unique_sources)} distinct sources are contributing to the current queue.</p>}
+          footer={
+            <p className="meta stat-subtle">
+              <LiveCompactNumber value={data?.totals.unique_sources} /> distinct sources are contributing to the current queue.
+            </p>
+          }
         />
       </section>
 

@@ -1,14 +1,15 @@
 import type { ReactNode } from "react";
 import { DASHBOARD_WINDOWS } from "../dashboard-utils";
+import { suiteRefreshSelectOptions, type SuiteRefreshChoice } from "../suite-polling";
 
 type Props = {
   title: string;
   subtitle: string;
   hours?: number;
-  autoRefreshSec?: number;
+  autoRefreshSec?: SuiteRefreshChoice;
   loading?: boolean;
   onHoursChange?: (hours: number) => void;
-  onAutoRefreshChange?: (sec: number) => void;
+  onAutoRefreshChange?: (sec: SuiteRefreshChoice) => void;
   onRefresh?: () => void;
   actions?: ReactNode;
   children?: ReactNode;
@@ -19,13 +20,7 @@ type Props = {
   className?: string;
 };
 
-const REFRESH_OPTIONS = [
-  { value: 0, label: "manual" },
-  { value: 15, label: "15s" },
-  { value: 30, label: "30s" },
-  { value: 60, label: "1m" },
-  { value: 300, label: "5m" },
-] as const;
+const REFRESH_OPTIONS = suiteRefreshSelectOptions();
 
 export default function DashboardToolbar({
   title,
@@ -74,7 +69,10 @@ export default function DashboardToolbar({
               {showRefreshSelect ? (
                 <label>
                   {refreshLabel}
-                  <select value={autoRefreshSec} onChange={(e) => onAutoRefreshChange(Number(e.target.value))}>
+                  <select
+                    value={autoRefreshSec}
+                    onChange={(e) => onAutoRefreshChange(Number(e.target.value) as SuiteRefreshChoice)}
+                  >
                     {REFRESH_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}

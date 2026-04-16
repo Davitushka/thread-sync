@@ -22,6 +22,17 @@ import {
   ObservabilityGaugePanel,
   ObservabilityLinePanel,
 } from "../components/echarts/ObservabilityCharts";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import {
+  rtAlertsOverview,
+  rtCorrelatorStats,
+  rtDataQuality,
+  rtOperations,
+  rtOverview,
+  rtStackStatus,
+  rtUiConfig,
+} from "../realtime/topics";
 import { formatCompact, formatPercent } from "../dashboard-utils";
 
 type ValidationState = "ok" | "warn" | "critical";
@@ -56,7 +67,7 @@ export default function ValidationPage() {
   const [correlator, setCorrelator] = useState<CorrelatorStats | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [hours, setHours] = useState(24);
-  const [autoRefreshSec, setAutoRefreshSec] = useState(60);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
   const [loading, setLoading] = useState(false);
   const mounted = useRef(true);
   const requestSeq = useRef(0);
@@ -105,11 +116,51 @@ export default function ValidationPage() {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (!autoRefreshSec) return;
-    const id = window.setInterval(() => load(), autoRefreshSec * 1000);
-    return () => window.clearInterval(id);
-  }, [autoRefreshSec, load]);
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  const overviewTopic = rtOverview(hours);
+  const operationsTopic = rtOperations(hours);
+  const dataQualityTopic = rtDataQuality(hours);
+  const validationTopics = useMemo(
+    () => [
+      rtUiConfig(),
+      rtStackStatus(),
+      overviewTopic,
+      operationsTopic,
+      dataQualityTopic,
+      rtAlertsOverview(),
+      rtCorrelatorStats(),
+    ],
+    [overviewTopic, operationsTopic, dataQualityTopic]
+  );
+
+  useSuiteRealtimeTopics(
+    validationTopics,
+    useCallback(
+      (topic, d) => {
+        if (topic === rtUiConfig()) {
+          setConfig(d as UiConfig);
+        } else if (topic === rtStackStatus()) {
+          setStack(d as StackStatus);
+        } else if (topic === overviewTopic) {
+          setOverview(d as OverviewDashboard);
+        } else if (topic === operationsTopic) {
+          setOperations(d as OperationsDashboard);
+        } else if (topic === dataQualityTopic) {
+          setDataQuality(d as DataQualityDashboard);
+        } else if (topic === rtAlertsOverview()) {
+          setAlerts(d as AlertsOverview);
+        } else if (topic === rtCorrelatorStats()) {
+          setCorrelator(d as CorrelatorStats);
+        } else {
+          return;
+        }
+        setErr(null);
+      },
+      [overviewTopic, operationsTopic, dataQualityTopic]
+    )
+  );
 
   const serviceAvailabilityPct = useMemo(() => {
     if (!stack) return 0;

@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::config::ClickHouseConfig;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct EventSearchParams {
     pub start: Option<String>,
     pub end: Option<String>,

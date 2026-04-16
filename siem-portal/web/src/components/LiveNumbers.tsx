@@ -1,5 +1,6 @@
-import CountUp from "react-countup";
-import { formatCompact } from "../dashboard-utils";
+import { animate, useMotionValue } from "framer-motion";
+import { useEffect, useState } from "react";
+import { formatCompact, formatPercent } from "../dashboard-utils";
 
 type LiveCompactProps = {
   value: number | null | undefined;
@@ -7,21 +8,37 @@ type LiveCompactProps = {
   className?: string;
 };
 
-export function LiveCompactNumber({ value, duration = 0.55, className }: LiveCompactProps) {
-  if (value == null || Number.isNaN(value)) {
-    return <span className={className}>—</span>;
-  }
-  const end = Math.round(value);
-  return (
-    <CountUp
-      className={className}
-      end={end}
-      duration={duration}
-      preserveValue
-      useEasing
-      formattingFn={(n) => formatCompact(Math.round(n))}
-    />
-  );
+export function LiveCompactNumber({ value, duration = 0.65, className }: LiveCompactProps) {
+  const mv = useMotionValue(0);
+  const [text, setText] = useState("—");
+
+  useEffect(() => {
+    if (value == null || Number.isNaN(value)) {
+      mv.set(0);
+      setText("—");
+      return;
+    }
+    const end = Math.round(value);
+    const start = Math.round(mv.get());
+    if (start === end) {
+      mv.set(end);
+      setText(formatCompact(end));
+      return;
+    }
+    const from = start;
+    mv.set(from);
+    const controls = animate(from, end, {
+      duration,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (latest) => {
+        mv.set(latest);
+        setText(formatCompact(Math.round(latest)));
+      },
+    });
+    return () => controls.stop();
+  }, [value, duration, mv]);
+
+  return <span className={className}>{text}</span>;
 }
 
 type LivePercentProps = {
@@ -30,20 +47,35 @@ type LivePercentProps = {
   className?: string;
 };
 
-export function LivePercentNumber({ value, duration = 0.55, className }: LivePercentProps) {
-  if (value == null || Number.isNaN(value)) {
-    return <span className={className}>—</span>;
-  }
-  return (
-    <CountUp
-      className={className}
-      end={value}
-      duration={duration}
-      preserveValue
-      useEasing
-      decimals={2}
-      decimal="."
-      suffix="%"
-    />
-  );
+export function LivePercentNumber({ value, duration = 0.65, className }: LivePercentProps) {
+  const mv = useMotionValue(0);
+  const [text, setText] = useState("—");
+
+  useEffect(() => {
+    if (value == null || Number.isNaN(value)) {
+      mv.set(0);
+      setText("—");
+      return;
+    }
+    const end = value;
+    const start = mv.get();
+    if (Number.isFinite(start) && Math.abs(start - end) < 1e-6) {
+      mv.set(end);
+      setText(formatPercent(end));
+      return;
+    }
+    const from = Number.isFinite(start) && Math.abs(start - end) > 1e-9 ? start : 0;
+    mv.set(from);
+    const controls = animate(from, end, {
+      duration,
+      ease: [0.22, 1, 0.36, 1],
+      onUpdate: (latest) => {
+        mv.set(latest);
+        setText(formatPercent(latest));
+      },
+    });
+    return () => controls.stop();
+  }, [value, duration, mv]);
+
+  return <span className={className}>{text}</span>;
 }

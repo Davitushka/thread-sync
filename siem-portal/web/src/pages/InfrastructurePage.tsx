@@ -9,13 +9,16 @@ import {
   ObservabilityLinePanel,
   ObservabilityPanel,
 } from "../components/echarts/ObservabilityCharts";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtInfrastructure, rtUiConfig } from "../realtime/topics";
 
 export default function InfrastructurePage() {
   const [config, setConfig] = useState<UiConfig | null>(null);
   const [data, setData] = useState<InfrastructureDashboard | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [hours, setHours] = useState(6);
-  const [autoRefreshSec, setAutoRefreshSec] = useState(0);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
   const [loading, setLoading] = useState(false);
   const mounted = useRef(true);
   const requestSeq = useRef(0);
@@ -51,11 +54,23 @@ export default function InfrastructurePage() {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (!autoRefreshSec) return;
-    const id = window.setInterval(() => load(), autoRefreshSec * 1000);
-    return () => window.clearInterval(id);
-  }, [autoRefreshSec, load]);
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  const infraTopic = rtInfrastructure(hours);
+  useSuiteRealtimeTopics(
+    [rtUiConfig(), infraTopic],
+    useCallback(
+      (topic, d) => {
+        if (topic === rtUiConfig()) setConfig(d as UiConfig);
+        else if (topic === infraTopic) {
+          setData(d as InfrastructureDashboard);
+          setErr(null);
+        }
+      },
+      [infraTopic]
+    )
+  );
 
   const timelineLabels = useMemo(
     () =>

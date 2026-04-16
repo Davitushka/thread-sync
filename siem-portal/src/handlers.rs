@@ -27,14 +27,22 @@ pub async fn health() -> Json<Value> {
     Json(json!({"status": "ok", "service": "siem-portal"}))
 }
 
-pub async fn ui_config(State(state): State<AppState>) -> Json<Value> {
-    Json(json!({
+pub(crate) fn ui_config_json(state: &AppState) -> Value {
+    json!({
         "links": state.cfg.public,
         "suite": {
             "api_base": "/api/v1",
-            "modules": ["overview", "infrastructure", "dashboards", "alerts", "detections", "events", "cases", "investigations"]
+            "modules": ["overview", "infrastructure", "dashboards", "alerts", "detections", "events", "cases", "investigations"],
+            "realtime": {
+                "protocol": 1,
+                "path": "/api/v1/realtime/ws",
+            }
         }
-    }))
+    })
+}
+
+pub async fn ui_config(State(state): State<AppState>) -> Json<Value> {
+    Json(ui_config_json(&state))
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,7 +59,7 @@ pub struct PromRangeParams {
     pub step: String,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct CasesQuery {
     pub status: Option<String>,
     pub severity: Option<String>,
@@ -66,7 +74,7 @@ pub struct DashboardRangeQuery {
     pub hours: Option<u16>,
 }
 
-pub async fn stack_status(State(state): State<AppState>) -> Json<Value> {
+pub(crate) async fn stack_status_json(state: &AppState) -> Value {
     let client = &state.http;
     let c = &state.cfg;
 
@@ -85,7 +93,7 @@ pub async fn stack_status(State(state): State<AppState>) -> Json<Value> {
         ping_health(client, &url_corr, c.http_timeout),
     );
 
-    Json(json!({
+    json!({
         "elapsed_ms": t0.elapsed().as_millis() as u64,
         "components": {
             "case_management": hc,
@@ -94,7 +102,11 @@ pub async fn stack_status(State(state): State<AppState>) -> Json<Value> {
             "grafana": hg,
             "correlator": hcorr,
         }
-    }))
+    })
+}
+
+pub async fn stack_status(State(state): State<AppState>) -> Json<Value> {
+    Json(stack_status_json(&state).await)
 }
 
 pub async fn proxy_prometheus_query(
@@ -475,7 +487,7 @@ async fn proxy_json_request(
         .unwrap())
 }
 
-fn join_case_management(state: &AppState, path: &str) -> Result<Url, StatusCode> {
+pub(crate) fn join_case_management(state: &AppState, path: &str) -> Result<Url, StatusCode> {
     join_service_url(&state.cfg.case_management, path)
 }
 

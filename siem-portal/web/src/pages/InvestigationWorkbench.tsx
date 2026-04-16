@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getCase, getInvestigation, type CaseDetail, type Investigation, type LinkedAlert, type LinkedEvent, type TimelineEntry } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
+import { LiveCompactNumber } from "../components/LiveNumbers";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtCaseDetail, rtCaseInvestigate } from "../realtime/topics";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 function sevClass(s: string) {
@@ -71,21 +75,70 @@ export default function InvestigationWorkbench() {
   const [inv, setInv] = useState<Investigation | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [invErr, setInvErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
+  const mounted = useRef(true);
+  const requestSeq = useRef(0);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!id) return;
+    if (!mounted.current) return;
+    const seq = ++requestSeq.current;
+    setLoading(true);
     setErr(null);
     setInvErr(null);
-    getCase(id)
-      .then(setData)
-      .catch((e) => {
-        setErr(String(e));
+    void Promise.allSettled([getCase(id), getInvestigation(id)]).then((results) => {
+      if (!mounted.current || seq !== requestSeq.current) return;
+      const [caseResult, invResult] = results;
+      if (caseResult.status === "fulfilled") {
+        setData(caseResult.value);
+        setErr(null);
+      } else {
+        setErr(String(caseResult.reason));
         setData(null);
-      });
-    getInvestigation(id)
-      .then(setInv)
-      .catch((e) => setInvErr(String(e)));
+      }
+      if (invResult.status === "fulfilled") {
+        setInv(invResult.value);
+        setInvErr(null);
+      } else {
+        setInvErr(String(invResult.reason));
+      }
+    }).finally(() => {
+      if (!mounted.current || seq !== requestSeq.current) return;
+      setLoading(false);
+    });
   }, [id]);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  const detailTopic = id ? rtCaseDetail(id) : "";
+  const invTopic = id ? rtCaseInvestigate(id) : "";
+  useSuiteRealtimeTopics(
+    id ? [detailTopic, invTopic] : [],
+    useCallback(
+      (topic, d) => {
+        if (topic === detailTopic) {
+          setData(d as CaseDetail);
+          setErr(null);
+        } else if (topic === invTopic) {
+          setInv(d as Investigation);
+          setInvErr(null);
+        }
+      },
+      [detailTopic, invTopic, id]
+    )
+  );
 
   const feed = useMemo(() => (data ? buildFeed(data) : []), [data]);
   const grafanaBase = useMemo(() => grafanaOrigin(inv), [inv]);
@@ -105,6 +158,15 @@ export default function InvestigationWorkbench() {
     if (!data) return [];
 
     const commands: SuitePageCommand[] = [
+      {
+        id: `investigation:refresh:${data.id}`,
+        title: "Refresh investigation workspace",
+        subtitle: "Reload case evidence and investigation metadata from the API.",
+        section: "Current investigation",
+        keywords: `${data.display_key} refresh investigation`,
+        priority: 96,
+        run: load,
+      },
       {
         id: `investigation:case:${data.id}`,
         title: `Open ${data.display_key} case detail`,
@@ -184,7 +246,7 @@ export default function InvestigationWorkbench() {
     }
 
     return commands;
-  }, [data, inv, navigate]);
+  }, [data, inv, load, navigate]);
 
   usePublishPageCommands(pageCommands);
 
@@ -199,6 +261,11 @@ export default function InvestigationWorkbench() {
       <DashboardToolbar
         title={`${data.display_key} - Investigation`}
         subtitle="Unified investigation workspace with a merged evidence feed, analyst pivots, and guided movement into external deep-dive tools."
+        autoRefreshSec={autoRefreshSec}
+        onAutoRefreshChange={setAutoRefreshSec}
+        loading={loading}
+        onRefresh={load}
+        refreshButtonLabel="Refresh investigation"
         className="casework-toolbar"
         actions={
           <div className="toolbar-inline-actions">
@@ -224,17 +291,23 @@ export default function InvestigationWorkbench() {
           </div>
         </div>
         <div className="summary-grid">
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Linked alerts</span>
-            <strong>{formatCompact(data.linked_alerts.length)}</strong>
+            <strong>
+              <LiveCompactNumber value={data.linked_alerts.length} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Linked events</span>
-            <strong>{formatCompact(data.linked_events.length)}</strong>
+            <strong>
+              <LiveCompactNumber value={data.linked_events.length} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Timeline entries</span>
-            <strong>{formatCompact(data.timeline.length)}</strong>
+            <strong>
+              <LiveCompactNumber value={data.timeline.length} />
+            </strong>
           </div>
           <div className="summary-card">
             <span>Runbook</span>

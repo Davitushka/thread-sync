@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { addComment, getCase, linkAlert, linkEvent, patchCase, type CaseDetail as CaseDetailT } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
+import { LiveCompactNumber } from "../components/LiveNumbers";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtCaseDetail } from "../realtime/topics";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 const STATUSES = ["new", "triaged", "investigating", "contained", "resolved", "closed"];
@@ -21,18 +25,56 @@ export default function CaseDetail() {
   const [eventId, setEventId] = useState("");
   const [eventNote, setEventNote] = useState("");
   const [alertFp, setAlertFp] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
+  const mounted = useRef(true);
+  const requestSeq = useRef(0);
 
   const load = useCallback(() => {
     if (!id) return;
+    if (!mounted.current) return;
+    const seq = ++requestSeq.current;
+    setLoading(true);
     setErr(null);
     getCase(id)
-      .then(setData)
-      .catch((e) => setErr(String(e)));
+      .then((detail) => {
+        if (!mounted.current || seq !== requestSeq.current) return;
+        setData(detail);
+      })
+      .catch((e) => {
+        if (!mounted.current || seq !== requestSeq.current) return;
+        setErr(String(e));
+      })
+      .finally(() => {
+        if (!mounted.current || seq !== requestSeq.current) return;
+        setLoading(false);
+      });
   }, [id]);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  const caseTopic = id ? rtCaseDetail(id) : "";
+  useSuiteRealtimeTopics(
+    id ? [caseTopic] : [],
+    useCallback(
+      (_topic, d) => {
+        setData(d as CaseDetailT);
+        setErr(null);
+      },
+      [caseTopic, id]
+    )
+  );
 
   useEffect(() => {
     if (!id || !data) return;
@@ -161,6 +203,9 @@ export default function CaseDetail() {
       <DashboardToolbar
         title={`${data.display_key} - Case detail`}
         subtitle="Structured case workspace for management, linked evidence, timeline context, and investigation handoff."
+        autoRefreshSec={autoRefreshSec}
+        onAutoRefreshChange={setAutoRefreshSec}
+        loading={loading}
         onRefresh={load}
         refreshButtonLabel="Refresh case"
         className="casework-toolbar"
@@ -198,13 +243,17 @@ export default function CaseDetail() {
             <span>Priority</span>
             <strong>{data.priority}</strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Linked alerts</span>
-            <strong>{formatCompact(data.linked_alerts.length)}</strong>
+            <strong>
+              <LiveCompactNumber value={data.linked_alerts.length} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Linked events</span>
-            <strong>{formatCompact(data.linked_events.length)}</strong>
+            <strong>
+              <LiveCompactNumber value={data.linked_events.length} />
+            </strong>
           </div>
           <div className="summary-card">
             <span>Due at</span>

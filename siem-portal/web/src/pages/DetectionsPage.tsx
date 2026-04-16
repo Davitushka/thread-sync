@@ -4,9 +4,11 @@ import { getDetectionsOverview, type DetectionsOverview } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
 import DashboardToolbar from "../components/DashboardToolbar";
 import { LiveCompactNumber } from "../components/LiveNumbers";
-import { MotionStatCard } from "../components/MotionStatCard";
 import { ObservabilityBarPanel, ObservabilityGaugePanel } from "../components/echarts/ObservabilityCharts";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtDetectionsOverview } from "../realtime/topics";
 import { formatCompact } from "../dashboard-utils";
 
 function severityTone(value?: string) {
@@ -35,6 +37,7 @@ export default function DetectionsPage() {
   const [stateFilter, setStateFilter] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
 
   const applyDetectionState = useCallback(
     (patch: Partial<{ severity: string; state: string; q: string; selected: string }>, replace = true) => {
@@ -67,6 +70,19 @@ export default function DetectionsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  useSuiteRealtimeTopics(
+    [rtDetectionsOverview()],
+    useCallback((_topic, d) => {
+      const payload = d as DetectionsOverview;
+      setData(payload);
+      setErr(null);
+      setSelectedRuleId((current) => current ?? payload.rules[0]?.id ?? null);
+    }, [])
+  );
 
   useEffect(() => {
     setSeverityFilter(searchParams.get("severity") ?? "");
@@ -285,6 +301,8 @@ export default function DetectionsPage() {
       <DashboardToolbar
         title="Detection command center"
         subtitle="Engine pressure, noisy rules, firing backlog, and native pivots into alerts, events, and casework."
+        autoRefreshSec={autoRefreshSec}
+        onAutoRefreshChange={setAutoRefreshSec}
         loading={loading}
         onRefresh={load}
         refreshButtonLabel="Refresh detections"
@@ -301,36 +319,36 @@ export default function DetectionsPage() {
         }
       >
         <div className="summary-grid">
-          <MotionStatCard className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Rules</span>
             <strong>
               <LiveCompactNumber value={data?.stats.rules_count} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard className="summary-card">
+          </div>
+          <div className="summary-card stat-tile">
             <span>Pending alerts</span>
             <strong>
               <LiveCompactNumber value={data?.stats.pending_alerts} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard className="summary-card">
+          </div>
+          <div className="summary-card stat-tile">
             <span>Forward queue</span>
             <strong>
               <LiveCompactNumber value={data?.stats.alert_capacity} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard className="summary-card">
+          </div>
+          <div className="summary-card stat-tile">
             <span>Firing rows</span>
             <strong>
               <LiveCompactNumber value={data?.stats.firing_count} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard className="summary-card">
+          </div>
+          <div className="summary-card stat-tile">
             <span>Critical firing</span>
             <strong>
               <LiveCompactNumber value={data?.stats.critical_firing} />
             </strong>
-          </MotionStatCard>
+          </div>
         </div>
         <div className="triage-filterbar">
           <label>

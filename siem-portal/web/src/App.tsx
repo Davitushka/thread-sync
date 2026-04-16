@@ -6,6 +6,7 @@ import CommandPalette from "./components/CommandPalette";
 import ShellIcon from "./components/ShellIcon";
 import { SuiteCommandProvider } from "./components/SuiteCommandContext";
 import { WorkspaceShellProvider, useWorkspaceShell } from "./components/WorkspaceShellContext";
+import { SuiteRealtimeProvider } from "./realtime/SuiteRealtimeProvider";
 import { SUITE_NAV_GROUPS, resolveNavSelection } from "./suite-meta";
 
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
@@ -609,10 +610,12 @@ export default function App() {
   const { actor } = useActorState();
 
   return (
-    <SuiteCommandProvider>
-      <WorkspaceShellProvider>
-        <AppShell actor={actor} />
-      </WorkspaceShellProvider>
-    </SuiteCommandProvider>
+    <SuiteRealtimeProvider>
+      <SuiteCommandProvider>
+        <WorkspaceShellProvider>
+          <AppShell actor={actor} />
+        </WorkspaceShellProvider>
+      </SuiteCommandProvider>
+    </SuiteRealtimeProvider>
   );
 }

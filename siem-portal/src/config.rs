@@ -1,5 +1,72 @@
 use std::{fs, time::Duration};
 
+/// Интервалы серверного опроса upstream по категориям тем WebSocket (мс).
+#[derive(Clone, Debug)]
+pub struct RealtimePolicy {
+    /// Базовый интервал (`SIEM_PORTAL_REALTIME_POLL_MS`), если тема не попала в категорию.
+    pub default_ms: u64,
+    pub ui_config_ms: u64,
+    pub stack_status_ms: u64,
+    /// Overview / infrastructure / operations / data-quality (ClickHouse + Prom тяжёлые).
+    pub dashboards_ms: u64,
+    /// Алерты, кейсы, поиск событий, correlator stats — чаще меняются.
+    pub hot_ms: u64,
+}
+
+impl RealtimePolicy {
+    pub fn from_env_default(default_ms: u64) -> Self {
+        let d = default_ms.clamp(1_000, 300_000);
+        Self {
+            default_ms: d,
+            ui_config_ms: env_ms("SIEM_PORTAL_REALTIME_MS_UI", 120_000),
+            stack_status_ms: env_ms("SIEM_PORTAL_REALTIME_MS_STACK", 10_000),
+            dashboards_ms: env_ms("SIEM_PORTAL_REALTIME_MS_DASHBOARDS", 10_000),
+            hot_ms: env_ms("SIEM_PORTAL_REALTIME_MS_HOT", 3_000),
+        }
+    }
+
+    pub fn poll_ms_for_topic(&self, topic: &str) -> u64 {
+        if topic == "ui.config" {
+            return self.ui_config_ms;
+        }
+        if topic == "stack.status" {
+            return self.stack_status_ms;
+        }
+        if topic.starts_with("overview:h:")
+            || topic.starts_with("infrastructure:h:")
+            || topic.starts_with("operations:h:")
+            || topic.starts_with("data_quality:h:")
+        {
+            return self.dashboards_ms;
+        }
+        if topic == "correlator.rules" {
+            return self.dashboards_ms;
+        }
+        if topic == "alerts.overview"
+            || topic == "alertmanager.alerts"
+            || topic == "detections.overview"
+            || topic == "correlator.stats"
+            || topic.starts_with("cases.")
+            || topic.starts_with("case.")
+            || topic.starts_with("events.search")
+            || topic == "events.search"
+            || topic.starts_with("event.detail:")
+            || topic.starts_with("entity.context:")
+        {
+            return self.hot_ms;
+        }
+        self.default_ms
+    }
+}
+
+fn env_ms(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
+        .clamp(500, 300_000)
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub bind: String,
@@ -12,6 +79,8 @@ pub struct Config {
     pub clickhouse: ClickHouseConfig,
     /// URLs shown in the browser (host-facing). Defaults to localhost ports if unset.
     pub public: PublicLinks,
+    /// Базовый интервал realtime и тиры `SIEM_PORTAL_REALTIME_MS_*`.
+    pub realtime_policy: RealtimePolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +135,12 @@ impl Config {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
+        let realtime_default_ms: u64 = std::env::var("SIEM_PORTAL_REALTIME_POLL_MS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(5_000)
+            .clamp(1_000, 300_000);
+        let realtime_policy = RealtimePolicy::from_env_default(realtime_default_ms);
 
         Self {
             bind,
@@ -90,6 +165,7 @@ impl Config {
                 vector_http_base: trim_slash(public_vector_http),
                 redpanda_admin: trim_slash(public_redpanda_admin),
             },
+            realtime_policy,
         }
     }
 }

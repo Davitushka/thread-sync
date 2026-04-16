@@ -7,6 +7,7 @@ mod handlers;
 mod infrastructure;
 mod operations;
 mod overview;
+mod realtime;
 
 use std::sync::Arc;
 
@@ -34,6 +35,7 @@ pub struct AppState {
     pub operations: OperationsService,
     pub overview: OverviewService,
     pub data_quality: DataQualityService,
+    pub realtime: realtime::RealtimeHub,
 }
 
 #[tokio::main]
@@ -60,6 +62,7 @@ async fn main() -> anyhow::Result<()> {
     let overview = OverviewService::new(http.clone(), cfg.clickhouse.clone());
     let data_quality = DataQualityService::new(http.clone(), cfg.clickhouse.clone(), cfg.prometheus.clone());
 
+    let realtime_hub = realtime::RealtimeHub::new(cfg.realtime_policy.clone());
     let state = AppState {
         cfg: Arc::clone(&cfg),
         http,
@@ -70,7 +73,10 @@ async fn main() -> anyhow::Result<()> {
         operations,
         overview,
         data_quality,
+        realtime: realtime_hub.clone(),
     };
+
+    realtime::spawn_engine(state.clone());
 
     let app = Router::new()
         .route("/health", get(handlers::health))
@@ -78,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/assets/{*path}", get(handlers::asset_path))
         .route("/favicon.ico", get(handlers::favicon_noop))
         .route("/api/v1/ui/config", get(handlers::ui_config))
+        .route("/api/v1/realtime/ws", get(realtime::ws_upgrade))
         .route("/api/v1/overview", get(handlers::overview_dashboard))
         .route("/api/v1/infrastructure", get(handlers::infrastructure_dashboard))
         .route("/api/v1/operations", get(handlers::operations_dashboard))

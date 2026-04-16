@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { createCase, listCases, type Case } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
+import { LiveCompactNumber } from "../components/LiveNumbers";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtCasesList } from "../realtime/topics";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 function sevClass(s: string) {
@@ -28,6 +32,9 @@ export default function CasesList() {
   const [newDesc, setNewDesc] = useState("");
   const [newSev, setNewSev] = useState("medium");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
+  const mounted = useRef(true);
+  const requestSeq = useRef(0);
 
   const applyQueueState = useCallback(
     (patch: Partial<{ status: string; severity: string; q: string; selected: string }>, replace = true) => {
@@ -53,6 +60,8 @@ export default function CasesList() {
   }, [searchParams]);
 
   const load = useCallback(() => {
+    if (!mounted.current) return;
+    const seq = ++requestSeq.current;
     setLoading(true);
     setErr(null);
     const params: Record<string, string> = {};
@@ -61,17 +70,52 @@ export default function CasesList() {
     if (q.trim()) params.q = q.trim();
     listCases(params)
       .then((r) => {
+        if (!mounted.current || seq !== requestSeq.current) return;
         setCases(r.cases);
         setTotal(r.total);
         setSelectedId((current) => current ?? r.cases[0]?.id ?? null);
       })
-      .catch((e) => setErr(String(e)))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!mounted.current || seq !== requestSeq.current) return;
+        setErr(String(e));
+      })
+      .finally(() => {
+        if (!mounted.current || seq !== requestSeq.current) return;
+        setLoading(false);
+      });
   }, [status, severity, q]);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  const casesTopic = useMemo(
+    () => rtCasesList({ status: status || undefined, severity: severity || undefined, q: q.trim() || undefined }),
+    [status, severity, q]
+  );
+
+  useSuiteRealtimeTopics(
+    [casesTopic],
+    useCallback(
+      (_topic, d) => {
+        const r = d as { cases: Case[]; total: number };
+        setCases(r.cases);
+        setTotal(r.total);
+        setErr(null);
+        setSelectedId((current) => current ?? r.cases[0]?.id ?? null);
+      },
+      [casesTopic]
+    )
+  );
 
   const submitNew = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,6 +249,8 @@ export default function CasesList() {
       <DashboardToolbar
         title="Case command center"
         subtitle="Unified response queue for ownership, severity, due pressure, and movement into case detail or investigation."
+        autoRefreshSec={autoRefreshSec}
+        onAutoRefreshChange={setAutoRefreshSec}
         loading={loading}
         onRefresh={load}
         refreshButtonLabel="Refresh case queue"
@@ -218,21 +264,29 @@ export default function CasesList() {
         }
       >
         <div className="summary-grid">
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Total returned</span>
-            <strong>{formatCompact(total)}</strong>
+            <strong>
+              <LiveCompactNumber value={total} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Investigating</span>
-            <strong>{formatCompact(counts.investigating)}</strong>
+            <strong>
+              <LiveCompactNumber value={counts.investigating} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Critical</span>
-            <strong>{formatCompact(counts.critical)}</strong>
+            <strong>
+              <LiveCompactNumber value={counts.critical} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Overdue</span>
-            <strong>{formatCompact(counts.overdue)}</strong>
+            <strong>
+              <LiveCompactNumber value={counts.overdue} />
+            </strong>
           </div>
         </div>
         <div className="triage-filterbar">
@@ -278,7 +332,9 @@ export default function CasesList() {
         )}
         <div className="toolbar-status-row">
           <span>Queue rows</span>
-          <strong>{formatCompact(cases.length)}</strong>
+          <strong>
+            <LiveCompactNumber value={cases.length} />
+          </strong>
           <span>Focused case</span>
           <strong>{selectedCase?.display_key || "No selection"}</strong>
         </div>

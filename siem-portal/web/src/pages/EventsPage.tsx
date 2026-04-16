@@ -13,9 +13,13 @@ import {
 } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
 import DashboardToolbar from "../components/DashboardToolbar";
+import { LiveCompactNumber } from "../components/LiveNumbers";
 import { ObservabilityBarPanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import { useActorState } from "../components/PageLayout";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtEventsSearch } from "../realtime/topics";
 import { formatCompact, shortDateTime } from "../dashboard-utils";
 
 type Filters = {
@@ -103,6 +107,7 @@ export default function EventsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { actor, setActor } = useActorState();
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
 
   const activeQueryParams = useMemo(() => {
     const out: Record<string, string> = {};
@@ -174,6 +179,34 @@ export default function EventsPage() {
       commitSearch(filters);
     },
     [filters, commitSearch]
+  );
+
+  const refetchCommittedSearch = useCallback(() => {
+    void fetchResults(Object.keys(activeQueryParams).length ? activeQueryParams : {});
+  }, [activeQueryParams, fetchResults]);
+
+  const eventsSearchTopic = useMemo(() => {
+    const p = new URLSearchParams();
+    for (const k of Object.keys(activeQueryParams).sort()) {
+      p.set(k, activeQueryParams[k]!);
+    }
+    return rtEventsSearch(p);
+  }, [activeQueryParams]);
+
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(refetchCommittedSearch, pollSec);
+
+  useSuiteRealtimeTopics(
+    [eventsSearchTopic],
+    useCallback(
+      (_topic, d) => {
+        setResults(d as EventSearchResponse);
+        setSelected(null);
+        setContext(null);
+        setErr(null);
+      },
+      [eventsSearchTopic]
+    )
   );
 
   const openEvent = useCallback(async (row: EventRow) => {
@@ -402,6 +435,8 @@ export default function EventsPage() {
       <DashboardToolbar
         title="Signal workspace"
         subtitle="Native ClickHouse hunting surface with bounded windows, event-family pivots, and context panes that behave like a serious Grafana or Loki workflow."
+        autoRefreshSec={autoRefreshSec}
+        onAutoRefreshChange={setAutoRefreshSec}
         loading={loading}
         onRefresh={() => void (hasActiveQuery ? fetchResults(activeQueryParams) : load())}
         refreshButtonLabel={hasActiveQuery ? "Refresh current query" : "Run search"}
@@ -510,13 +545,17 @@ export default function EventsPage() {
         </div>
         {results ? (
           <div className="summary-grid">
-            <div className="summary-card">
+            <div className="summary-card stat-tile">
               <span>Log lines</span>
-              <strong>{formatCompact(results.meta.returned)}</strong>
+              <strong>
+                <LiveCompactNumber value={results.meta.returned} />
+              </strong>
             </div>
-            <div className="summary-card">
+            <div className="summary-card stat-tile">
               <span>Limit</span>
-              <strong>{formatCompact(results.meta.limit)}</strong>
+              <strong>
+                <LiveCompactNumber value={results.meta.limit} />
+              </strong>
             </div>
             <div className="summary-card">
               <span>Top source</span>
@@ -526,9 +565,11 @@ export default function EventsPage() {
               <span>Time window</span>
               <strong>{formatFilterWindow(results.meta.filters.start, results.meta.filters.end)}</strong>
             </div>
-            <div className="summary-card">
+            <div className="summary-card stat-tile">
               <span>Critical + error</span>
-              <strong>{formatCompact(severityCounts.critical + severityCounts.error)}</strong>
+              <strong>
+                <LiveCompactNumber value={severityCounts.critical + severityCounts.error} />
+              </strong>
             </div>
             <div className="summary-card">
               <span>Top event type</span>

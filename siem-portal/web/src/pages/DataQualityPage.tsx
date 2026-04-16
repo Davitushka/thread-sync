@@ -8,13 +8,16 @@ import {
   ObservabilityGaugePanel,
   ObservabilityLinePanel,
 } from "../components/echarts/ObservabilityCharts";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtDataQuality, rtUiConfig } from "../realtime/topics";
 
 export default function DataQualityPage() {
   const [config, setConfig] = useState<UiConfig | null>(null);
   const [data, setData] = useState<DataQualityDashboard | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [hours, setHours] = useState(24);
-  const [autoRefreshSec, setAutoRefreshSec] = useState(60);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
   const [loading, setLoading] = useState(false);
   const mounted = useRef(true);
   const requestSeq = useRef(0);
@@ -50,11 +53,23 @@ export default function DataQualityPage() {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (!autoRefreshSec) return;
-    const id = window.setInterval(() => load(), autoRefreshSec * 1000);
-    return () => window.clearInterval(id);
-  }, [autoRefreshSec, load]);
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  const dqTopic = rtDataQuality(hours);
+  useSuiteRealtimeTopics(
+    [rtUiConfig(), dqTopic],
+    useCallback(
+      (topic, d) => {
+        if (topic === rtUiConfig()) setConfig(d as UiConfig);
+        else if (topic === dqTopic) {
+          setData(d as DataQualityDashboard);
+          setErr(null);
+        }
+      },
+      [dqTopic]
+    )
+  );
 
   const lagLabels = useMemo(
     () =>

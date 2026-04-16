@@ -7,13 +7,13 @@ import {
   listCases,
   stackStatus,
   uiConfig,
+  type CorrelatorStats,
   type OverviewDashboard,
   type StackStatus,
   type UiConfig,
 } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
 import { LiveCompactNumber, LivePercentNumber } from "../components/LiveNumbers";
-import { MotionStatCard } from "../components/MotionStatCard";
 import {
   ObservabilityBarPanel,
   ObservabilityGaugePanel,
@@ -21,6 +21,15 @@ import {
   ObservabilityPanel,
 } from "../components/echarts/ObservabilityCharts";
 import { useWorkspaceShell } from "../components/WorkspaceShellContext";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import {
+  rtAlertmanagerAlerts,
+  rtCorrelatorStats,
+  rtOverview,
+  rtStackStatus,
+  rtUiConfig,
+} from "../realtime/topics";
 import { formatCompact, formatPercent, shortDateTime } from "../dashboard-utils";
 
 export default function OverviewPage() {
@@ -34,7 +43,7 @@ export default function OverviewPage() {
   const [stats, setStats] = useState<{ rules_count: number; pending_alerts: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [hours, setHours] = useState(24);
-  const [autoRefreshSec, setAutoRefreshSec] = useState(0);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
   const [loading, setLoading] = useState(false);
   const mounted = useRef(true);
   const requestSeq = useRef(0);
@@ -74,11 +83,36 @@ export default function OverviewPage() {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (!autoRefreshSec) return;
-    const id = window.setInterval(() => load(), autoRefreshSec * 1000);
-    return () => window.clearInterval(id);
-  }, [autoRefreshSec, load]);
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(load, pollSec);
+
+  const rtOverviewTopic = rtOverview(hours);
+  useSuiteRealtimeTopics(
+    [
+      rtUiConfig(),
+      rtStackStatus(),
+      rtOverviewTopic,
+      rtCorrelatorStats(),
+      rtAlertmanagerAlerts(),
+      "cases.list?limit=1",
+    ],
+    useCallback(
+      (topic, data) => {
+        if (topic === rtUiConfig()) setConfig(data as UiConfig);
+        else if (topic === rtStackStatus()) setStack(data as StackStatus);
+        else if (topic === rtOverviewTopic) setOverview(data as OverviewDashboard);
+        else if (topic === rtCorrelatorStats()) {
+          const c = data as CorrelatorStats;
+          setStats({ rules_count: c.rules_count, pending_alerts: c.pending_alerts });
+        } else if (topic === rtAlertmanagerAlerts()) {
+          setAlertsCount(Array.isArray(data) ? data.length : 0);
+        } else if (topic === "cases.list?limit=1") {
+          setCasesCount((data as { total: number }).total);
+        }
+      },
+      [rtOverviewTopic]
+    )
+  );
 
   const eventsLabels = useMemo(
     () =>
@@ -211,48 +245,48 @@ export default function OverviewPage() {
 
       <section className="card">
         <div className="kpi-grid">
-          <MotionStatCard>
+          <div className="kpi-card stat-tile">
             <span>Total events ({overview?.window_hours ?? hours}h)</span>
             <strong>
               <LiveCompactNumber value={overview?.kpis.total_events_24h} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard>
+          </div>
+          <div className="kpi-card stat-tile">
             <span>Critical events</span>
             <strong>
               <LiveCompactNumber value={overview?.kpis.critical_events_24h} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard>
+          </div>
+          <div className="kpi-card stat-tile">
             <span>Error + critical share</span>
             <strong>
               <LivePercentNumber value={overview?.kpis.error_pct_24h} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard>
+          </div>
+          <div className="kpi-card stat-tile">
             <span>Open cases</span>
             <strong>
               <LiveCompactNumber value={casesCount} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard>
+          </div>
+          <div className="kpi-card stat-tile">
             <span>Active alerts</span>
             <strong>
               <LiveCompactNumber value={alertsCount} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard>
+          </div>
+          <div className="kpi-card stat-tile">
             <span>Detection rules</span>
             <strong>
               <LiveCompactNumber value={stats?.rules_count} />
             </strong>
-          </MotionStatCard>
-          <MotionStatCard>
+          </div>
+          <div className="kpi-card stat-tile">
             <span>Pending forwards</span>
             <strong>
               <LiveCompactNumber value={stats?.pending_alerts} />
             </strong>
-          </MotionStatCard>
+          </div>
         </div>
         <div className="workspace-pane-header">
           <div className="workspace-pane-copy">

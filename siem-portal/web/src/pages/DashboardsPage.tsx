@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { uiConfig, type UiConfig } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
 import DashboardToolbar from "../components/DashboardToolbar";
+import { LiveCompactNumber } from "../components/LiveNumbers";
 import { ObservabilityGaugePanel, ObservabilityLinePanel } from "../components/echarts/ObservabilityCharts";
 import {
   DASHBOARDS,
@@ -11,6 +12,9 @@ import {
   grafanaDashboardUrl,
   type DashboardEntry,
 } from "../dashboard-catalog";
+import { useSuiteAutoRefreshState, useVisibleInterval } from "../hooks/useSuitePolling";
+import { useEffectivePollingInterval, useSuiteRealtimeTopics } from "../realtime/SuiteRealtimeProvider";
+import { rtUiConfig } from "../realtime/topics";
 import { formatCompact } from "../dashboard-utils";
 
 export default function DashboardsPage() {
@@ -18,15 +22,35 @@ export default function DashboardsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig] = useState<UiConfig | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
   const [group, setGroup] = useState<(typeof DASHBOARD_GROUPS)[number]>("SOC Core");
   const [selectedId, setSelectedId] = useState<string>("overview");
   const [timeRange, setTimeRange] = useState<string>("now-24h");
 
-  useEffect(() => {
+  const loadConfig = useCallback(() => {
+    setConfigLoading(true);
+    setErr(null);
     uiConfig()
       .then(setConfig)
-      .catch((e) => setErr(String(e)));
+      .catch((e) => setErr(String(e)))
+      .finally(() => setConfigLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  const pollSec = useEffectivePollingInterval(autoRefreshSec);
+  useVisibleInterval(loadConfig, pollSec);
+
+  useSuiteRealtimeTopics(
+    [rtUiConfig()],
+    useCallback((_topic, d) => {
+      setConfig(d as UiConfig);
+      setErr(null);
+    }, [])
+  );
 
   useEffect(() => {
     const groupParam = searchParams.get("group");
@@ -117,6 +141,11 @@ export default function DashboardsPage() {
       <DashboardToolbar
         title="Analytics command center"
         subtitle="Native analyst workspaces first, Grafana retained as a deep-dive tier when the investigation needs plugin depth or embedded engineering views."
+        autoRefreshSec={autoRefreshSec}
+        onAutoRefreshChange={setAutoRefreshSec}
+        loading={configLoading}
+        onRefresh={loadConfig}
+        refreshButtonLabel="Refresh portal links"
         className="dashboard-toolbar-card"
         actions={
           <div className="toolbar-inline-actions">
@@ -130,25 +159,35 @@ export default function DashboardsPage() {
         }
       >
         <div className="summary-grid">
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Daily surfaces</span>
-            <strong>{dailyCount}</strong>
+            <strong>
+              <LiveCompactNumber value={dailyCount} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Support surfaces</span>
-            <strong>{supportCount}</strong>
+            <strong>
+              <LiveCompactNumber value={supportCount} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Native workspaces</span>
-            <strong>{nativeCount}</strong>
+            <strong>
+              <LiveCompactNumber value={nativeCount} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Hybrid bridges</span>
-            <strong>{hybridCount}</strong>
+            <strong>
+              <LiveCompactNumber value={hybridCount} />
+            </strong>
           </div>
-          <div className="summary-card">
+          <div className="summary-card stat-tile">
             <span>Deep dives</span>
-            <strong>{deepDiveCount || grafanaCount}</strong>
+            <strong>
+              <LiveCompactNumber value={deepDiveCount || grafanaCount} />
+            </strong>
           </div>
         </div>
         <div className="toolbar-status-row">

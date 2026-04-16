@@ -1700,6 +1700,21 @@ pre {
   font-size: 1.35rem;
 }
 
+.stat-tile {
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .stat-tile:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+    border-color: rgba(77, 155, 255, 0.35);
+  }
+}
+
 .btn-row {
   display: flex;
   flex-wrap: wrap;

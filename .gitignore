@@ -43,6 +43,10 @@ Thumbs.db
 case-management/web/node_modules/
 siem-portal/web/node_modules/
 
+# SIEM Portal — артефакты Vite встраиваются в бинарь при сборке (см. siem-portal/web: npm run build; CI/Dockerfile делают это сами)
+siem-portal/static/assets/
+siem-portal/static/index.html
+
 # Python caches
 __pycache__/
 *.pyc
