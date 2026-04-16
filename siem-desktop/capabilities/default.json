@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for SIEM-Lite Desktop",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:window:allow-set-title",
+    "shell:allow-open"
+  ]
+}

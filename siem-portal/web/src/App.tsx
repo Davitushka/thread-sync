@@ -9,6 +9,7 @@ import { WorkspaceShellProvider, useWorkspaceShell } from "./components/Workspac
 import { ChartMotionProvider, useChartMotion } from "./components/ChartMotionContext";
 import { PerfDebugProvider, usePerfDebug } from "./components/PerfDebugContext";
 import PerfOverlay from "./components/PerfOverlay";
+import TauriPanel from "./components/TauriPanel";
 import { SuiteRealtimeProvider } from "./realtime/SuiteRealtimeProvider";
 import {
   readSuiteAutoRefreshSec,
@@ -756,6 +757,7 @@ function AppShell({ actor, setActor }: { actor: string; setActor: (next: string)
       />
       {perfOverlayEnabled ? <PerfOverlay /> : null}
       <CommandPalette actor={actor} />
+      <TauriPanel />
     </div>
   );
 }
