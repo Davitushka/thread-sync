@@ -12,6 +12,8 @@ import {
   type UiConfig,
 } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
+import { LiveCompactNumber, LivePercentNumber } from "../components/LiveNumbers";
+import { MotionStatCard } from "../components/MotionStatCard";
 import {
   ObservabilityBarPanel,
   ObservabilityGaugePanel,
@@ -209,34 +211,48 @@ export default function OverviewPage() {
 
       <section className="card">
         <div className="kpi-grid">
-          <div className="kpi-card">
+          <MotionStatCard>
             <span>Total events ({overview?.window_hours ?? hours}h)</span>
-            <strong>{formatCompact(overview?.kpis.total_events_24h)}</strong>
-          </div>
-          <div className="kpi-card">
+            <strong>
+              <LiveCompactNumber value={overview?.kpis.total_events_24h} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard>
             <span>Critical events</span>
-            <strong>{formatCompact(overview?.kpis.critical_events_24h)}</strong>
-          </div>
-          <div className="kpi-card">
+            <strong>
+              <LiveCompactNumber value={overview?.kpis.critical_events_24h} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard>
             <span>Error + critical share</span>
-            <strong>{overview ? `${overview.kpis.error_pct_24h.toFixed(2)}%` : "—"}</strong>
-          </div>
-          <div className="kpi-card">
+            <strong>
+              <LivePercentNumber value={overview?.kpis.error_pct_24h} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard>
             <span>Open cases</span>
-            <strong>{formatCompact(casesCount)}</strong>
-          </div>
-          <div className="kpi-card">
+            <strong>
+              <LiveCompactNumber value={casesCount} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard>
             <span>Active alerts</span>
-            <strong>{formatCompact(alertsCount)}</strong>
-          </div>
-          <div className="kpi-card">
+            <strong>
+              <LiveCompactNumber value={alertsCount} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard>
             <span>Detection rules</span>
-            <strong>{formatCompact(stats?.rules_count)}</strong>
-          </div>
-          <div className="kpi-card">
+            <strong>
+              <LiveCompactNumber value={stats?.rules_count} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard>
             <span>Pending forwards</span>
-            <strong>{formatCompact(stats?.pending_alerts)}</strong>
-          </div>
+            <strong>
+              <LiveCompactNumber value={stats?.pending_alerts} />
+            </strong>
+          </MotionStatCard>
         </div>
         <div className="workspace-pane-header">
           <div className="workspace-pane-copy">

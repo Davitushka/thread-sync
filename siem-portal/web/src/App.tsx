@@ -1,4 +1,5 @@
-import { Suspense, lazy, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { SuiteTopbar, useActorState } from "./components/PageLayout";
 import CommandPalette from "./components/CommandPalette";
@@ -298,6 +299,30 @@ function WorkspaceTabs() {
     ? `${backgroundTabs.length} ${backgroundTabLabel}: ${backgroundPreview}${backgroundTabs.length > 3 ? ", ..." : ""}`
     : `${backgroundTabs.length} ${backgroundTabLabel}`;
 
+  const [backgroundMenuOpen, setBackgroundMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (!backgroundMenuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setBackgroundMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [backgroundMenuOpen]);
+
+  useEffect(() => {
+    if (!backgroundMenuOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [backgroundMenuOpen]);
+
+  useEffect(() => {
+    if (!backgroundTabs.length) setBackgroundMenuOpen(false);
+  }, [backgroundTabs.length]);
+
   return (
     <div className="workspace-tabs-shell">
       <div className="workspace-tabs">
@@ -338,9 +363,81 @@ function WorkspaceTabs() {
           </div>
         ))}
         {backgroundTabs.length ? (
-          <div className="workspace-tab workspace-tab-overflow" title={overflowTitle}>
-            <span className="workspace-tab-overflow-count">+{backgroundTabs.length}</span>
-            <span className="workspace-tab-overflow-label">background</span>
+          <div className="workspace-tab-overflow-wrap">
+            <button
+              type="button"
+              className={["workspace-tab", "workspace-tab-overflow", backgroundMenuOpen ? "open" : ""].filter(Boolean).join(" ")}
+              title={overflowTitle}
+              aria-expanded={backgroundMenuOpen}
+              aria-haspopup="dialog"
+              onClick={() => setBackgroundMenuOpen((open) => !open)}
+            >
+              <span className="workspace-tab-overflow-count">+{backgroundTabs.length}</span>
+              <span className="workspace-tab-overflow-label">background</span>
+            </button>
+            {backgroundMenuOpen
+              ? createPortal(
+                  <div
+                    className="workspace-bg-modal"
+                    role="presentation"
+                    onClick={() => setBackgroundMenuOpen(false)}
+                  >
+                    <div
+                      className="workspace-bg-modal-dialog"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="workspace-bg-modal-title"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="workspace-tab-overflow-menu-head">
+                        <span id="workspace-bg-modal-title">Background workspaces</span>
+                        <span className="workspace-tab-overflow-menu-count">{backgroundTabs.length}</span>
+                      </div>
+                      <ul className="workspace-tab-overflow-list" role="menu">
+                        {backgroundTabs.map((tab) => (
+                          <li key={tab.id} className="workspace-tab-overflow-item">
+                            <button
+                              type="button"
+                              className="workspace-tab-overflow-open"
+                              role="menuitem"
+                              title={tab.label}
+                              onClick={() => {
+                                openOrFocusWorkspace(tab.path);
+                                setBackgroundMenuOpen(false);
+                              }}
+                            >
+                              <span className="workspace-tab-icon-shell">
+                                <ShellIcon iconKey={tab.iconKey} className="workspace-tab-icon" />
+                              </span>
+                              <span className="workspace-tab-overflow-open-copy">
+                                <span className="workspace-tab-overflow-open-label">{tab.tabLabel}</span>
+                                <span className="workspace-tab-overflow-open-meta">
+                                  {tab.workspaceKind === "document" ? "Document" : "Workspace"}
+                                </span>
+                              </span>
+                            </button>
+                            {tab.closable && !tab.pinned ? (
+                              <button
+                                type="button"
+                                className="workspace-tab-overflow-remove"
+                                title="Close tab"
+                                aria-label={`Close ${tab.tabLabel}`}
+                                onClick={() => {
+                                  closeWorkspace(tab.path);
+                                  if (backgroundTabs.length <= 1) setBackgroundMenuOpen(false);
+                                }}
+                              >
+                                ×
+                              </button>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>,
+                  document.body
+                )
+              : null}
           </div>
         ) : null}
       </div>

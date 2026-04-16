@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getDetectionsOverview, type DetectionsOverview } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
 import DashboardToolbar from "../components/DashboardToolbar";
+import { LiveCompactNumber } from "../components/LiveNumbers";
+import { MotionStatCard } from "../components/MotionStatCard";
 import { ObservabilityBarPanel, ObservabilityGaugePanel } from "../components/echarts/ObservabilityCharts";
 import { usePublishPageCommands, type SuitePageCommand } from "../components/SuiteCommandContext";
 import { formatCompact } from "../dashboard-utils";
@@ -299,26 +301,36 @@ export default function DetectionsPage() {
         }
       >
         <div className="summary-grid">
-          <div className="summary-card">
+          <MotionStatCard className="summary-card">
             <span>Rules</span>
-            <strong>{formatCompact(data?.stats.rules_count)}</strong>
-          </div>
-          <div className="summary-card">
+            <strong>
+              <LiveCompactNumber value={data?.stats.rules_count} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard className="summary-card">
             <span>Pending alerts</span>
-            <strong>{formatCompact(data?.stats.pending_alerts)}</strong>
-          </div>
-          <div className="summary-card">
+            <strong>
+              <LiveCompactNumber value={data?.stats.pending_alerts} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard className="summary-card">
             <span>Forward queue</span>
-            <strong>{formatCompact(data?.stats.alert_capacity)}</strong>
-          </div>
-          <div className="summary-card">
+            <strong>
+              <LiveCompactNumber value={data?.stats.alert_capacity} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard className="summary-card">
             <span>Firing rows</span>
-            <strong>{formatCompact(data?.stats.firing_count)}</strong>
-          </div>
-          <div className="summary-card">
+            <strong>
+              <LiveCompactNumber value={data?.stats.firing_count} />
+            </strong>
+          </MotionStatCard>
+          <MotionStatCard className="summary-card">
             <span>Critical firing</span>
-            <strong>{formatCompact(data?.stats.critical_firing)}</strong>
-          </div>
+            <strong>
+              <LiveCompactNumber value={data?.stats.critical_firing} />
+            </strong>
+          </MotionStatCard>
         </div>
         <div className="triage-filterbar">
           <label>

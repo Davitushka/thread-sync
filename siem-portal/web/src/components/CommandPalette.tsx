@@ -45,6 +45,39 @@ function openExternal(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function trimSlashPath(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
+function vectorIngestCurl(base: string) {
+  const root = trimSlashPath(base || "http://localhost:8080");
+  return `curl -sS -X POST "${root}/logs" -H "Content-Type: application/x-ndjson" --data-binary '{"event_type":"palette-demo","severity":"info","message":"smoke"}\\n'`;
+}
+
+const COMPOSE_LOGGEN_RESTART = "docker compose -f deploy/docker/docker-compose.yml restart log-generator";
+const COMPOSE_STRESS_RESTART = "docker compose -f deploy/docker/docker-compose.yml restart siem-stress";
+
+async function copyPlainText(label: string, text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    window.prompt(`Copy (${label})`, text);
+  }
+}
+
+/** Physical key (US QWERTY position) — works when OS layout is Russian, German, etc. */
+function isCommandPaletteHotkey(event: KeyboardEvent) {
+  return (event.ctrlKey || event.metaKey) && !event.altKey && event.code === "KeyK";
+}
+
+function isOperatorDeckHotkey(event: KeyboardEvent) {
+  return event.altKey && !event.ctrlKey && !event.metaKey && event.code === "KeyO";
+}
+
+function isActivateChoiceKey(event: KeyboardEvent) {
+  return event.code === "Enter" || event.code === "NumpadEnter";
+}
+
 function routeContext(pathname: string, search: string) {
   const params = new URLSearchParams(search);
   return {
@@ -93,7 +126,9 @@ export default function CommandPalette({ actor }: Props) {
   const [recentCases, setRecentCases] = useState<Case[]>([]);
   const [casesLoaded, setCasesLoaded] = useState(false);
   const [casesError, setCasesError] = useState<string | null>(null);
+  const [operatorDeck, setOperatorDeck] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
   const openRef = useRef(open);
 
   useEffect(() => {
@@ -120,12 +155,17 @@ export default function CommandPalette({ actor }: Props) {
         target instanceof HTMLTextAreaElement ||
         target?.isContentEditable === true ||
         target instanceof HTMLSelectElement;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      if (isCommandPaletteHotkey(event)) {
         event.preventDefault();
         setOpen((value) => !value);
         return;
       }
       if (!openRef.current) return;
+      if (isOperatorDeckHotkey(event)) {
+        event.preventDefault();
+        setOperatorDeck((value) => !value);
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         setOpen(false);
@@ -144,6 +184,7 @@ export default function CommandPalette({ actor }: Props) {
     if (!open) {
       setQuery("");
       setSelected(0);
+      setOperatorDeck(false);
       return;
     }
     inputRef.current?.focus();
@@ -256,7 +297,7 @@ export default function CommandPalette({ actor }: Props) {
     );
 
     items.push(
-      ...pageCommands.flatMap((command) => {
+      ...pageCommands.flatMap((command): CommandAction[] => {
         const base = {
           id: command.id,
           title: command.title,
@@ -269,7 +310,8 @@ export default function CommandPalette({ actor }: Props) {
           return [{ ...base, href: command.href, external: command.external }];
         }
         if (command.run) {
-          return [{ ...base, run: () => void command.run?.() }];
+          const runFn = command.run;
+          return [{ ...base, run: () => void runFn() }];
         }
         return [];
       })
@@ -458,55 +500,6 @@ export default function CommandPalette({ actor }: Props) {
       }
     }
 
-    if (config?.links.grafana) {
-      items.push({
-        id: "tool:grafana",
-        title: "Open Grafana root",
-        subtitle: "Jump into the full dashboard catalog and advanced exploration.",
-        section: "External tools",
-        keywords: "grafana dashboards root",
-        priority: 56,
-        href: config.links.grafana,
-        external: true,
-      });
-    }
-    if (config?.links.prometheus) {
-      items.push({
-        id: "tool:prometheus",
-        title: "Open Prometheus",
-        subtitle: "Inspect raw metrics and PromQL output directly.",
-        section: "External tools",
-        keywords: "prometheus metrics query",
-        priority: 56,
-        href: config.links.prometheus,
-        external: true,
-      });
-    }
-    if (config?.links.alertmanager) {
-      items.push({
-        id: "tool:alertmanager",
-        title: "Open Alertmanager",
-        subtitle: "Check silences, routes and raw alert payloads.",
-        section: "External tools",
-        keywords: "alertmanager silences routing",
-        priority: 56,
-        href: config.links.alertmanager,
-        external: true,
-      });
-    }
-    if (config?.links.case_management) {
-      items.push({
-        id: "tool:case-mgmt",
-        title: "Open Case Management service",
-        subtitle: "Inspect the standalone case-management backend.",
-        section: "External tools",
-        keywords: "case management service backend",
-        priority: 56,
-        href: config.links.case_management,
-        external: true,
-      });
-    }
-
     items.push({
       id: "action:new-case",
       title: "Go to case queue and create a new case",
@@ -597,8 +590,18 @@ export default function CommandPalette({ actor }: Props) {
           a.action.title.localeCompare(b.action.title)
       )
       .map((item) => item.action)
-      .slice(0, 20);
+      .slice(0, 56);
   }, [actions, queryValue]);
+
+  useEffect(() => {
+    if (!open) return;
+    const root = resultsRef.current;
+    if (!root) return;
+    const active = root.querySelector(".command-item.active");
+    if (active instanceof HTMLElement) {
+      active.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [open, selected, filtered]);
 
   useEffect(() => {
     setSelected(0);
@@ -609,13 +612,13 @@ export default function CommandPalette({ actor }: Props) {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (!open) return;
-      if (event.key === "ArrowDown") {
+      if (event.code === "ArrowDown") {
         event.preventDefault();
         setSelected((value) => (filtered.length ? (value + 1) % filtered.length : 0));
-      } else if (event.key === "ArrowUp") {
+      } else if (event.code === "ArrowUp") {
         event.preventDefault();
         setSelected((value) => (filtered.length ? (value - 1 + filtered.length) % filtered.length : 0));
-      } else if (event.key === "Enter") {
+      } else if (isActivateChoiceKey(event)) {
         const current = filtered[selected];
         if (!current) return;
         event.preventDefault();
@@ -657,14 +660,124 @@ export default function CommandPalette({ actor }: Props) {
         </label>
 
         <div className="command-hints">
-          <span className="token">Ctrl+K open</span>
+          <span className="token">Ctrl+K — same physical key as Latin K (any layout)</span>
           <span className="token">Enter run</span>
-          <span className="token">Arrows move</span>
+          <span className="token">↑↓ move</span>
+          <span className="token">Alt+O — same physical key as Latin O</span>
           <span className="token">{tabs.length} tabs</span>
           {casesError ? <span className="token">Recent cases unavailable</span> : null}
         </div>
 
-        <div className="command-results" role="listbox" aria-label="Command results">
+        <div className="command-operator-toggle">
+          <button type="button" onClick={() => setOperatorDeck((value) => !value)}>
+            {operatorDeck ? "Hide stack tools & hotkeys" : "Show stack tools & hotkeys"}
+          </button>
+          <span className="meta">Grafana, Prometheus, generators, Vector ingest — kept out of the main list on purpose.</span>
+        </div>
+
+        {operatorDeck ? (
+          <div className="command-operator-panel">
+            <div className="command-operator-section">
+              <h4>Hotkeys</h4>
+              <div className="command-hotkey-grid">
+                <div>
+                  <span>Ctrl+K / ⌘K</span> — open or close (physical <code>KeyK</code>, works in RU/DE/etc.)
+                </div>
+                <div>
+                  <span>Alt+O</span> — toggle stack tools (physical <code>KeyO</code>)
+                </div>
+                <div>
+                  <span>↑ ↓</span> — move selection (physical arrow keys; list scrolls)
+                </div>
+                <div>
+                  <span>Enter</span> — run the highlighted command (main or numpad)
+                </div>
+                <div>
+                  <span>Esc</span> — close the palette
+                </div>
+              </div>
+            </div>
+
+            <div className="command-operator-section">
+              <h4>Observability & cases (opens in a new tab)</h4>
+              <div className="command-operator-actions">
+                {config?.links.grafana ? (
+                  <a href={config.links.grafana} target="_blank" rel="noreferrer">
+                    Grafana
+                  </a>
+                ) : null}
+                {config?.links.siem_overview_dashboard ? (
+                  <a href={config.links.siem_overview_dashboard} target="_blank" rel="noreferrer">
+                    SIEM overview dashboard
+                  </a>
+                ) : null}
+                {config?.links.prometheus ? (
+                  <a href={config.links.prometheus} target="_blank" rel="noreferrer">
+                    Prometheus
+                  </a>
+                ) : null}
+                {config?.links.alertmanager ? (
+                  <a href={config.links.alertmanager} target="_blank" rel="noreferrer">
+                    Alertmanager
+                  </a>
+                ) : null}
+                {config?.links.case_management ? (
+                  <a href={config.links.case_management} target="_blank" rel="noreferrer">
+                    Case management API
+                  </a>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="command-operator-section">
+              <h4>Pipeline & load generators</h4>
+              <p className="command-operator-note">
+                Compose services <code>log-generator</code> and <code>siem-stress</code> ship NDJSON to Vector (
+                <code>/logs</code>). Restart from the repo root to nudge traffic; tune env under{" "}
+                <code>deploy/docker/docker-compose.yml</code>.
+              </p>
+              <div className="command-operator-actions">
+                <button type="button" onClick={() => void copyPlainText("compose log-generator", COMPOSE_LOGGEN_RESTART)}>
+                  Copy: restart log-generator
+                </button>
+                <button type="button" onClick={() => void copyPlainText("compose siem-stress", COMPOSE_STRESS_RESTART)}>
+                  Copy: restart siem-stress
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void copyPlainText(
+                      "vector curl",
+                      vectorIngestCurl(config?.links.vector_http_base ?? "http://localhost:8080")
+                    )
+                  }
+                >
+                  Copy: curl → Vector /logs
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void copyPlainText(
+                      "vector logs URL",
+                      `${trimSlashPath(config?.links.vector_http_base ?? "http://localhost:8080")}/logs`
+                    )
+                  }
+                >
+                  Copy: ingest URL only
+                </button>
+                <a
+                  href={trimSlashPath(config?.links.redpanda_admin || "http://localhost:9644")}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Redpanda admin HTTP
+                </a>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div ref={resultsRef} className="command-results" role="listbox" aria-label="Command results">
           {filtered.length ? (
             filtered.map((item, index) => {
               const active = index === selected;
@@ -698,7 +811,7 @@ export default function CommandPalette({ actor }: Props) {
           ) : (
             <div className="command-empty">
               <strong>No matching commands</strong>
-              <p>Try workspace names, tabs, dashboards, external tools, or a case identifier.</p>
+              <p>Try workspace names, tabs, dashboards, cases — external links live under “stack tools”.</p>
             </div>
           )}
         </div>

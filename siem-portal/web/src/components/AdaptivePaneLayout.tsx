@@ -1,4 +1,4 @@
-import { Children, Fragment, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { Children, Fragment, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 type Props = {
   storageKey: string;
@@ -74,7 +74,7 @@ export default function AdaptivePaneLayout({
   }, [normalizedDefaults]);
 
   const startResize = useCallback(
-    (handleIndex: number, event: PointerEvent<HTMLButtonElement>) => {
+    (handleIndex: number, event: ReactPointerEvent<HTMLButtonElement>) => {
       if (isStacked || !containerRef.current) return;
       event.preventDefault();
       const startX = event.clientX;
@@ -86,7 +86,7 @@ export default function AdaptivePaneLayout({
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
 
-      const onMove = (moveEvent: PointerEvent) => {
+      const onMove = (moveEvent: WindowEventMap["pointermove"]) => {
         const deltaRatio = (moveEvent.clientX - startX) / Math.max(containerWidth, 1);
         const pairTotal = startSizes[handleIndex] + startSizes[handleIndex + 1];
         const nextLeft = Math.max(minLeft, Math.min(pairTotal - minRight, startSizes[handleIndex] + deltaRatio));

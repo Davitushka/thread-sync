@@ -29,6 +29,10 @@ pub struct PublicLinks {
     pub alertmanager: String,
     pub case_management: String,
     pub siem_overview_dashboard: String,
+    /// Host-facing Vector HTTP ingest base (`http://host:8080`); POST NDJSON to `{base}/logs`.
+    pub vector_http_base: String,
+    /// Redpanda admin API (often `:9644`) for rpk / debugging.
+    pub redpanda_admin: String,
 }
 
 impl Config {
@@ -54,6 +58,8 @@ impl Config {
             "SIEM_PORTAL_PUBLIC_GRAFANA_OVERVIEW",
             "http://localhost:3000/d/siem-overview/siem-lite-obzor",
         );
+        let public_vector_http = env_or("SIEM_PORTAL_PUBLIC_VECTOR_HTTP", "http://localhost:8080");
+        let public_redpanda_admin = env_or("SIEM_PORTAL_PUBLIC_REDPANDA_ADMIN", "http://localhost:9644");
 
         let bind = env_trim("SIEM_PORTAL_ADDR", "0.0.0.0:8091");
         let timeout_secs: u64 = std::env::var("SIEM_PORTAL_HTTP_TIMEOUT_SEC")
@@ -81,6 +87,8 @@ impl Config {
                 alertmanager: trim_slash(public_alertmanager),
                 case_management: trim_slash(public_cases),
                 siem_overview_dashboard: trim_slash(overview),
+                vector_http_base: trim_slash(public_vector_http),
+                redpanda_admin: trim_slash(public_redpanda_admin),
             },
         }
     }

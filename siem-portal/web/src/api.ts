@@ -67,6 +67,10 @@ export type PortalLinks = {
   alertmanager: string;
   case_management: string;
   siem_overview_dashboard: string;
+  /** Host-facing Vector HTTP ingest (`POST …/logs`). Newer portals only. */
+  vector_http_base?: string;
+  /** Redpanda admin HTTP API. Newer portals only. */
+  redpanda_admin?: string;
 };
 
 export type UiConfig = {

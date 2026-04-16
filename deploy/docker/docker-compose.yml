@@ -293,6 +293,9 @@ services:
       SIEM_PORTAL_PUBLIC_ALERTMANAGER: "http://localhost:9093"
       SIEM_PORTAL_PUBLIC_CASEMGMT: "http://localhost:8088"
       SIEM_PORTAL_PUBLIC_GRAFANA_OVERVIEW: "http://localhost:3000/d/siem-overview/siem-lite-obzor"
+      # Ссылки для «stack tools» в command palette (хост, не docker-сеть)
+      SIEM_PORTAL_PUBLIC_VECTOR_HTTP: "http://localhost:8080"
+      SIEM_PORTAL_PUBLIC_REDPANDA_ADMIN: "http://localhost:9644"
     depends_on:
       case-management:
         condition: service_healthy

@@ -100,6 +100,7 @@ export function SuiteTopbar() {
           <button
             type="button"
             className="suite-command-btn"
+            title="Shortcut uses the physical K key (US QWERTY position), works with Russian or other layouts."
             onClick={() => window.dispatchEvent(new CustomEvent("suite:open-command-palette"))}
           >
             Search or run
