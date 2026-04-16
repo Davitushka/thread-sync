@@ -46,14 +46,13 @@ flowchart TD
     end
 
     subgraph Visualization["📊 Visualization"]
-        GRAFANA["Grafana 11.x\n(dashboards, explore)"]
+        GRAFANA["Grafana 11.4\n(dashboards, explore)"]
         CH_PLUGIN["ClickHouse\ndata source plugin"]
     end
 
     subgraph Ops["🔧 Self-Monitoring"]
-        PROM["Prometheus 2.x\n(metrics)"]
-        LOKI["Loki 3.x\n(SIEM own logs)"]
-        OTEL["OpenTelemetry\nCollector"]
+        PROM["Prometheus 2.55\n(metrics)"]
+        LOKI["Loki 3.3\n(SIEM own logs)"]
     end
 
     BE -->|"stdout JSON\n+ OTLP traces"| VEC
@@ -81,10 +80,8 @@ flowchart TD
     CH --> CH_PLUGIN
     CH_PLUGIN --> GRAFANA
 
-    VEC_AGG --> OTEL
-    CORR_ENGINE --> OTEL
-    OTEL --> PROM
-    OTEL --> LOKI
+    VEC_AGG -->|"metrics\n:9598"| PROM
+    CORR_ENGINE -->|"metrics\n:9111"| PROM
     PROM --> GRAFANA
     LOKI --> GRAFANA
 ```
@@ -124,7 +121,7 @@ flowchart TD
 - Группировка по `source_ip` + `rule_id`, cooldown 5 мин, повторный алерт через 30 мин.
 - Silence API для planned maintenance.
 
-### Visualization (Grafana 11.x)
+### Visualization (Grafana 11.4)
 - ClickHouse datasource plugin (Altinity).
 - Dashboards: Overview (EPS, top threats), Incident timeline, User activity, Infrastructure health.
 - Explore mode для ad-hoc SQL-запросов к ClickHouse.
@@ -162,7 +159,7 @@ flowchart TD
 | **Redis** | Состояние sliding windows и счётчиков для **correlator** (detection-engine-rs). |
 | **case-management-rs** | HTTP API кейсов; остаётся отдельным сервисом для lifecycle/timeline/investigation данных. |
 | **siem-portal** | Единый analyst-facing **Unified Suite** (Rust): web app + BFF к Prometheus, Alertmanager, correlator, case-management и read-only event search поверх ClickHouse — см. [`SIEM_PORTAL.md`](SIEM_PORTAL.md). |
-| **siem-operator** | Гибридная десктоп-оболочка оператора (Rust): WebView над Unified Suite по умолчанию, egui — fallback/legacy-native слой. |
+| **siem-desktop** | Tauri десктоп-приложение: WebView над Unified Suite, замена egui-based siem-operator. |
 | **siem-admin** | Профиль Compose `admin`: операции со стеком, сиды ClickHouse (Docker socket на хосте). |
 | **log-generator** / **siem-stress** | Синтетические события в Vector для метрик и проверки детекции. |
 | **intel-connector** | Профиль Compose `intel`: MISP / HTTP JSON / файл → `threat_intel` + опционально Redis для матча в парсере. См. [`INTEL_CONNECTOR.md`](INTEL_CONNECTOR.md). |

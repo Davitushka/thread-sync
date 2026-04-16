@@ -110,9 +110,9 @@
 | `siem-portal` | Всегда в основном compose: Unified Suite для аналитика + прокси API + event search. |
 | `siem-admin` | Профиль `admin`, Docker socket, сиды — админка стека. |
 
-## Интеграция с `siem-operator`
+## Desktop-клиент (siem-desktop)
 
-Desktop-клиент `siem-operator` теперь рассматривается как **гибридная оболочка** над Unified Suite. Портал остаётся главным продуктовым входом и единым API-шлюзом:
+Desktop-приложение **siem-desktop** (Tauri) — оболочка над Unified Suite. Портал остаётся главным продуктовым входом и единым API-шлюзом:
 
 - `GET /api/v1/proxy/cases?...` для case KPI/asset risk (через кейсы).
 - `GET /api/v1/proxy/alertmanager/v2/alerts` для ленты `Events`.
@@ -120,16 +120,4 @@ Desktop-клиент `siem-operator` теперь рассматривается
 - `GET /api/v1/events/search?...` для нативного event search в web suite.
 - `GET /api/v1/proxy/correlator/stats` / `rules` для detection views.
 
-Рекомендация: для оператора выставлять `SIEM_OPERATOR_API` на адрес `siem-portal`, а для ежедневной работы использовать WebView / browser-режим Unified Suite как основной путь.
-
-### Hybrid SIEM вкладки в Operator
-
-Для нового UX `siem-operator` использует следующие потоки:
-
-- `Detections`: `GET /api/v1/proxy/prometheus/query?query=ALERTS`
-- `Alerts`/`Events`: `GET /api/v1/proxy/alertmanager/v2/alerts`
-- `Investigations`: `GET {case-management}/api/v1/cases/:id/investigate` (через `SIEM_OPERATOR_API`)
-- `Assets`/`Cases`: `GET {case-management}/api/v1/cases?...`
-- `StackControl`: локальные `docker compose` команды из `deploy/docker`
-
-Контекст triage->investigation->case сохраняется в persisted state (`selected_investigation_entity`), чтобы оператор мог продолжить расследование после перезапуска UI.
+Рекомендация: для desktop-клиента выставлять `SIEM_OPERATOR_API` на адрес `siem-portal`, а для ежедневной работы использовать WebView / browser-режим Unified Suite как основной путь.

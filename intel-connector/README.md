@@ -15,6 +15,8 @@ set INTEL_RUN_ONCE=1
 python -m intel_connector
 ```
 
+> В Docker-образе пароль передаётся через `CLICKHOUSE_PASSWORD_FILE=/run/secrets/clickhouse_password` (Docker Secret), а не через `CLICKHOUSE_PASSWORD`.
+
 ## Docker
 
 Сборка из корня репозитория (как в Compose):

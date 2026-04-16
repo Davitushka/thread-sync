@@ -6,7 +6,7 @@ use anyhow::Result;
 use axum::extract::State;
 use axum::routing::get;
 use axum::Router;
-use prometheus::{Encoder, Gauge, Opts, TextEncoder};
+use prometheus::{Encoder, TextEncoder};
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::Message;
@@ -62,11 +62,6 @@ async fn main() -> Result<()> {
         "starting detection engine",
     );
 
-    let consumer_lag = Gauge::with_opts(Opts::new(
-        "detection_kafka_consumer_lag",
-        "Approximate consumer lag (messages behind high watermark)",
-    ))?;
-    prometheus::register(Box::new(consumer_lag.clone()))?;
 
     let (state_store, redis_arc): (
         Option<Arc<dyn detection_engine_rs::state_store::StateStore>>,

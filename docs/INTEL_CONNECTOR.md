@@ -17,8 +17,10 @@ docker compose -f deploy/docker/docker-compose.yml --profile intel up -d --build
 В `siem-parser` задайте (в `.env` или environment):
 
 ```env
-SIEM__INTEL__REDIS_URL=redis://redis:6379/0
+SIEM__INTEL__REDIS_URL=redis://:changeme@redis:6379/0
 ```
+
+> Redis в compose запускается с `--requirepass`; URL должен содержать пароль в формате `redis://:password@host:port/db`. В compose-файле переменная `INTEL_REDIS_URL` для intel-connector подставляется автоматически через `${REDIS_PASSWORD:-changeme}`.
 
 После перезапуска парсера события с `source_ip` ∈ `siem:intel:ipv4` получают в `metadata`: `threat_intel_match=true`, `threat_intel_ioc_type=ipv4`. Метрика Prometheus: `siem_parser_intel_ioc_match_total`.
 
@@ -36,7 +38,7 @@ SIEM__INTEL__REDIS_URL=redis://redis:6379/0
 | `INTEL_HTTP_FEED_NAME` | Значение колонки `feed` для HTTP-фида (по умолчанию `http_feed`) |
 | `INTEL_LOCAL_FEED_PATH` | Путь к JSON внутри контейнера (по умолчанию `/app/examples/feed-sample.json`) |
 | `INTEL_SYNC_REDIS` | `1` — зеркалировать IoC в Redis |
-| `INTEL_REDIS_URL` | URL Redis для зеркала |
+| `INTEL_REDIS_URL` | URL Redis для зеркала (должен содержать пароль: `redis://:password@host:port/db`) |
 | `INTEL_INSECURE_SKIP_VERIFY` | `1` — не проверять TLS (только отладка) |
 
 Формат элемента IoC в JSON: `ioc_type` (`ipv4` \| `domain` \| `sha256` \| `ipv6`), `ioc_value`, опционально `threat_label`, `tags`, `confidence`.

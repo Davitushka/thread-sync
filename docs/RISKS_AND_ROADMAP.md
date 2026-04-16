@@ -88,11 +88,11 @@ spec:
 - ✅ Log collection (Vector: агент/агрегатор, HTTP ingest и др.)
 - ✅ Parsing + PII masking (Rust, `rust-parser` / образ `siem-parser`)
 - ✅ Storage (ClickHouse single-node, MinIO под cold tier)
-- ✅ Detection (4 правила, **detection-engine-rs** / сервис `correlator` + Redis; YAML в `sigma-rules/` как спецификация)
+- ✅ Detection (12 правил: 6 stateless + 6 stateful, **detection-engine-rs** / сервис `correlator` + Redis; YAML в `sigma-rules/` как спецификация)
 - ✅ Alerting (Alertmanager → Slack/Email/PD)
 - ✅ Visualization (Grafana, дашборды в `grafana/dashboards/`)
 - ✅ Case management (**case-management-rs** + PostgreSQL + React в `case-management/web/`)
-- ✅ SOC-консоль (**siem-portal**), опционально **siem-admin**, **siem-operator** (egui)
+- ✅ SOC-консоль (**siem-portal**), опционально **siem-admin**, **siem-desktop** (Tauri)
 - ✅ Сиды и нагрузка: `scripts/seed-data/`, **log-generator**, **siem-stress**; демо **threat_intel** в ClickHouse
 - ✅ **intel-connector** (опционально, `--profile intel`): live IoC → ClickHouse + Redis; **siem-parser** — `SIEM__INTEL__REDIS_URL` для матча в `metadata`
 
@@ -189,6 +189,6 @@ spec:
 | **grafana-validation** | Подъём стека, сид ClickHouse, stress, E2E `tests/grafana/validate_grafana.py` |
 | **yaml-lint** | `yamllint` для `sigma-rules/`, `vector/`, `alerting/alertmanager.yaml` |
 
-Остальные Rust-крейты (`siem-portal`, `siem-operator`, `siem-tools`, `stress`) проверяйте локально: `cargo clippy` / `cargo test` из корня соответствующего каталога.
+Остальные Rust-крейты (`siem-portal`, `siem-desktop`, `siem-tools`, `stress`) проверяйте локально: `cargo clippy` / `cargo test` из корня соответствующего каталога.
 
 Дублирующий вымышленный `rust.yml` в репозитории не используется — ориентир только на `ci.yml`.

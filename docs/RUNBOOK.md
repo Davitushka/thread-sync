@@ -12,7 +12,8 @@
 # 1. Секреты в deploy/docker/secrets/ (см. deploy/docker/secrets/README.md)
 cd deploy/docker/secrets
 # ... smtp_password.txt, slack_webhook_url.txt, pagerduty_key.txt,
-#     clickhouse_password.txt, minio_secret_key.txt
+#     clickhouse_password.txt, minio_secret_key.txt,
+#     grafana_admin_password.txt
 chmod 600 *.txt 2>/dev/null || true
 
 # 2. (Опционально) deploy/docker/.env из .env.example — пароли ClickHouse/Postgres
@@ -71,7 +72,7 @@ docker exec siem-clickhouse clickhouse-client \
 curl -s http://localhost:9100/metrics | grep siem_parser_events_parsed_total
 
 # 6. Открыть Grafana
-# http://localhost:3000 (admin/ClickHousePass123!)
+# http://localhost:3000 (admin/пароль из grafana_admin_password.txt)
 ```
 
 ### Тестирование правил детекции (detection-engine-rs)

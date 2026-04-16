@@ -191,12 +191,14 @@
 
 | Тип PII | Regex паттерн | Замена | Где применяется |
 |---------|---------------|--------|-----------------|
-| Email | `[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}` | `***@***.***` | message, metadata values |
-| Телефон | `\+?[0-9]{1,3}[\s\-]?\(?[0-9]{3}\)?[\s\-]?[0-9]{3}[\s\-]?[0-9]{4,}` | `[PHONE]` | message |
-| Bearer токен / JWT | `(?i)(bearer\s+\|token[=:\s]+)[A-Za-z0-9\-_\.]{20,}` | `[REDACTED_TOKEN]` | message, headers |
-| Банковская карта | `\b(?:\d[ \-]?){13,19}\b` | `[CARD_REDACTED]` | message |
-| Sensitive keys | password, secret, token, api_key, cvv, ssn | `[REDACTED]` | metadata object keys |
-| URL query params | `?token=...`, `?password=...` | Query string удаляется | url_path |
+| Email | `[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}` | `***@***.***` | поле `message` |
+| Телефон | `\+?[0-9]{1,3}[\s\-]?\(?[0-9]{3}\)?[\s\-]?[0-9]{3}[\s\-]?[0-9]{4,}` | `[PHONE]` | поле `message` |
+| Bearer токен / JWT | `(?i)(bearer\s+\|token[=:\s]+)[A-Za-z0-9\-_\.]{20,}` | `Bearer [REDACTED]` | поле `message`, headers |
+| Банковская карта | `\b(?:\d[ \-]?){13,19}\b` | `[CARD_REDACTED]` | поле `message` |
+| Sensitive keys (в metadata) | password, secret, api_key, credit_card | `[REDACTED]` | значения в объекте `metadata` по ключу |
+| URL query params | `?token=...`, `?password=...` | Query string удаляется | `url_path` |
+
+> **Примечание:** Email в поле `message` маскируется шаблоном `***@***.***`, а тот же email как значение sensitive-ключа в `metadata` — заменяется на `[REDACTED]`. Пример выше (секция *Нормализованное событие*) демонстрирует второй случай: `Properties.Email` попадает в `metadata.Email` и маскируется по имени ключа.
 
 ## Threat intelligence: `siem.threat_intel`
 

@@ -31,7 +31,7 @@ bash run-all-tests.sh
 |-----------|---------|---------|
 | VECTOR_URL | http://localhost:8080/logs | Vector HTTP ingest |
 | ALERTMANAGER_URL | http://localhost:9093 | Alertmanager API |
-| DETECTION_URL | http://localhost:9110 | Detection Engine metrics |
+| DETECTION_URL | http://localhost:9111 | Correlator metrics (порт 9111; detector на 9110 в compose не поднимается) |
 | MAX_WAIT_SEC | 30 | Таймаут ожидания алерта |
 
 ## JUnit отчёт

@@ -18,6 +18,7 @@ import {
   type SuiteRefreshChoice,
 } from "./suite-polling";
 import { SUITE_NAV_GROUPS, resolveNavSelection } from "./suite-meta";
+import { isTauriSync, getSettings, saveSettings, type AppSettings } from "./tauri-bridge";
 
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
 const InfrastructurePage = lazy(() => import("./pages/InfrastructurePage"));
@@ -495,11 +496,18 @@ function SuiteSettingsModal({
   const { perfOverlayEnabled, setPerfOverlayEnabled } = usePerfDebug();
   const [refreshSec, setRefreshSec] = useState(() => readSuiteAutoRefreshSec());
   const options = suiteRefreshSelectOptions();
+  const inTauri = isTauriSync();
+
+  // Tauri-specific settings
+  const [tauriSettings, setTauriSettings] = useState<AppSettings | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setRefreshSec(readSuiteAutoRefreshSec());
-  }, [open]);
+    if (inTauri) {
+      getSettings().then((s) => { if (s) setTauriSettings(s); });
+    }
+  }, [open, inTauri]);
 
   useEffect(() => {
     if (!open) return;
@@ -509,6 +517,13 @@ function SuiteSettingsModal({
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
   }, [onClose, open]);
+
+  const saveTauriField = async (field: keyof AppSettings, value: string | boolean | number) => {
+    if (!tauriSettings) return;
+    const next = { ...tauriSettings, [field]: value };
+    setTauriSettings(next);
+    await saveSettings(next);
+  };
 
   if (!open) return null;
 
@@ -579,6 +594,91 @@ function SuiteSettingsModal({
             </span>
           </label>
         </div>
+
+        {/* Tauri Desktop Settings — only shown inside siem-desktop */}
+        {inTauri && tauriSettings && (
+          <>
+            <div style={{ padding: "12px 20px 6px", borderTop: "1px solid rgba(100,120,180,0.12)" }}>
+              <strong style={{ fontSize: 13, color: "#90a8d0" }}>Desktop</strong>
+            </div>
+            <div className="suite-settings-grid">
+              <label className="suite-settings-item">
+                <span>API base URL</span>
+                <input
+                  type="text"
+                  value={tauriSettings.api_base}
+                  onChange={(e) => saveTauriField("api_base", e.target.value)}
+                  style={{ width: "100%", font: "inherit" }}
+                />
+              </label>
+              <label className="suite-settings-item">
+                <span>Detection engine URL</span>
+                <input
+                  type="text"
+                  value={tauriSettings.detection_engine_url}
+                  onChange={(e) => saveTauriField("detection_engine_url", e.target.value)}
+                  style={{ width: "100%", font: "inherit" }}
+                />
+              </label>
+              <label className="suite-settings-item">
+                <span>Username</span>
+                <input
+                  type="text"
+                  value={tauriSettings.whoami}
+                  onChange={(e) => saveTauriField("whoami", e.target.value)}
+                  placeholder="analyst@company.com"
+                  style={{ width: "100%", font: "inherit" }}
+                />
+              </label>
+              <label className="suite-settings-item">
+                <span>Role</span>
+                <select
+                  value={tauriSettings.role}
+                  onChange={(e) => saveTauriField("role", e.target.value)}
+                >
+                  <option value="">Not set</option>
+                  <option value="analyst">Analyst</option>
+                  <option value="lead">Lead</option>
+                  <option value="manager">Manager</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <label className="suite-settings-item">
+                <span>Theme</span>
+                <select
+                  value={tauriSettings.theme_mode}
+                  onChange={(e) => saveTauriField("theme_mode", e.target.value)}
+                >
+                  <option value="dark">Dark</option>
+                  <option value="light">Light</option>
+                  <option value="system">System</option>
+                </select>
+              </label>
+              <label className="suite-settings-check">
+                <input
+                  type="checkbox"
+                  checked={tauriSettings.compact_mode}
+                  onChange={(e) => saveTauriField("compact_mode", e.target.checked)}
+                />
+                <span>
+                  <strong>Compact mode</strong>
+                  <small>Reduce padding and font sizes for dense monitoring.</small>
+                </span>
+              </label>
+              <label className="suite-settings-item">
+                <span>Auto refresh interval (sec)</span>
+                <input
+                  type="number"
+                  min={5}
+                  max={300}
+                  value={tauriSettings.auto_refresh_interval_sec}
+                  onChange={(e) => saveTauriField("auto_refresh_interval_sec", Number(e.target.value))}
+                  style={{ width: 80, font: "inherit" }}
+                />
+              </label>
+            </div>
+          </>
+        )}
       </section>
     </div>,
     document.body

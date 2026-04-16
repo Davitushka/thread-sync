@@ -56,9 +56,9 @@ struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            api_base: std::env::var("SIEM_OPERATOR_API")
+            api_base: std::env::var("SIEM_DESKTOP_API")
                 .unwrap_or_else(|_| "http://127.0.0.1:8091".to_string()),
-            detection_engine_url: std::env::var("SIEM_OPERATOR_DETECTION_URL")
+            detection_engine_url: std::env::var("SIEM_DESKTOP_DETECTION_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:9111".to_string()),
             auto_refresh_enabled: true,
             auto_refresh_interval_sec: 20,
@@ -106,12 +106,12 @@ impl Default for AppState {
 
 impl AppSettings {
     fn path() -> std::path::PathBuf {
-        std::env::var("SIEM_OPERATOR_STATE")
+        std::env::var("SIEM_DESKTOP_STATE")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| {
                 let dir = dirs::data_local_dir()
                     .unwrap_or_else(|| std::path::PathBuf::from("."));
-                dir.join("siem-operator-state.json")
+                dir.join("siem-desktop-state.json")
             })
     }
 
@@ -153,11 +153,6 @@ fn get_attacks() -> Vec<AttackDef> {
 }
 
 // ── Attack event builder ────────────────────────────────────────────────────
-
-fn random_ip() -> String {
-    let mut rng = simple_rng();
-    format!("10.0.{}.{}", rng(256), rng(256))
-}
 
 fn simple_rng() -> impl FnMut(u32) -> u32 {
     let seed = std::time::SystemTime::now()
@@ -514,7 +509,7 @@ async fn run_attack(attack_idx: usize) -> Result<AttackResult, String> {
     let events = build_attack_events(attack_idx);
     let count = events.len() as u32;
 
-    let vector_url = std::env::var("SIEM_OPERATOR_VECTOR_URL")
+    let vector_url = std::env::var("SIEM_DESKTOP_VECTOR_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8080/logs".to_string());
 
     let client = reqwest::Client::builder()
