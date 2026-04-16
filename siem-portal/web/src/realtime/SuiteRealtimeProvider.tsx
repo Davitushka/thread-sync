@@ -10,7 +10,8 @@ import {
 } from "react";
 
 type WsIncoming =
-  | { type: "welcome"; protocol?: number; poll_ms?: number; server?: string }
+  | { type: "welcome"; protocol?: number; poll_ms?: number; server?: string; auth_required?: boolean }
+  | { type: "auth_ok" }
   | { type: "snapshot"; topic: string; at_ms?: number; data: unknown }
   | { type: "error"; topic: string; message: string }
   | { type: "pong"; nonce?: number };
@@ -41,7 +42,15 @@ function buildWebSocketUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   const base = routerBasePath();
   const path = defaultWsPath().startsWith("/") ? defaultWsPath() : `/${defaultWsPath()}`;
-  return `${proto}://${window.location.host}${base}${path}`;
+  const raw = `${proto}://${window.location.host}${base}${path}`;
+  const appendQuery = (import.meta.env.VITE_SUITE_WS_TOKEN_IN_QUERY as string | undefined)?.trim() === "1";
+  const tok = (import.meta.env.VITE_SUITE_WS_AUTH_TOKEN as string | undefined)?.trim();
+  if (appendQuery && tok) {
+    const u = new URL(raw);
+    u.searchParams.set("token", tok);
+    return u.toString();
+  }
+  return raw;
 }
 
 const REALTIME_DISABLED = (import.meta.env.VITE_SUITE_REALTIME as string | undefined)?.trim() === "0";
@@ -92,6 +101,8 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
   const reconnectTimer = useRef<number | null>(null);
   const backoffRef = useRef(1_000);
   const pingTimer = useRef<number | null>(null);
+  /** Until welcome (no auth) or auth_ok, do not send subscribe frames — server rejects early subscribe. */
+  const authReadyRef = useRef(false);
 
   const notify = useCallback((topic: string, data: unknown) => {
     const set = listeners.current.get(topic);
@@ -120,7 +131,7 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
         if (n === 0) fresh.push(t);
         wireRef.current.set(t, n + 1);
       }
-      if (fresh.length) sendWire({ type: "subscribe", topics: fresh });
+      if (fresh.length && authReadyRef.current) sendWire({ type: "subscribe", topics: fresh });
     },
     [sendWire]
   );
@@ -138,7 +149,7 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
           wireRef.current.set(t, n - 1);
         }
       }
-      if (gone.length) sendWire({ type: "unsubscribe", topics: gone });
+      if (gone.length && authReadyRef.current) sendWire({ type: "unsubscribe", topics: gone });
     },
     [sendWire]
   );
@@ -209,6 +220,7 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
     const connect = () => {
       if (stopped) return;
       clearTimers();
+      authReadyRef.current = false;
       setConnection("connecting");
       setLastError(null);
       const url = buildWebSocketUrl();
@@ -223,14 +235,17 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
       }
       wsRef.current = ws;
 
+      const flushAllWireSubscriptions = () => {
+        if (!authReadyRef.current) return;
+        if (ws.readyState !== WebSocket.OPEN) return;
+        const topics = [...wireRef.current.keys()];
+        if (topics.length) ws.send(JSON.stringify({ type: "subscribe", topics }));
+      };
+
       ws.onopen = () => {
         if (stopped) return;
         backoffRef.current = 1_000;
         setConnection("open");
-        const topics = [...wireRef.current.keys()];
-        if (topics.length) {
-          ws.send(JSON.stringify({ type: "subscribe", topics }));
-        }
         pingTimer.current = window.setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "ping", nonce: Date.now() }));
@@ -244,6 +259,23 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
         try {
           msg = JSON.parse(ev.data) as WsIncoming;
         } catch {
+          return;
+        }
+        if (msg.type === "welcome") {
+          const needAuth = Boolean(msg.auth_required);
+          const tok = (import.meta.env.VITE_SUITE_WS_AUTH_TOKEN as string | undefined)?.trim();
+          if (needAuth) {
+            if (tok) ws.send(JSON.stringify({ type: "auth", token: tok }));
+            else setLastError("WebSocket requires authentication (set VITE_SUITE_WS_AUTH_TOKEN or token in query).");
+          } else {
+            authReadyRef.current = true;
+            flushAllWireSubscriptions();
+          }
+          return;
+        }
+        if (msg.type === "auth_ok") {
+          authReadyRef.current = true;
+          flushAllWireSubscriptions();
           return;
         }
         if (msg.type === "snapshot") {

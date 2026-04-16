@@ -67,6 +67,15 @@ fn env_ms(key: &str, default: u64) -> u64 {
         .clamp(500, 300_000)
 }
 
+/// Сравнение секретов для WS / notify (время ~константное по длине).
+pub fn secret_eq(a: &str, b: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    if a.len() != b.len() {
+        return false;
+    }
+    a.as_bytes().ct_eq(b.as_bytes()).into()
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub bind: String,
@@ -81,6 +90,12 @@ pub struct Config {
     pub public: PublicLinks,
     /// Базовый интервал realtime и тиры `SIEM_PORTAL_REALTIME_MS_*`.
     pub realtime_policy: RealtimePolicy,
+    /// Если задан, WebSocket: либо `?token=` при upgrade, либо первый кадр `{ "type":"auth","token":"..." }` до `subscribe`.
+    pub ws_auth_token: Option<String>,
+    /// Общий секрет для `POST /api/v1/realtime/notify` (case-mgmt → портал).
+    pub realtime_notify_secret: Option<String>,
+    /// Ограничение параллельных `fetch_snapshot` (движок + WS + notify).
+    pub realtime_fetch_concurrency: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +157,31 @@ impl Config {
             .clamp(1_000, 300_000);
         let realtime_policy = RealtimePolicy::from_env_default(realtime_default_ms);
 
+        let ws_auth = std::env::var("SIEM_PORTAL_WS_AUTH_TOKEN").unwrap_or_default();
+        let ws_auth_token = {
+            let t = ws_auth.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        };
+        let notify = std::env::var("SIEM_PORTAL_REALTIME_NOTIFY_SECRET").unwrap_or_default();
+        let realtime_notify_secret = {
+            let t = notify.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        };
+
+        let realtime_fetch_concurrency: usize = std::env::var("SIEM_PORTAL_REALTIME_FETCH_CONCURRENCY")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(16)
+            .clamp(1, 256);
+
         Self {
             bind,
             http_timeout: Duration::from_secs(timeout_secs.max(1)),
@@ -166,6 +206,9 @@ impl Config {
                 redpanda_admin: trim_slash(public_redpanda_admin),
             },
             realtime_policy,
+            ws_auth_token,
+            realtime_notify_secret,
+            realtime_fetch_concurrency,
         }
     }
 }

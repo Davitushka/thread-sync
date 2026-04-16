@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::models::*;
+use crate::portal_notify;
 use crate::store::StoreError;
 use crate::validate::{validate_resolution, validate_severity, validate_status};
 use crate::AppState;
@@ -96,6 +97,15 @@ pub async fn create_case(
         )
         .await;
 
+    portal_notify::notify_portal(
+        &state,
+        vec![
+            format!("case.detail:{}", case.id),
+            format!("case.investigate:{}", case.id),
+        ],
+        true,
+    );
+
     Ok((StatusCode::CREATED, Json(case)))
 }
 
@@ -179,6 +189,15 @@ pub async fn patch_case(
             .await;
     }
 
+    portal_notify::notify_portal(
+        &state,
+        vec![
+            format!("case.detail:{}", id),
+            format!("case.investigate:{}", id),
+        ],
+        true,
+    );
+
     Ok(Json(updated))
 }
 
@@ -211,6 +230,15 @@ pub async fn add_timeline(
             tracing::error!(error = %e, "timeline");
             crate::ApiError::internal("insert failed")
         })?;
+
+    portal_notify::notify_portal(
+        &state,
+        vec![
+            format!("case.detail:{}", id),
+            format!("case.investigate:{}", id),
+        ],
+        false,
+    );
 
     Ok((StatusCode::CREATED, Json(entry)))
 }
@@ -258,6 +286,15 @@ pub async fn link_event(
             }),
         )
         .await;
+
+    portal_notify::notify_portal(
+        &state,
+        vec![
+            format!("case.detail:{}", id),
+            format!("case.investigate:{}", id),
+        ],
+        false,
+    );
 
     Ok(Json(json!({"status": "linked"})))
 }
@@ -318,6 +355,15 @@ pub async fn link_alert(
             json!({"fingerprint": fp}),
         )
         .await;
+
+    portal_notify::notify_portal(
+        &state,
+        vec![
+            format!("case.detail:{}", id),
+            format!("case.investigate:{}", id),
+        ],
+        false,
+    );
 
     Ok(Json(json!({"status": "linked"})))
 }

@@ -7,14 +7,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, RwLock, Semaphore};
 
-use crate::config::RealtimePolicy;
+use crate::config::{secret_eq, RealtimePolicy};
 use crate::data_quality::DataQualityRequest;
 use crate::event_search::EventSearchParams;
 use crate::handlers::{join_case_management, CasesQuery};
@@ -251,7 +251,10 @@ pub enum ServerMsg {
         protocol: u32,
         poll_ms: u64,
         server: &'static str,
+        #[serde(default)]
+        auth_required: bool,
     },
+    AuthOk,
     Snapshot {
         topic: String,
         at_ms: i64,
@@ -272,6 +275,7 @@ enum ClientMsg {
     Subscribe { topics: Vec<String> },
     Unsubscribe { topics: Vec<String> },
     Ping { nonce: Option<u64> },
+    Auth { token: String },
 }
 
 struct RealtimeInner {
@@ -279,6 +283,7 @@ struct RealtimeInner {
     ref_counts: RwLock<HashMap<String, u32>>,
     last_fp: RwLock<HashMap<String, u64>>,
     policy: RealtimePolicy,
+    fetch_sem: std::sync::Arc<Semaphore>,
 }
 
 #[derive(Clone)]
@@ -287,14 +292,16 @@ pub struct RealtimeHub {
 }
 
 impl RealtimeHub {
-    pub fn new(policy: RealtimePolicy) -> Self {
+    pub fn new(policy: RealtimePolicy, fetch_concurrency: usize) -> Self {
         let (tx, _rx) = broadcast::channel(BROADCAST_CAP);
+        let n = fetch_concurrency.max(1);
         Self {
             inner: Arc::new(RealtimeInner {
                 tx,
                 ref_counts: RwLock::new(HashMap::new()),
                 last_fp: RwLock::new(HashMap::new()),
                 policy,
+                fetch_sem: std::sync::Arc::new(Semaphore::new(n)),
             }),
         }
     }
@@ -334,8 +341,37 @@ impl RealtimeHub {
         }
     }
 
-    async fn active_topics(&self) -> Vec<String> {
+    pub async fn active_topics(&self) -> Vec<String> {
         self.inner.ref_counts.read().await.keys().cloned().collect()
+    }
+
+    /// Сброс кэша fingerprint по префиксу (после внешних мутаций списка).
+    pub async fn invalidate_fp_prefix(&self, prefix: &str) {
+        let mut w = self.inner.last_fp.write().await;
+        w.retain(|k, _| !k.starts_with(prefix));
+    }
+
+    /// Немедленный снимок темы и broadcast при новом fingerprint (учитывает семафор).
+    pub async fn push_topic_refresh(&self, state: &AppState, topic: &str) {
+        let sem = self.inner.fetch_sem.clone();
+        let Ok(_permit) = sem.acquire_owned().await else {
+            return;
+        };
+        match fetch_snapshot(state, topic).await {
+            Ok(v) => {
+                let fp = fingerprint(&v);
+                if self.consume_fp_if_new(topic, fp).await {
+                    self.send_all(ServerMsg::Snapshot {
+                        topic: topic.to_string(),
+                        at_ms: now_ms(),
+                        data: v,
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::warn!(topic = %topic, error = %e, "realtime push_topic_refresh failed");
+            }
+        }
     }
 
     /// Returns true if this fingerprint is new for the topic (engine should broadcast).
@@ -358,6 +394,7 @@ impl RealtimeHub {
 pub fn spawn_engine(state: AppState) {
     let hub = state.realtime.clone();
     let policy = state.cfg.realtime_policy.clone();
+    let sem = hub.inner.fetch_sem.clone();
     tokio::spawn(async move {
         let engine_tick = Duration::from_millis(200);
         let mut tick = tokio::time::interval(engine_tick);
@@ -384,6 +421,9 @@ pub fn spawn_engine(state: AppState) {
                 }
                 last_poll.insert(topic.clone(), now);
                 let t0 = Instant::now();
+                let Ok(_permit) = sem.clone().acquire_owned().await else {
+                    continue;
+                };
                 match fetch_snapshot(&state, &topic).await {
                     Ok(v) => {
                         let fp = fingerprint(&v);
@@ -406,6 +446,9 @@ pub fn spawn_engine(state: AppState) {
 }
 
 async fn push_immediate(socket: &mut WebSocket, state: &AppState, hub: &RealtimeHub, topic: &str) {
+    let Ok(_permit) = hub.inner.fetch_sem.clone().acquire_owned().await else {
+        return;
+    };
     match fetch_snapshot(state, topic).await {
         Ok(v) => {
             let fp = fingerprint(&v);
@@ -431,15 +474,25 @@ async fn push_immediate(socket: &mut WebSocket, state: &AppState, hub: &Realtime
     }
 }
 
-async fn handle_socket(mut socket: WebSocket, state: AppState) {
+async fn handle_socket(mut socket: WebSocket, state: AppState, ws_query_token: Option<String>) {
     let hub = state.realtime.clone();
     let mut rx = hub.subscribe();
     let mut local: HashSet<String> = HashSet::new();
+
+    let expected = state.cfg.ws_auth_token.clone();
+    let mut authenticated = expected.is_none();
+    if let (Some(exp), Some(q)) = (&expected, &ws_query_token) {
+        if secret_eq(exp, q) {
+            authenticated = true;
+        }
+    }
+    let auth_required = expected.is_some() && !authenticated;
 
     let welcome = ServerMsg::Welcome {
         protocol: 1,
         poll_ms: hub.poll_ms(),
         server: "siem-portal",
+        auth_required,
     };
     if let Ok(text) = serde_json::to_string(&welcome) {
         if socket.send(Message::Text(text.into())).await.is_err() {
@@ -461,7 +514,36 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     let _ = socket.send(Message::Text(txt.into())).await;
                                 }
                             }
+                            ClientMsg::Auth { token } => {
+                                if let Some(exp) = &expected {
+                                    if secret_eq(exp, token.trim()) {
+                                        authenticated = true;
+                                        if let Ok(txt) = serde_json::to_string(&ServerMsg::AuthOk) {
+                                            let _ = socket.send(Message::Text(txt.into())).await;
+                                        }
+                                    } else {
+                                        let err = ServerMsg::Error {
+                                            topic: "_ws".into(),
+                                            message: "invalid auth token".into(),
+                                        };
+                                        if let Ok(txt) = serde_json::to_string(&err) {
+                                            let _ = socket.send(Message::Text(txt.into())).await;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
                             ClientMsg::Subscribe { topics } => {
+                                if !authenticated {
+                                    let err = ServerMsg::Error {
+                                        topic: "_ws".into(),
+                                        message: "authentication required".into(),
+                                    };
+                                    if let Ok(txt) = serde_json::to_string(&err) {
+                                        let _ = socket.send(Message::Text(txt.into())).await;
+                                    }
+                                    continue;
+                                }
                                 for t in topics.into_iter().filter(|s| !s.is_empty()) {
                                     if local.insert(t.clone()) {
                                         hub.register_topic(&t).await;
@@ -519,6 +601,22 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
-pub async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+#[derive(Debug, Deserialize, Default)]
+pub struct RealtimeWsQuery {
+    #[serde(default)]
+    token: Option<String>,
+}
+
+pub async fn ws_upgrade(
+    ws: WebSocketUpgrade,
+    Query(q): Query<RealtimeWsQuery>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let qtok = q
+        .token
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    ws.on_upgrade(move |socket| handle_socket(socket, state, qtok))
 }

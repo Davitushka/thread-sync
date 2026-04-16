@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
+    config::secret_eq,
     data_quality::DataQualityRequest,
     event_search::EventSearchParams,
     infrastructure::InfrastructureRequest,
@@ -36,6 +37,7 @@ pub(crate) fn ui_config_json(state: &AppState) -> Value {
             "realtime": {
                 "protocol": 1,
                 "path": "/api/v1/realtime/ws",
+                "auth_required": state.cfg.ws_auth_token.is_some(),
             }
         }
     })
@@ -43,6 +45,46 @@ pub(crate) fn ui_config_json(state: &AppState) -> Value {
 
 pub async fn ui_config(State(state): State<AppState>) -> Json<Value> {
     Json(ui_config_json(&state))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RealtimeNotifyBody {
+    pub secret: String,
+    pub topics: Vec<String>,
+    #[serde(default)]
+    pub invalidate_cases_list: bool,
+}
+
+/// Внутренний вызов от case-management: принудительный refresh тем и опционально сброс fingerprint `cases.list*`.
+pub async fn post_realtime_notify(
+    State(state): State<AppState>,
+    Json(body): Json<RealtimeNotifyBody>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let expected = match &state.cfg.realtime_notify_secret {
+        None => {
+            return Err((
+                StatusCode::NOT_IMPLEMENTED,
+                Json(json!({"error": "realtime notify is not configured"})),
+            ))
+        }
+        Some(s) => s,
+    };
+    if !secret_eq(expected, body.secret.trim()) {
+        return Err((StatusCode::UNAUTHORIZED, Json(json!({"error": "unauthorized"}))));
+    }
+    for t in body.topics.iter().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        state.realtime.push_topic_refresh(&state, t).await;
+    }
+    if body.invalidate_cases_list {
+        state.realtime.invalidate_fp_prefix("cases.list").await;
+        let active = state.realtime.active_topics().await;
+        for t in active {
+            if t == "cases.list" || t.starts_with("cases.list?") {
+                state.realtime.push_topic_refresh(&state, &t).await;
+            }
+        }
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use axum::extract::State;
 use axum::Json;
@@ -7,8 +7,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::models::CreateCaseRequest;
+use crate::portal_notify;
 use crate::store::StoreError;
 use crate::AppState;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -192,6 +194,9 @@ pub async fn handle_alertmanager(
     let mut firing_linked: i32 = 0;
     let mut resolved_notes: i32 = 0;
     let mut skipped: i32 = 0;
+    let mut portal_topics = HashSet::new();
+    portal_topics.insert("alertmanager.alerts".into());
+    portal_topics.insert("alerts.overview".into());
 
     for alert in &payload.alerts {
         let mut fp = alert.fingerprint.trim().to_string();
@@ -218,8 +223,15 @@ pub async fn handle_alertmanager(
                     continue;
                 }
                 match ingest_firing(&state, alert, &fp, &sev, &payload.group_key).await {
-                    Ok(true) => firing_new += 1,
-                    Ok(false) => firing_linked += 1,
+                    Ok((is_new, case_id)) => {
+                        portal_topics.insert(format!("case.detail:{case_id}"));
+                        portal_topics.insert(format!("case.investigate:{case_id}"));
+                        if is_new {
+                            firing_new += 1;
+                        } else {
+                            firing_linked += 1;
+                        }
+                    }
                     Err(e) => {
                         tracing::error!(error = %e, fingerprint = %fp, "alertmanager firing");
                         return Err(crate::ApiError::internal("ingest failed"));
@@ -227,7 +239,11 @@ pub async fn handle_alertmanager(
                 }
             }
             "resolved" => match ingest_resolved(&state, &fp, alert).await {
-                Ok(()) => resolved_notes += 1,
+                Ok(case_id) => {
+                    resolved_notes += 1;
+                    portal_topics.insert(format!("case.detail:{case_id}"));
+                    portal_topics.insert(format!("case.investigate:{case_id}"));
+                }
                 Err(StoreError::NotFound) => skipped += 1,
                 Err(e) => {
                     tracing::error!(error = %e, fingerprint = %fp, "alertmanager resolved");
@@ -236,6 +252,12 @@ pub async fn handle_alertmanager(
             _ => {}
         }
     }
+
+    portal_notify::notify_portal(
+        &state,
+        portal_topics.into_iter().collect(),
+        firing_new > 0 || resolved_notes > 0,
+    );
 
     Ok(Json(json!({
         "firing_new_cases": firing_new,
@@ -264,7 +286,7 @@ async fn ingest_firing(
     fp: &str,
     sev: &str,
     group_key: &str,
-) -> Result<bool, StoreError> {
+) -> Result<(bool, Uuid), StoreError> {
     let seen_at = Utc::now();
     let labels_json = alert_context_json(alert);
 
@@ -319,7 +341,7 @@ async fn ingest_firing(
                 )
                 .await;
 
-            Ok(false)
+            Ok((false, case_id))
         }
         Err(StoreError::NotFound) => {
             let title = first_non_empty(&[
@@ -418,7 +440,7 @@ async fn ingest_firing(
                 )
                 .await?;
 
-            Ok(true)
+            Ok((true, case.id))
         }
         Err(e) => Err(e),
     }
@@ -428,7 +450,7 @@ async fn ingest_resolved(
     state: &AppState,
     fp: &str,
     alert: &AlertmanagerAlert,
-) -> Result<(), StoreError> {
+) -> Result<Uuid, StoreError> {
     let case_id = state.store.find_latest_case_by_fingerprint(fp).await?;
     let rule = alert
         .labels
@@ -449,5 +471,5 @@ async fn ingest_resolved(
             }),
         )
         .await;
-    Ok(())
+    Ok(case_id)
 }

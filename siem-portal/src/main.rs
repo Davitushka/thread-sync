@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     let overview = OverviewService::new(http.clone(), cfg.clickhouse.clone());
     let data_quality = DataQualityService::new(http.clone(), cfg.clickhouse.clone(), cfg.prometheus.clone());
 
-    let realtime_hub = realtime::RealtimeHub::new(cfg.realtime_policy.clone());
+    let realtime_hub = realtime::RealtimeHub::new(cfg.realtime_policy.clone(), cfg.realtime_fetch_concurrency);
     let state = AppState {
         cfg: Arc::clone(&cfg),
         http,
@@ -85,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/favicon.ico", get(handlers::favicon_noop))
         .route("/api/v1/ui/config", get(handlers::ui_config))
         .route("/api/v1/realtime/ws", get(realtime::ws_upgrade))
+        .route("/api/v1/realtime/notify", post(handlers::post_realtime_notify))
         .route("/api/v1/overview", get(handlers::overview_dashboard))
         .route("/api/v1/infrastructure", get(handlers::infrastructure_dashboard))
         .route("/api/v1/operations", get(handlers::operations_dashboard))

@@ -247,6 +247,9 @@ services:
       CASEMGMT_AUTO_CASE_FROM_ALERTS: "true"
       CASEMGMT_AUTO_CASE_MIN_SEVERITY: "medium"
       CASEMGMT_DEFAULT_ACTOR: "alertmanager"
+      # Push в siem-portal WebSocket-движок (общий секрет с SIEM_PORTAL_REALTIME_NOTIFY_SECRET)
+      CASEMGMT_PORTAL_NOTIFY_URL: "http://siem-portal:8091"
+      CASEMGMT_PORTAL_NOTIFY_SECRET: ${SIEM_REALTIME_BRIDGE_SECRET:-dev-realtime-bridge-secret}
     depends_on:
       postgres:
         condition: service_healthy
@@ -296,6 +299,7 @@ services:
       # Ссылки для «stack tools» в command palette (хост, не docker-сеть)
       SIEM_PORTAL_PUBLIC_VECTOR_HTTP: "http://localhost:8080"
       SIEM_PORTAL_PUBLIC_REDPANDA_ADMIN: "http://localhost:9644"
+      SIEM_PORTAL_REALTIME_NOTIFY_SECRET: ${SIEM_REALTIME_BRIDGE_SECRET:-dev-realtime-bridge-secret}
     depends_on:
       case-management:
         condition: service_healthy

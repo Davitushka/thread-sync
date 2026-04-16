@@ -1,8 +1,11 @@
 mod alertmanager;
 mod handlers;
 mod models;
+mod portal_notify;
 mod store;
 mod validate;
+
+use std::time::Duration;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -13,12 +16,20 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 #[derive(Clone)]
+pub struct PortalNotifyConfig {
+    pub base_url: String,
+    pub secret: String,
+}
+
+#[derive(Clone)]
 pub struct AppState {
     pub store: store::Store,
     pub auto_from_alerts: bool,
     pub auto_min_severity: String,
     pub default_actor: String,
     pub grafana_base_url: String,
+    pub http: reqwest::Client,
+    pub portal_notify: Option<PortalNotifyConfig>,
 }
 
 pub struct ApiError {
@@ -184,12 +195,40 @@ async fn main() {
         grafana.trim_end_matches('/').to_string()
     };
 
+    let portal_base = std::env::var("CASEMGMT_PORTAL_NOTIFY_URL")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let portal_secret = std::env::var("CASEMGMT_PORTAL_NOTIFY_SECRET")
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let portal_notify = if !portal_base.is_empty() && !portal_secret.is_empty() {
+        Some(PortalNotifyConfig {
+            base_url: portal_base,
+            secret: portal_secret,
+        })
+    } else {
+        None
+    };
+
+    let http = reqwest::Client::builder()
+        .use_rustls_tls()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap_or_else(|e| {
+            tracing::error!(error = %e, "reqwest client");
+            std::process::exit(1);
+        });
+
     let state = AppState {
         store: db,
         auto_from_alerts,
         auto_min_severity,
         default_actor,
         grafana_base_url,
+        http,
+        portal_notify,
     };
 
     let app = Router::new()
