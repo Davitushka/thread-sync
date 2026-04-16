@@ -4,6 +4,8 @@ import { listCases, uiConfig, type Case, type UiConfig } from "../api";
 import { shortDateTime } from "../dashboard-utils";
 import { DASHBOARDS, grafanaDashboardUrl } from "../dashboard-catalog";
 import { resolveWorkspaceMeta, SUITE_NAV_GROUPS, SUITE_NAV_ITEMS } from "../suite-meta";
+import { useChartMotion } from "./ChartMotionContext";
+import { usePerfDebug } from "./PerfDebugContext";
 import { useSuiteCommandContext } from "./SuiteCommandContext";
 import { useWorkspaceShell } from "./WorkspaceShellContext";
 
@@ -107,6 +109,8 @@ const GROUP_LABELS = new Map(SUITE_NAV_GROUPS.map((group) => [group.id, group.la
 export default function CommandPalette({ actor }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { chartAnimationsEnabled, setChartAnimationsEnabled } = useChartMotion();
+  const { perfOverlayEnabled, setPerfOverlayEnabled } = usePerfDebug();
   const { pageCommands } = useSuiteCommandContext();
   const {
     tabs,
@@ -325,6 +329,46 @@ export default function CommandPalette({ actor }: Props) {
       keywords: `refresh reload ${location.pathname}`,
       priority: 68,
       run: () => window.location.reload(),
+    });
+
+    items.push({
+      id: "suite:open-settings",
+      title: "Open settings",
+      subtitle: "Open global suite settings (actor, refresh, chart animations).",
+      section: "Display",
+      keywords: "settings preferences refresh actor charts animation",
+      priority: 66,
+      run: () => {
+        window.dispatchEvent(new CustomEvent("suite:open-settings"));
+        setOpen(false);
+      },
+    });
+
+    items.push({
+      id: "suite:chart-animations-toggle",
+      title: chartAnimationsEnabled ? "Turn off chart animations" : "Turn on chart animations",
+      subtitle: chartAnimationsEnabled
+        ? "Smoother scrolling in SIEM Operator WebView; ECharts updates without motion."
+        : "Full ECharts line and gauge animations (heavier while auto-refresh runs).",
+      section: "Display",
+      keywords: "charts animation echarts motion performance operator webview smooth sidebar",
+      priority: 64,
+      run: () => {
+        setChartAnimationsEnabled(!chartAnimationsEnabled);
+        setOpen(false);
+      },
+    });
+    items.push({
+      id: "suite:perf-overlay-toggle",
+      title: perfOverlayEnabled ? "Hide performance overlay" : "Show performance overlay",
+      subtitle: "FPS and long-frame counters for stutter diagnostics.",
+      section: "Display",
+      keywords: "perf fps frame latency overlay debug",
+      priority: 63,
+      run: () => {
+        setPerfOverlayEnabled(!perfOverlayEnabled);
+        setOpen(false);
+      },
     });
 
     if (context.overview) {
@@ -574,9 +618,13 @@ export default function CommandPalette({ actor }: Props) {
     recentCases,
     recentPaths,
     reopenRecentWorkspace,
+    chartAnimationsEnabled,
     closeWorkspace,
+    setChartAnimationsEnabled,
+    setPerfOverlayEnabled,
     unpinWorkspace,
     tabs,
+    perfOverlayEnabled,
   ]);
 
   const filtered = useMemo(() => {

@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useChartMotion } from "../ChartMotionContext";
 import ReactEChartsCore from "echarts-for-react/lib/core";
 import * as echarts from "echarts/core";
 import type { EChartsCoreOption } from "echarts/core";
@@ -79,10 +80,99 @@ function gaugeStops(min: number, max: number, thresholds?: Threshold[]) {
     .map((item) => [clamp((item.value - min) / Math.max(max - min, 1), 0, 1), item.color] as [number, string]);
 }
 
-function chartBase(title: string): EChartsCoreOption {
+function inOperatorWebView(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as Window & { chrome?: { webview?: unknown } };
+  return Boolean(w.chrome?.webview);
+}
+
+function useChartPerfMode() {
+  const lowMotion = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    return reduced || inOperatorWebView();
+  }, []);
   return {
-    animationDuration: 350,
-    animationDurationUpdate: 250,
+    lowMotion,
+    throttleMs: lowMotion ? 900 : 260,
+  };
+}
+
+function useVisibilityGate() {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setVisible(Boolean(entry?.isIntersecting));
+      },
+      {
+        root: null,
+        rootMargin: "120px 0px 120px 0px",
+        threshold: 0.01,
+      }
+    );
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, []);
+
+  return { rootRef, visible };
+}
+
+function useThrottledChartOption(option: EChartsCoreOption, throttleMs: number, enabled: boolean) {
+  const [gated, setGated] = useState(option);
+  const pendingRef = useRef(option);
+  const timerRef = useRef<number | null>(null);
+  const lastAtRef = useRef(0);
+
+  useEffect(() => {
+    pendingRef.current = option;
+    if (!enabled) {
+      setGated(option);
+      if (timerRef.current != null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
+    }
+
+    const now = performance.now();
+    const elapsed = now - lastAtRef.current;
+    if (elapsed >= throttleMs) {
+      lastAtRef.current = now;
+      setGated(option);
+      return;
+    }
+    if (timerRef.current != null) return;
+
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      lastAtRef.current = performance.now();
+      setGated(pendingRef.current);
+    }, Math.max(16, throttleMs - elapsed));
+  }, [enabled, option, throttleMs]);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current != null) {
+        window.clearTimeout(timerRef.current);
+      }
+    },
+    []
+  );
+
+  return gated;
+}
+
+function chartBase(title: string, animationsEnabled: boolean): EChartsCoreOption {
+  return {
+    animation: animationsEnabled,
+    animationDuration: animationsEnabled ? 350 : 0,
+    animationDurationUpdate: animationsEnabled ? 250 : 0,
     textStyle: {
       color: PANEL_TEXT,
       fontFamily: "Inter, system-ui, sans-serif",
@@ -109,7 +199,7 @@ function chartBase(title: string): EChartsCoreOption {
   };
 }
 
-export function ObservabilityPanel({
+export const ObservabilityPanel = memo(function ObservabilityPanel({
   title,
   subtitle,
   className,
@@ -137,7 +227,7 @@ export function ObservabilityPanel({
       {footer ? <div className="observability-panel-footer">{footer}</div> : null}
     </section>
   );
-}
+});
 
 export function ObservabilityGaugePanel({
   title,
@@ -164,9 +254,13 @@ export function ObservabilityGaugePanel({
   kicker?: string;
   height?: number;
 }) {
+  const { chartAnimationsEnabled } = useChartMotion();
+  const { lowMotion, throttleMs } = useChartPerfMode();
+  const { rootRef, visible } = useVisibilityGate();
   const safeValue = value == null || Number.isNaN(value) ? 0 : clamp(value, min, max);
+  const effectiveAnimations = chartAnimationsEnabled && !lowMotion;
   const option: EChartsCoreOption = {
-    ...chartBase(title),
+    ...chartBase(title, effectiveAnimations),
     series: [
       {
         type: "gauge",
@@ -205,7 +299,7 @@ export function ObservabilityGaugePanel({
         },
         anchor: { show: false },
         detail: {
-          valueAnimation: true,
+          valueAnimation: effectiveAnimations,
           fontSize: 30,
           fontWeight: 600,
           offsetCenter: [0, "18%"],
@@ -219,17 +313,20 @@ export function ObservabilityGaugePanel({
       },
     ],
   };
+  const gatedOption = useThrottledChartOption(option, throttleMs, visible);
 
   return (
     <ObservabilityPanel title={title} subtitle={subtitle} className={className} footer={footer} kicker={kicker}>
-      <ReactEChartsCore
-        echarts={echarts}
-        option={option}
-        notMerge
-        lazyUpdate
-        opts={{ renderer: "canvas" }}
-        style={{ width: "100%", height }}
-      />
+      <div ref={rootRef} style={{ width: "100%", height }}>
+        <ReactEChartsCore
+          echarts={echarts}
+          option={gatedOption}
+          notMerge
+          lazyUpdate
+          opts={{ renderer: "canvas" }}
+          style={{ width: "100%", height }}
+        />
+      </div>
     </ObservabilityPanel>
   );
 }
@@ -261,6 +358,11 @@ export function ObservabilityLinePanel({
   showDataZoom?: boolean;
   onPointClick?: (point: LinePointClick) => void;
 }) {
+  const { chartAnimationsEnabled } = useChartMotion();
+  const { lowMotion, throttleMs } = useChartPerfMode();
+  const { rootRef, visible } = useVisibilityGate();
+  const effectiveAnimations = chartAnimationsEnabled && !lowMotion;
+  const chartBaseOption = chartBase(title, effectiveAnimations);
   const chartEvents = onPointClick
     ? {
         click: (params: unknown) => {
@@ -285,7 +387,7 @@ export function ObservabilityLinePanel({
       }
     : undefined;
   const option: EChartsCoreOption = {
-    ...chartBase(title),
+    ...chartBaseOption,
     grid: {
       top: series.length > 1 ? 44 : 18,
       left: 46,
@@ -307,7 +409,7 @@ export function ObservabilityLinePanel({
           }
         : undefined,
     tooltip: {
-      ...(chartBase(title).tooltip as object),
+      ...(chartBaseOption.tooltip as object),
       trigger: "axis",
       axisPointer: {
         type: "line",
@@ -396,7 +498,7 @@ export function ObservabilityLinePanel({
     series: series.map((item, index) => ({
       name: item.name,
       type: "line",
-      smooth: true,
+      smooth: effectiveAnimations || categories.length <= 36,
       symbol: categories.length <= 1 ? "circle" : "none",
       symbolSize: categories.length <= 1 ? 7 : 0,
       showSymbol: categories.length <= 1,
@@ -418,18 +520,21 @@ export function ObservabilityLinePanel({
       data: item.data,
     })),
   };
+  const gatedOption = useThrottledChartOption(option, throttleMs, visible);
 
   return (
     <ObservabilityPanel title={title} subtitle={subtitle} className={className} footer={footer} kicker={kicker}>
-      <ReactEChartsCore
-        echarts={echarts}
-        option={option}
-        onEvents={chartEvents}
-        notMerge
-        lazyUpdate
-        opts={{ renderer: "canvas" }}
-        style={{ width: "100%", height }}
-      />
+      <div ref={rootRef} style={{ width: "100%", height }}>
+        <ReactEChartsCore
+          echarts={echarts}
+          option={gatedOption}
+          onEvents={chartEvents}
+          notMerge
+          lazyUpdate
+          opts={{ renderer: "canvas" }}
+          style={{ width: "100%", height }}
+        />
+      </div>
     </ObservabilityPanel>
   );
 }
@@ -457,6 +562,11 @@ export function ObservabilityBarPanel({
   height?: number;
   onRowClick?: (row: BarRowClick) => void;
 }) {
+  const { chartAnimationsEnabled } = useChartMotion();
+  const { lowMotion, throttleMs } = useChartPerfMode();
+  const { rootRef, visible } = useVisibilityGate();
+  const effectiveAnimations = chartAnimationsEnabled && !lowMotion;
+  const chartBaseOption = chartBase(title, effectiveAnimations);
   const chartEvents = onRowClick
     ? {
         click: (params: unknown) => {
@@ -479,7 +589,7 @@ export function ObservabilityBarPanel({
       }
     : undefined;
   const option: EChartsCoreOption = {
-    ...chartBase(title),
+    ...chartBaseOption,
     grid: {
       top: 12,
       left: 16,
@@ -488,7 +598,7 @@ export function ObservabilityBarPanel({
       containLabel: true,
     },
     tooltip: {
-      ...(chartBase(title).tooltip as object),
+      ...(chartBaseOption.tooltip as object),
       trigger: "item",
       formatter: (params: unknown) => {
         const entry = params as { name?: string; value?: number };
@@ -549,18 +659,21 @@ export function ObservabilityBarPanel({
       },
     ],
   };
+  const gatedOption = useThrottledChartOption(option, throttleMs, visible);
 
   return (
     <ObservabilityPanel title={title} subtitle={subtitle} className={className} footer={footer} kicker={kicker}>
-      <ReactEChartsCore
-        echarts={echarts}
-        option={option}
-        onEvents={chartEvents}
-        notMerge
-        lazyUpdate
-        opts={{ renderer: "canvas" }}
-        style={{ width: "100%", height }}
-      />
+      <div ref={rootRef} style={{ width: "100%", height }}>
+        <ReactEChartsCore
+          echarts={echarts}
+          option={gatedOption}
+          onEvents={chartEvents}
+          notMerge
+          lazyUpdate
+          opts={{ renderer: "canvas" }}
+          style={{ width: "100%", height }}
+        />
+      </div>
     </ObservabilityPanel>
   );
 }

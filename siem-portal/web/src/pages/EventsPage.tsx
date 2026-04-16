@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   createCase,
   getEntityContext,
@@ -106,6 +107,7 @@ export default function EventsPage() {
   const [context, setContext] = useState<EntityContext | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const streamParentRef = useRef<HTMLDivElement | null>(null);
   const { actor, setActor } = useActorState();
   const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
 
@@ -230,6 +232,14 @@ export default function EventsPage() {
 
   const selectedEntityValue = selected?.event.source_ip || selected?.event.user_id || selected?.event.host;
   const logRows = results?.rows ?? [];
+  const deferredLogRows = useDeferredValue(logRows);
+  const visibleLogRows = deferredLogRows;
+  const streamVirtualizer = useVirtualizer({
+    count: visibleLogRows.length,
+    getScrollElement: () => streamParentRef.current,
+    estimateSize: () => 116,
+    overscan: 4,
+  });
   const hasActiveQuery = Object.keys(activeQueryParams).length > 0;
   const streamLabels = useMemo(
     () =>
@@ -655,8 +665,17 @@ export default function EventsPage() {
               <p>The current filters produced an empty result set. Broaden the window, remove a chip, or pivot to a different entity.</p>
             </div>
           ) : (
-            <div className="log-stream">
-              {results.rows.map((row) => {
+            <div ref={streamParentRef} className="log-stream virtual-scroll">
+              <div
+                style={{
+                  height: `${streamVirtualizer.getTotalSize()}px`,
+                  width: "100%",
+                  position: "relative",
+                }}
+              >
+                {streamVirtualizer.getVirtualItems().map((item) => {
+                  const row = visibleLogRows[item.index];
+                  if (!row) return null;
                 const priority = priorityFromSeverity(row.severity);
                 const isActive = selected?.event.event_id === row.event_id;
                 return (
@@ -671,6 +690,13 @@ export default function EventsPage() {
                       .filter(Boolean)
                       .join(" ")}
                     onClick={() => openEvent(row)}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${item.start}px)`,
+                    }}
                   >
                     <div className="log-row-gutter">
                       <span className={`priority-pill priority-${priority.tone}`}>{priority.label}</span>
@@ -710,6 +736,7 @@ export default function EventsPage() {
                   </button>
                 );
               })}
+              </div>
             </div>
           )}
         </section>

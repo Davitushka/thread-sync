@@ -26,8 +26,22 @@ export function useVisibleInterval(callback: () => void, intervalSec: number) {
   useEffect(() => {
     if (!intervalSec) return;
 
+    /** Пока пользователь крутит колесо/тач-скролл, не дергаем тяжёлые refetch — меньше рывков в Operator WebView. */
+    let scrollQuietTimer: number | null = null;
+    const scrollBusy = { current: false };
+
+    const markScrolling = () => {
+      scrollBusy.current = true;
+      if (scrollQuietTimer != null) window.clearTimeout(scrollQuietTimer);
+      scrollQuietTimer = window.setTimeout(() => {
+        scrollBusy.current = false;
+        scrollQuietTimer = null;
+      }, 220);
+    };
+
     const run = () => {
       if (document.visibilityState !== "visible") return;
+      if (scrollBusy.current) return;
       cb.current();
     };
 
@@ -35,14 +49,19 @@ export function useVisibleInterval(callback: () => void, intervalSec: number) {
 
     const onVis = () => {
       if (document.visibilityState === "visible") {
-        cb.current();
+        if (!scrollBusy.current) cb.current();
       }
     };
     document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("wheel", markScrolling, { passive: true });
+    window.addEventListener("touchmove", markScrolling, { passive: true });
 
     return () => {
       window.clearInterval(id);
+      if (scrollQuietTimer != null) window.clearTimeout(scrollQuietTimer);
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("wheel", markScrolling);
+      window.removeEventListener("touchmove", markScrolling);
     };
   }, [intervalSec]);
 }

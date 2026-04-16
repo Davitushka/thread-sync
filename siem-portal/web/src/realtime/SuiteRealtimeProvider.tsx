@@ -223,6 +223,22 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
       authReadyRef.current = false;
       setConnection("connecting");
       setLastError(null);
+      let snapshotRaf: number | null = null;
+      const snapshotPending = new Map<string, unknown>();
+      const flushSnapshotBatch = () => {
+        snapshotRaf = null;
+        for (const [topic, data] of snapshotPending) {
+          notify(topic, data);
+        }
+        snapshotPending.clear();
+      };
+      const queueSnapshot = (topic: string, data: unknown) => {
+        snapshotPending.set(topic, data);
+        if (snapshotRaf != null) return;
+        snapshotRaf = window.requestAnimationFrame(() => {
+          flushSnapshotBatch();
+        });
+      };
       const url = buildWebSocketUrl();
       let ws: WebSocket;
       try {
@@ -279,7 +295,7 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (msg.type === "snapshot") {
-          notify(msg.topic, msg.data);
+          queueSnapshot(msg.topic, msg.data);
         } else if (msg.type === "error") {
           setLastError(`${msg.topic}: ${msg.message}`);
         }
@@ -290,6 +306,11 @@ export function SuiteRealtimeProvider({ children }: { children: ReactNode }) {
       };
 
       ws.onclose = () => {
+        if (snapshotRaf != null) {
+          window.cancelAnimationFrame(snapshotRaf);
+          snapshotRaf = null;
+        }
+        snapshotPending.clear();
         wsRef.current = null;
         clearTimers();
         if (stopped) return;

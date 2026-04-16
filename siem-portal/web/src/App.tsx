@@ -6,7 +6,16 @@ import CommandPalette from "./components/CommandPalette";
 import ShellIcon from "./components/ShellIcon";
 import { SuiteCommandProvider } from "./components/SuiteCommandContext";
 import { WorkspaceShellProvider, useWorkspaceShell } from "./components/WorkspaceShellContext";
+import { ChartMotionProvider, useChartMotion } from "./components/ChartMotionContext";
+import { PerfDebugProvider, usePerfDebug } from "./components/PerfDebugContext";
+import PerfOverlay from "./components/PerfOverlay";
 import { SuiteRealtimeProvider } from "./realtime/SuiteRealtimeProvider";
+import {
+  readSuiteAutoRefreshSec,
+  suiteRefreshSelectOptions,
+  writeSuiteAutoRefreshSec,
+  type SuiteRefreshChoice,
+} from "./suite-polling";
 import { SUITE_NAV_GROUPS, resolveNavSelection } from "./suite-meta";
 
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
@@ -157,6 +166,28 @@ function WorkspaceShortcutSection({
   );
 }
 
+function SuiteChartMotionToggle() {
+  const { chartAnimationsEnabled, setChartAnimationsEnabled } = useChartMotion();
+  return (
+    <div className="suite-side-section">
+      <div className="suite-side-head">
+        <p className="suite-side-label">Charts</p>
+      </div>
+      <label className="suite-chart-motion-row">
+        <input
+          type="checkbox"
+          checked={chartAnimationsEnabled}
+          onChange={(e) => setChartAnimationsEnabled(e.target.checked)}
+        />
+        <span>
+          <strong>Animations</strong>
+          <small>Off = smoother in Operator WebView; on = full ECharts motion.</small>
+        </span>
+      </label>
+    </div>
+  );
+}
+
 function ExplorerSidebar() {
   const {
     expandedGroups,
@@ -229,6 +260,8 @@ function ExplorerSidebar() {
         unpinWorkspace={unpinWorkspace}
         emptyText="Recent workspaces will appear here after navigation."
       />
+
+      <SuiteChartMotionToggle />
 
       <div className="suite-side-section">
         <div className="suite-side-head">
@@ -446,12 +479,126 @@ function WorkspaceTabs() {
   );
 }
 
-function AppShell({ actor }: { actor: string }) {
+function SuiteSettingsModal({
+  open,
+  actor,
+  onActorChange,
+  onClose,
+}: {
+  open: boolean;
+  actor: string;
+  onActorChange: (next: string) => void;
+  onClose: () => void;
+}) {
+  const { chartAnimationsEnabled, setChartAnimationsEnabled } = useChartMotion();
+  const { perfOverlayEnabled, setPerfOverlayEnabled } = usePerfDebug();
+  const [refreshSec, setRefreshSec] = useState(() => readSuiteAutoRefreshSec());
+  const options = suiteRefreshSelectOptions();
+
+  useEffect(() => {
+    if (!open) return;
+    setRefreshSec(readSuiteAutoRefreshSec());
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [onClose, open]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div className="suite-settings-modal" role="presentation" onClick={onClose}>
+      <section
+        className="suite-settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="suite-settings-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="suite-settings-head">
+          <strong id="suite-settings-title">Settings</strong>
+          <button type="button" className="secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="suite-settings-grid">
+          <label className="suite-settings-item">
+            <span>Analyst role</span>
+            <select value={actor} onChange={(e) => onActorChange(e.target.value)}>
+              <option value="analyst">Analyst</option>
+              <option value="lead">Lead</option>
+              <option value="manager">Manager</option>
+            </select>
+          </label>
+
+          <label className="suite-settings-item">
+            <span>Auto refresh (default)</span>
+            <select
+              value={refreshSec}
+              onChange={(e) => {
+                const next = Number(e.target.value) as SuiteRefreshChoice;
+                setRefreshSec(next);
+                writeSuiteAutoRefreshSec(next);
+              }}
+            >
+              {options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="suite-settings-check">
+            <input
+              type="checkbox"
+              checked={chartAnimationsEnabled}
+              onChange={(e) => setChartAnimationsEnabled(e.target.checked)}
+            />
+            <span>
+              <strong>Chart animations</strong>
+              <small>Turn off for smoother scrolling in Operator WebView.</small>
+            </span>
+          </label>
+          <label className="suite-settings-check">
+            <input
+              type="checkbox"
+              checked={perfOverlayEnabled}
+              onChange={(e) => setPerfOverlayEnabled(e.target.checked)}
+            />
+            <span>
+              <strong>Performance overlay</strong>
+              <small>Show FPS and long-frame counters for troubleshooting stutters.</small>
+            </span>
+          </label>
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+function AppShell({ actor, setActor }: { actor: string; setActor: (next: string) => void }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { perfOverlayEnabled } = usePerfDebug();
+
+  useEffect(() => {
+    const handler = () => setSettingsOpen(true);
+    window.addEventListener("suite:open-settings", handler);
+    return () => window.removeEventListener("suite:open-settings", handler);
+  }, []);
+
   return (
     <div className="suite-app">
       <ExplorerSidebar />
       <div className="suite-content">
-        <SuiteTopbar />
+        <SuiteTopbar onOpenSettings={() => setSettingsOpen(true)} />
         <WorkspaceTabs />
         <main className="suite-main">
           <Routes>
@@ -601,21 +748,32 @@ function AppShell({ actor }: { actor: string }) {
           </Routes>
         </main>
       </div>
+      <SuiteSettingsModal
+        open={settingsOpen}
+        actor={actor}
+        onActorChange={setActor}
+        onClose={() => setSettingsOpen(false)}
+      />
+      {perfOverlayEnabled ? <PerfOverlay /> : null}
       <CommandPalette actor={actor} />
     </div>
   );
 }
 
 export default function App() {
-  const { actor } = useActorState();
+  const { actor, setActor } = useActorState();
 
   return (
     <SuiteRealtimeProvider>
-      <SuiteCommandProvider>
-        <WorkspaceShellProvider>
-          <AppShell actor={actor} />
-        </WorkspaceShellProvider>
-      </SuiteCommandProvider>
+      <ChartMotionProvider>
+        <PerfDebugProvider>
+          <SuiteCommandProvider>
+            <WorkspaceShellProvider>
+              <AppShell actor={actor} setActor={setActor} />
+            </WorkspaceShellProvider>
+          </SuiteCommandProvider>
+        </PerfDebugProvider>
+      </ChartMotionProvider>
     </SuiteRealtimeProvider>
   );
 }

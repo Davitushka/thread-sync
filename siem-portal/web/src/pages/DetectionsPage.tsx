@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { getDetectionsOverview, type DetectionsOverview } from "../api";
 import AdaptivePaneLayout from "../components/AdaptivePaneLayout";
 import DashboardToolbar from "../components/DashboardToolbar";
@@ -37,6 +38,7 @@ export default function DetectionsPage() {
   const [stateFilter, setStateFilter] = useState("");
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
+  const queueParentRef = useRef<HTMLDivElement | null>(null);
   const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
 
   const applyDetectionState = useCallback(
@@ -103,6 +105,22 @@ export default function DetectionsPage() {
       return true;
     });
   }, [data, severityFilter, stateFilter, q]);
+  const deferredFilteredRows = useDeferredValue(filteredRows);
+  const visibleQueueRows = deferredFilteredRows;
+  const queueVirtualizer = useVirtualizer({
+    count: visibleQueueRows.length,
+    getScrollElement: () => queueParentRef.current,
+    estimateSize: () => 52,
+    overscan: 5,
+  });
+  const ruleByAlias = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const rule of data?.rules ?? []) {
+      map.set(rule.id, rule.id);
+      map.set(rule.title, rule.id);
+    }
+    return map;
+  }, [data]);
 
   const selectedRule = useMemo(() => {
     return data?.rules.find((rule) => rule.id === selectedRuleId) ?? data?.rules[0] ?? null;
@@ -141,6 +159,8 @@ export default function DetectionsPage() {
     if (!selectedRule) return [];
     return filteredRows.filter((row) => row.rule === selectedRule.title || row.rule === selectedRule.id);
   }, [filteredRows, selectedRule]);
+  const deferredMatchingRows = useDeferredValue(matchingRowsForRule);
+  const visibleMatchingRows = deferredMatchingRows;
 
   const selectedRulePriority = selectedRule ? priorityFromSeverity(selectedRule.severity) : null;
   const selectedRuleGuidance = selectedRule
@@ -489,7 +509,7 @@ export default function DetectionsPage() {
               </div>
             </div>
           ) : (
-            <div className="enterprise-table-shell">
+            <div ref={queueParentRef} className="enterprise-table-shell virtual-scroll">
               <table className="compact-table enterprise-table">
                 <thead>
                   <tr>
@@ -499,11 +519,20 @@ export default function DetectionsPage() {
                     <th>Signal</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredRows.map((row, idx) => {
-                    const linked = data?.rules.find((rule) => rule.title === row.rule || rule.id === row.rule);
+                <tbody
+                  style={{
+                    display: "block",
+                    position: "relative",
+                    height: `${queueVirtualizer.getTotalSize()}px`,
+                  }}
+                >
+                  {queueVirtualizer.getVirtualItems().map((item) => {
+                    const row = visibleQueueRows[item.index];
+                    if (!row) return null;
+                    const idx = item.index;
+                    const linkedRuleId = ruleByAlias.get(row.rule);
                     const priority = priorityFromSeverity(row.severity);
-                    const isActive = linked?.id === selectedRule?.id;
+                    const isActive = linkedRuleId === selectedRule?.id;
                     return (
                       <tr
                         key={`${row.rule}-${idx}`}
@@ -514,7 +543,16 @@ export default function DetectionsPage() {
                         ]
                           .filter(Boolean)
                           .join(" ")}
-                        onClick={() => linked && applyDetectionState({ selected: linked.id })}
+                        onClick={() => linkedRuleId && applyDetectionState({ selected: linkedRuleId })}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          display: "table",
+                          tableLayout: "fixed",
+                          transform: `translateY(${item.start}px)`,
+                        }}
                       >
                         <td>
                           <span className={`priority-pill priority-${priority.tone}`}>{priority.label}</span>
@@ -669,7 +707,7 @@ export default function DetectionsPage() {
                     <p className="meta">No current firing rows match the selected rule after the active filters.</p>
                   ) : (
                     <div className="queue-list queue-list-dense">
-                      {matchingRowsForRule.map((row, idx) => {
+                      {visibleMatchingRows.map((row, idx) => {
                         const priority = priorityFromSeverity(row.severity);
                         return (
                           <div key={`${row.rule}-${idx}`} className={`queue-item queue-item-enterprise severity-${priority.tone}`}>

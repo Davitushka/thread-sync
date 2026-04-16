@@ -40,7 +40,7 @@ export function useActorState() {
   return { actor, setActor };
 }
 
-export function SuiteTopbar() {
+export function SuiteTopbar({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const location = useLocation();
   const { activeWorkspace, tabs, recentPaths, reopenRecentWorkspace } = useWorkspaceShell();
   const visibleTabCount = tabs.filter(
@@ -106,6 +106,11 @@ export function SuiteTopbar() {
             Search or run
             <span>Ctrl+K</span>
           </button>
+          {onOpenSettings ? (
+            <button type="button" className="suite-settings-btn" onClick={onOpenSettings}>
+              Settings
+            </button>
+          ) : null}
           {meta.mode ? <span className="suite-mode-pill">{meta.mode}</span> : null}
         </div>
       </div>

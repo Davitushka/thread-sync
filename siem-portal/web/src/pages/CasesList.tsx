@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { createCase, listCases, type Case } from "../api";
 import DashboardToolbar from "../components/DashboardToolbar";
 import { LiveCompactNumber } from "../components/LiveNumbers";
@@ -33,6 +34,7 @@ export default function CasesList() {
   const [newSev, setNewSev] = useState("medium");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoRefreshSec, setAutoRefreshSec] = useSuiteAutoRefreshState();
+  const queueParentRef = useRef<HTMLDivElement | null>(null);
   const mounted = useRef(true);
   const requestSeq = useRef(0);
 
@@ -135,6 +137,14 @@ export default function CasesList() {
     () => cases.find((item) => item.id === selectedId) ?? cases[0] ?? null,
     [cases, selectedId]
   );
+  const deferredCases = useDeferredValue(cases);
+  const visibleCases = deferredCases;
+  const queueVirtualizer = useVirtualizer({
+    count: visibleCases.length,
+    getScrollElement: () => queueParentRef.current,
+    estimateSize: () => 98,
+    overscan: 5,
+  });
 
   useEffect(() => {
     if (!cases.length || !selectedCase) return;
@@ -371,29 +381,50 @@ export default function CasesList() {
               </div>
             </div>
           ) : (
-            <div className="queue-list">
-              {cases.map((c) => (
-                <button
-                  type="button"
-                  key={c.id}
-                  className={selectedCase?.id === c.id ? "queue-item active" : "queue-item"}
-                  onClick={() => applyQueueState({ selected: c.id })}
-                >
-                  <header>
-                    <div>
-                      <h3>{c.display_key} — {c.title}</h3>
-                      <p className="meta">{c.description || "No description"}</p>
-                    </div>
-                    <span className={sevClass(c.severity)}>{c.severity}</span>
-                  </header>
-                  <div className="queue-item-meta">
-                    <span className="token">{c.status}</span>
-                    {c.assignee ? <span className="token">@{c.assignee}</span> : null}
-                    <span className="token">{shortDateTime(c.created_at)}</span>
-                    {c.due_at ? <span className="token">due {shortDateTime(c.due_at)}</span> : null}
-                  </div>
-                </button>
-              ))}
+            <div ref={queueParentRef} className="queue-list virtual-scroll">
+              <div
+                style={{
+                  height: `${queueVirtualizer.getTotalSize()}px`,
+                  width: "100%",
+                  position: "relative",
+                }}
+              >
+                {queueVirtualizer.getVirtualItems().map((item) => {
+                  const c = visibleCases[item.index];
+                  if (!c) return null;
+                  return (
+                    <button
+                      type="button"
+                      key={c.id}
+                      className={selectedCase?.id === c.id ? "queue-item active" : "queue-item"}
+                      onClick={() => applyQueueState({ selected: c.id })}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${item.start}px)`,
+                      }}
+                    >
+                      <header>
+                        <div>
+                          <h3>
+                            {c.display_key} — {c.title}
+                          </h3>
+                          <p className="meta">{c.description || "No description"}</p>
+                        </div>
+                        <span className={sevClass(c.severity)}>{c.severity}</span>
+                      </header>
+                      <div className="queue-item-meta">
+                        <span className="token">{c.status}</span>
+                        {c.assignee ? <span className="token">@{c.assignee}</span> : null}
+                        <span className="token">{shortDateTime(c.created_at)}</span>
+                        {c.due_at ? <span className="token">due {shortDateTime(c.due_at)}</span> : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </section>
@@ -422,7 +453,7 @@ export default function CasesList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {cases.map((c) => (
+                  {visibleCases.map((c) => (
                     <tr
                       key={c.id}
                       onClick={() => applyQueueState({ selected: c.id })}
