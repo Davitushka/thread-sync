@@ -158,11 +158,24 @@ services:
     environment:
       <<: *common-env
       CLICKHOUSE_USER: siem
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ClickHousePass123!}
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
       CLICKHOUSE_DB: siem
     healthcheck:
       <<: *healthcheck-defaults
-      test: ["CMD-SHELL", "clickhouse-client --user=siem --password=$CLICKHOUSE_PASSWORD --query 'SELECT 1' || exit 1"]
+      # /ping не требует пароля — не ломается при рассинхроне .env и secrets/clickhouse_password.txt
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1:8123/ping",
+        ]
     deploy:
       resources:
         limits:
@@ -192,7 +205,7 @@ services:
         condition: service_healthy
     environment:
       <<: *common-env
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ClickHousePass123!}
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
     volumes:
       - ../../scripts/seed-data/seed_test_events.sql:/seed.sql:ro
     entrypoint: ["/bin/sh", "-c"]
@@ -303,7 +316,7 @@ services:
       SIEM_PORTAL_CLICKHOUSE_URL: "http://clickhouse:8123"
       SIEM_PORTAL_CLICKHOUSE_USER: "siem"
       SIEM_PORTAL_CLICKHOUSE_DATABASE: "siem"
-      SIEM_PORTAL_CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ClickHousePass123!}
+      SIEM_PORTAL_CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
       SIEM_PORTAL_PUBLIC_GRAFANA: "http://localhost:3000"
       SIEM_PORTAL_PUBLIC_PROMETHEUS: "http://localhost:9090"
       SIEM_PORTAL_PUBLIC_ALERTMANAGER: "http://localhost:9093"
@@ -411,10 +424,9 @@ services:
       INTEL_HTTP_FEED_NAME: ${INTEL_HTTP_FEED_NAME:-http_feed}
       INTEL_LOCAL_FEED_PATH: ${INTEL_LOCAL_FEED_PATH:-/app/examples/feed-sample.json}
       INTEL_SYNC_REDIS: ${INTEL_SYNC_REDIS:-1}
-      INTEL_REDIS_URL: redis://redis:6379/0
+      INTEL_REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
       LOG_LEVEL: ${INTEL_LOG_LEVEL:-INFO}
     secrets:
-      - grafana_admin_password
       - clickhouse_password
     volumes:
       - ../../intel-connector/examples:/app/examples:ro
@@ -462,7 +474,6 @@ services:
       CLICKHOUSE_USER: "siem"
       CLICKHOUSE_PASSWORD_FILE: /run/secrets/clickhouse_password
     secrets:
-      - grafana_admin_password
       - clickhouse_password
     depends_on:
       redpanda:
@@ -504,6 +515,8 @@ services:
     environment:
       <<: *common-env
       VECTOR_LOG: info
+      # Явный путь к конфигу (на случай отличий дефолта образа / версии Vector).
+      VECTOR_CONFIG: /etc/vector/vector.yaml
     depends_on:
       redpanda:
         condition: service_healthy
@@ -511,13 +524,28 @@ services:
         condition: service_completed_successfully
     healthcheck:
       <<: *healthcheck-defaults
-      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/8686'"]
-      start_period: 15s
+      # API и metrics поднимаются после топологии; на медленном диске/CPU старт >15s.
+      # Проверяем TCP: 8686 (API) или 9598 (prometheus_exporter) — достаточно «процесс слушает».
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+      test:
+        [
+          "CMD",
+          "/bin/bash",
+          "-c",
+          "cat </dev/null >/dev/tcp/127.0.0.1/8686 || cat </dev/null >/dev/tcp/127.0.0.1/9598",
+        ]
     deploy:
       resources:
         limits:
           cpus: "2"
-          memory: 512M
+          # Disk-буферы Kafka sink; на слабых хостах 512M даёт OOM → рестарты → unhealthy.
+          memory: 768M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
 
   # ════════════════════════════════════════════════════════════════
   # Демо-генератор логов (Rust siem-log-generator) → Vector → Kafka → ClickHouse
@@ -766,7 +794,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_LOG_LEVEL: warn
       # ClickHouse datasource (provisioning: ${CLICKHOUSE_DATASOURCE_PASSWORD})
-      CLICKHOUSE_DATASOURCE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ClickHousePass123!}
+      CLICKHOUSE_DATASOURCE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
       # ClickHouse datasource
       GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
     secrets:
@@ -800,6 +828,7 @@ services:
       # SECURITY NOTE: Docker socket mount grants container escape potential.
       # Consider using a Docker socket proxy in production, or restrict via Docker API TLS.
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-config.yaml:/etc/promtail/config.yml:ro
     command: ["-config.file=/etc/promtail/config.yml"]
     depends_on:
       loki:
@@ -956,7 +985,7 @@ services:
       # Тот же пароль, что у сервиса clickhouse (иначе Fill All Data и /api/data-status получат 401)
       CLICKHOUSE_URL: "http://clickhouse:8123"
       CLICKHOUSE_USER: "siem"
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ClickHousePass123!}
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
       # Для /api/prometheus-status (чеклист метрик Grafana)
       PROMETHEUS_URL: "http://siem-prometheus:9090"
     deploy:

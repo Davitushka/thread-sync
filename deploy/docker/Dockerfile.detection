@@ -4,8 +4,8 @@ FROM rust:1.88-slim-bookworm AS deps
 WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake pkg-config \
-    libssl-dev libsasl2-dev libcurl4-openssl-dev ca-certificates \
+    build-essential cmake ninja-build pkg-config \
+    libssl-dev libsasl2-dev zlib1g-dev libcurl4-openssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY detection-engine-rs/Cargo.toml detection-engine-rs/Cargo.lock* ./

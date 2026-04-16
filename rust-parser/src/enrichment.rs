@@ -86,38 +86,29 @@ impl Enricher {
             NonZeroUsize::new(config.user_cache_size).unwrap_or(NonZeroUsize::new(10_000).unwrap());
         let cache_ttl = std::time::Duration::from_secs(config.user_cache_ttl_secs);
 
-        let intel_redis = config
+        let intel_redis_url = config
             .intel_redis_url
             .as_deref()
             .filter(|s| !s.is_empty())
-            .and_then(|url| {
-                match redis::Client::open(url) {
-                    Ok(client) => {
-                        // We'll try to connect synchronously to see if the URL is valid,
-                        // then the async connection is established below.
-                        Some(url.to_string())
+            .map(|s| s.to_string());
+
+        let intel_redis_conn = if let Some(url) = intel_redis_url {
+            match redis::Client::open(url.as_str()) {
+                Ok(client) => match client.get_multiplexed_async_connection().await {
+                    Ok(conn) => {
+                        info!("Threat intel Redis enrichment enabled (async, SET siem:intel:ipv4)");
+                        Some(conn)
                     }
                     Err(e) => {
-                        warn!("Invalid INTEL redis URL: {} — intel match disabled", e);
+                        warn!(
+                            "INTEL redis URL set but async connection failed: {} — intel match disabled",
+                            e
+                        );
                         None
                     }
-                }
-            });
-
-        let intel_redis_conn = if let Some(url) = intel_redis {
-            match redis::Client::open(url.as_str())
-                .and_then(|c| c.get_multiplexed_async_connection())
-                .await
-            {
-                Ok(conn) => {
-                    info!("Threat intel Redis enrichment enabled (async, SET siem:intel:ipv4)");
-                    Some(conn)
-                }
+                },
                 Err(e) => {
-                    warn!(
-                        "INTEL redis URL set but async connection failed: {} — intel match disabled",
-                        e
-                    );
+                    warn!("Invalid INTEL redis URL: {} — intel match disabled", e);
                     None
                 }
             }
@@ -155,13 +146,14 @@ impl Enricher {
     }
 
     async fn enrich_threat_intel(&self, event: &mut NormalizedEvent) {
-        let Some(conn) = &self.intel_redis else {
+        let Some(conn) = self.intel_redis.as_ref() else {
             return;
         };
         let Some(ip) = event.source_ip.as_deref().filter(|s| !s.is_empty()) else {
             return;
         };
         use redis::AsyncCommands;
+        let mut conn = conn.clone();
         let member: bool = conn
             .sismember("siem:intel:ipv4", ip)
             .await

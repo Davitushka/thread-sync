@@ -6,7 +6,6 @@ use crate::schema::{NormalizedEvent, Severity};
 use bytes::Bytes;
 use chrono::Utc;
 use serde_json::Value;
-use std::collections::HashMap;
 
 const MAX_EVENT_SIZE: usize = 1024 * 1024; // 1MB
 
@@ -80,93 +79,110 @@ pub fn parse(raw: Bytes, source_type: &str, host: &str) -> Result<NormalizedEven
 }
 
 fn parse_json(raw: Bytes, event: &mut NormalizedEvent) -> Result<(), ParserError> {
-    let value: Value = serde_json::from_slice(&raw)?;
+    let mut value: Value = serde_json::from_slice(&raw)?;
 
-    let obj = match &value {
-        Value::Object(m) => m,
-        _ => {
-            // JSON но не объект — оборачиваем
-            event.message = raw.escape_ascii().to_string();
-            event.event_type = "raw".to_string();
-            return Ok(());
-        }
-    };
+    let (
+        request_method,
+        request_path,
+        status_code,
+        elapsed,
+        user_id,
+        source_ip,
+    ) = {
+        let obj = match &value {
+            Value::Object(m) => m,
+            _ => {
+                // JSON но не объект — оборачиваем
+                event.message = raw.escape_ascii().to_string();
+                event.event_type = "raw".to_string();
+                return Ok(());
+            }
+        };
 
-    // Маппинг Serilog/ASP.NET Core structured logging
-    event.message = obj
-        .get("Message")
-        .or_else(|| obj.get("message"))
-        .or_else(|| obj.get("msg"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+        // Маппинг Serilog/ASP.NET Core structured logging
+        event.message = obj
+            .get("Message")
+            .or_else(|| obj.get("message"))
+            .or_else(|| obj.get("msg"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
-    // Severity — поддерживаем разные имена полей
-    let severity_str = obj
-        .get("Level")
-        .or_else(|| obj.get("level"))
-        .or_else(|| obj.get("severity"))
-        .or_else(|| obj.get("Severity"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("info");
-    event.severity = Severity::from_str(severity_str);
+        // Severity — поддерживаем разные имена полей
+        let severity_str = obj
+            .get("Level")
+            .or_else(|| obj.get("level"))
+            .or_else(|| obj.get("severity"))
+            .or_else(|| obj.get("Severity"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("info");
+        event.severity = Severity::from_str(severity_str);
 
-    // Timestamp
-    if let Some(ts_val) = obj
-        .get("Timestamp")
-        .or_else(|| obj.get("timestamp"))
-        .or_else(|| obj.get("@timestamp"))
-    {
-        if let Some(ts_str) = ts_val.as_str() {
-            if let Ok(ts) = ts_str.parse::<chrono::DateTime<Utc>>() {
-                event.timestamp = ts;
+        // Timestamp
+        if let Some(ts_val) = obj
+            .get("Timestamp")
+            .or_else(|| obj.get("timestamp"))
+            .or_else(|| obj.get("@timestamp"))
+        {
+            if let Some(ts_str) = ts_val.as_str() {
+                if let Ok(ts) = ts_str.parse::<chrono::DateTime<Utc>>() {
+                    event.timestamp = ts;
+                }
             }
         }
-    }
+
+        // ASP.NET Core RequestLog — вынесено в owned значения до &mut value
+        (
+            obj.get("RequestMethod")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            obj.get("RequestPath")
+                .and_then(|v| v.as_str())
+                .map(|s| sanitize_url_path(s)),
+            obj.get("StatusCode")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u16),
+            obj.get("Elapsed")
+                .or_else(|| obj.get("ElapsedMilliseconds"))
+                .and_then(|v| v.as_f64()),
+            obj.get("UserId")
+                .or_else(|| obj.get("user_id"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            obj.get("ClientIp")
+                .or_else(|| obj.get("client_ip"))
+                .or_else(|| obj.get("source_ip"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
+        )
+    };
 
     // HTTP-специфичные поля + metadata из Properties (zero-copy via take)
-    let mut value = value; // take ownership
     if let Some(props) = value.get_mut("Properties").and_then(|v| v.as_object_mut()) {
         extract_http_fields(props, event);
         // Забираем весь Map без клонирования
-        let meta: HashMap<String, Value> = std::mem::take(props);
-        event.metadata = meta;
+        let meta = std::mem::take(props);
+        event.metadata = meta.into_iter().collect();
     }
 
-    // ASP.NET Core RequestLog format
-    if let Some(method) = obj.get("RequestMethod").and_then(|v| v.as_str()) {
-        event.http_method = Some(method.to_string());
+    // Apply saved RequestLog fields (после извлечения Properties)
+    if let Some(method) = request_method {
+        event.http_method = Some(method);
     }
-    if let Some(path) = obj.get("RequestPath").and_then(|v| v.as_str()) {
-        event.url_path = Some(sanitize_url_path(path));
+    if let Some(path) = request_path {
+        event.url_path = Some(path);
     }
-    if let Some(status) = obj.get("StatusCode").and_then(|v| v.as_u64()) {
-        event.status_code = Some(status as u16);
+    if let Some(status) = status_code {
+        event.status_code = Some(status);
     }
-    if let Some(elapsed) = obj
-        .get("Elapsed")
-        .or_else(|| obj.get("ElapsedMilliseconds"))
-    {
-        event.duration_ms = elapsed.as_f64();
+    if let Some(el) = elapsed {
+        event.duration_ms = Some(el);
     }
-
-    // User/Auth context
-    if let Some(uid) = obj
-        .get("UserId")
-        .or_else(|| obj.get("user_id"))
-        .and_then(|v| v.as_str())
-    {
-        event.user_id = Some(uid.to_string());
+    if let Some(uid) = user_id {
+        event.user_id = Some(uid);
     }
-
-    // Source IP
-    if let Some(ip) = obj
-        .get("ClientIp")
-        .or_else(|| obj.get("client_ip"))
-        .or_else(|| obj.get("source_ip"))
-        .and_then(|v| v.as_str())
-    {
-        event.source_ip = Some(ip.to_string());
+    if let Some(ip) = source_ip {
+        event.source_ip = Some(ip);
     }
 
     event.event_type = "application".to_string();

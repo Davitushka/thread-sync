@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -120,6 +121,8 @@ struct AppState {
     redis_store: Arc<RedisStore>,
     alert_tx: mpsc::Sender<Alert>,
     cfg: Arc<CorrelatorConfig>,
+    /// Snapshot at startup (rules are fixed for the correlator process).
+    rules_count: Arc<AtomicUsize>,
 }
 
 // ── main ────────────────────────────────────────────────────────────────────────
@@ -219,6 +222,7 @@ async fn main() -> Result<()> {
     ));
     let rule_count = engine.rule_count().await;
     info!(rules = rule_count, "detection engine ready");
+    let rules_count = Arc::new(AtomicUsize::new(rule_count));
 
     let cfg = Arc::new(cfg);
 
@@ -278,6 +282,7 @@ async fn main() -> Result<()> {
         redis_store,
         alert_tx,
         cfg: cfg.clone(),
+        rules_count,
     };
 
     let app = Router::new()
@@ -523,7 +528,7 @@ async fn handle_ready(
 }
 
 async fn handle_stats(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
-    let rules_count = state.engine.rule_count().await;
+    let rules_count = state.rules_count.load(Ordering::Relaxed);
     let pending = state.alert_tx.max_capacity() - state.alert_tx.capacity();
     let capacity = state.alert_tx.max_capacity();
 

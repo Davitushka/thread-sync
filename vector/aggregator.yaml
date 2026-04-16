@@ -342,7 +342,8 @@ sinks:
       codec: json
     buffer:
       type: disk
-      max_size: 268435456  # 256MB
+      # Vector 0.43+: дисковый буфер — минимум 268435488 B; берём 320MiB с запасом под внутренние стадии.
+      max_size: 335544320
       when_full: drop_newest
 
   internal_metrics_sink:

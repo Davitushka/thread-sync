@@ -264,14 +264,14 @@ async fn handle_parse(State(state): State<Arc<AppState>>, body: Bytes) -> impl I
                 match state.producer.send(record, Duration::from_secs(5)).await {
                     Ok(_) => {
                         metrics::KAFKA_PRODUCED_TOTAL
-                            .with_label_values(&[&topic, "ok"])
+                            .with_label_values(&[topic.as_str(), "ok"])
                             .inc();
                         processed += 1;
                     }
                     Err((e, _)) => {
                         error!(error = %e, "Kafka produce failed");
                         metrics::KAFKA_PRODUCED_TOTAL
-                            .with_label_values(&[&topic, "error"])
+                            .with_label_values(&[topic.as_str(), "error"])
                             .inc();
                         errors += 1;
                         error_details.push(format!("Kafka error: {}", e));
