@@ -10,22 +10,23 @@ body {
   background: #0d1117;
   color: #c9d1d9;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Splash ─────────────────────────────────────────────────────────── */
+.splash {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100vh;
-  overflow: hidden;
+  transition: opacity 0.4s ease;
 }
-.splash { text-align: center; max-width: 500px; padding: 40px; }
+.splash.hidden { opacity: 0; pointer-events: none; position: absolute; }
 .logo { font-size: 48px; font-weight: 700; color: #58a6ff; margin-bottom: 8px; letter-spacing: -1px; }
 .sub { font-size: 14px; color: #484f58; margin-bottom: 40px; }
-.status {
-  font-size: 15px;
-  color: #8b949e;
-  margin-bottom: 12px;
-  min-height: 24px;
-}
+.status { font-size: 15px; color: #8b949e; margin-bottom: 12px; min-height: 24px; }
 .spinner {
   width: 32px; height: 32px;
   border: 3px solid rgba(88,166,255,0.2);
@@ -65,10 +66,25 @@ body {
 .step.done { color: #3fb950; }
 .step.fail { color: #f85149; }
 .step .icon { display: inline-block; width: 20px; text-align: center; margin-right: 8px; }
+
+/* ── Portal iframe ──────────────────────────────────────────────────── */
+#portal-frame {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  border: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+#portal-frame.visible { display: block; }
 </style>
 </head>
 <body>
-<div class="splash">
+
+<!-- Splash screen -->
+<div class="splash" id="splash">
   <div class="logo">SIEM-Lite</div>
   <div class="sub">Security Information & Event Management</div>
   <div class="spinner" id="spinner"></div>
@@ -78,34 +94,60 @@ body {
   <button class="btn" id="retryBtn" style="display:none" onclick="startAll()">Retry</button>
 </div>
 
+<!-- Portal loaded in iframe so Tauri IPC stays available in this parent frame -->
+<iframe id="portal-frame" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals" allow="clipboard-read; clipboard-write"></iframe>
+
 <script>
 const PORTAL_URL = 'http://127.0.0.1:8091';
 const { __TAURI__ } = window;
 const invoke = __TAURI__?.core?.invoke;
 
+const $splash = document.getElementById('splash');
 const $status = document.getElementById('status');
 const $steps = document.getElementById('steps');
 const $error = document.getElementById('error');
 const $spinner = document.getElementById('spinner');
 const $retry = document.getElementById('retryBtn');
+const $frame = document.getElementById('portal-frame');
+
+// ── Tauri IPC proxy ──────────────────────────────────────────────────────
+// The portal iframe cannot call invoke() directly because __TAURI__ is only
+// available on the Tauri asset protocol origin. The portal sends postMessage
+// requests; this parent frame proxies them to Tauri and posts responses back.
+
+let ipcId = 0;
+const ipcPending = new Map(); // id -> { resolve, reject }
+
+window.addEventListener('message', async (event) => {
+  // Only accept messages from the portal iframe
+  if (event.source !== $frame.contentWindow) return;
+  if (!event.data || event.data.__siem_ipc !== true) return;
+
+  if (event.data.type === 'request') {
+    // Portal asking us to invoke a Tauri command
+    const { id, cmd, args } = event.data;
+    try {
+      if (!invoke) throw new Error('Tauri IPC not available');
+      const result = await invoke(cmd, args);
+      $frame.contentWindow.postMessage({ __siem_ipc: true, type: 'response', id, result }, '*');
+    } catch (e) {
+      $frame.contentWindow.postMessage({ __siem_ipc: true, type: 'response', id, error: String(e) }, '*');
+    }
+  }
+});
+
+// ── Splash logic ─────────────────────────────────────────────────────────
 
 let steps = [];
-function addStep(text, state) {
-  steps.push({ text, state });
-  renderSteps();
-}
-function updateStep(idx, state) {
-  if (steps[idx]) steps[idx].state = state;
-  renderSteps();
-}
+function addStep(text, state) { steps.push({ text, state }); renderSteps(); }
+function updateStep(idx, state) { if (steps[idx]) steps[idx].state = state; renderSteps(); }
 function renderSteps() {
-  $steps.innerHTML = steps.map((s, i) => {
+  $steps.innerHTML = steps.map(s => {
     const icon = s.state === 'done' ? '&#10003;' : s.state === 'fail' ? '&#10007;' : s.state === 'active' ? '&#9654;' : '&#9679;';
     const cls = s.state || '';
     return `<div class="step ${cls}"><span class="icon">${icon}</span>${s.text}</div>`;
   }).join('');
 }
-
 function show(msg) { $status.textContent = msg; }
 function showError(msg) {
   $error.textContent = msg;
@@ -121,6 +163,12 @@ async function checkPortal() {
   } catch { return false; }
 }
 
+function showPortal() {
+  $frame.src = PORTAL_URL + '?tauri=1';
+  $frame.classList.add('visible');
+  $splash.classList.add('hidden');
+}
+
 async function startAll() {
   steps = [];
   $error.style.display = 'none';
@@ -134,8 +182,8 @@ async function startAll() {
   const portalUp = await checkPortal();
   if (portalUp) {
     updateStep(0, 'done');
-    show('Portal is running! Redirecting...');
-    setTimeout(() => { window.location.href = PORTAL_URL; }, 500);
+    show('Portal is running! Loading...');
+    setTimeout(showPortal, 300);
     return;
   }
   updateStep(0, 'fail');
@@ -152,8 +200,8 @@ async function startAll() {
     const result = await invoke('start_stack');
     updateStep(1, 'done');
     addStep('Portal started!', 'done');
-    show('Portal is running! Redirecting...');
-    setTimeout(() => { window.location.href = PORTAL_URL; }, 500);
+    show('Portal is running! Loading...');
+    setTimeout(showPortal, 500);
   } catch (e) {
     updateStep(1, 'fail');
     const errMsg = typeof e === 'string' ? e : e?.message || String(e);
@@ -161,15 +209,14 @@ async function startAll() {
     addStep('Waiting for manual start...', 'active');
     show('Auto-start failed. Waiting for portal...');
 
-    // Poll every 3s for up to 5 minutes
     let attempts = 0;
     const poll = setInterval(async () => {
       attempts++;
       if (await checkPortal()) {
         clearInterval(poll);
         updateStep(2, 'done');
-        show('Portal is running! Redirecting...');
-        setTimeout(() => { window.location.href = PORTAL_URL; }, 500);
+        show('Portal is running! Loading...');
+        setTimeout(showPortal, 300);
       } else if (attempts > 100) {
         clearInterval(poll);
         updateStep(2, 'fail');

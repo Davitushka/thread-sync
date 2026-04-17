@@ -7,7 +7,7 @@
     "frontendDist": "./frontend"
   },
   "app": {
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "SIEM-Lite",
