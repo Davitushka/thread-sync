@@ -15,7 +15,7 @@ pub struct Args {
     #[arg(long, env = "CLICKHOUSE_USER", default_value = "siem")]
     clickhouse_user: String,
 
-    #[arg(long, env = "CLICKHOUSE_PASSWORD", default_value = "ClickHousePass123!")]
+    #[arg(long, env = "CLICKHOUSE_PASSWORD", default_value = "changeme")]
     clickhouse_password: String,
 
     #[arg(long, env = "ALERT_SEEDER_TOTAL", default_value_t = 50)]

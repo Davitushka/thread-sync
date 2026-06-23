@@ -16,14 +16,14 @@ echo -n "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" > slack_webhook_url.
 # PagerDuty Integration Key
 echo -n "your-pagerduty-routing-key" > pagerduty_key.txt
 
-# ClickHouse пароль (используется для admin и как пример для grafana)
-echo -n "StrongPassword123!" > clickhouse_password.txt
+# ClickHouse пароль (должен совпадать с CLICKHOUSE_PASSWORD в .env)
+echo -n "changeme" > clickhouse_password.txt
 
 # MinIO secret key
-echo -n "MinIOSecretKey456!" > minio_secret_key.txt
+echo -n "changeme" > minio_secret_key.txt
 
 # Grafana admin password
-echo -n "GrafanaAdmin123!" > grafana_admin_password.txt
+echo -n "changeme" > grafana_admin_password.txt
 ```
 
 > **Production**: Используйте HashiCorp Vault, SOPS или Doppler вместо файлов на диске.

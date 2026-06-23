@@ -25,13 +25,13 @@ pip install -r requirements.txt
 ### Базовый запуск
 
 ```bash
-python validate_grafana.py --url http://localhost:3000 --user admin --password ClickHousePass123!
+python validate_grafana.py --url http://localhost:3000 --user admin --password changeme
 ```
 
 ### С выводом отчёта в JSON
 
 ```bash
-python validate_grafana.py --url http://localhost:3000 --user admin --password ClickHousePass123! --output report.json
+python validate_grafana.py --url http://localhost:3000 --user admin --password changeme --output report.json
 ```
 
 ### Подробный лог
@@ -67,7 +67,7 @@ python validate_grafana.py --skip-datasource-health
 
 ```cmd
 cd scripts\grafana-validator
-grafana-validator.exe --url http://localhost:3000 --user admin --password ClickHousePass123!
+grafana-validator.exe --url http://localhost:3000 --user admin --password changeme
 ```
 
 ## Пример вывода

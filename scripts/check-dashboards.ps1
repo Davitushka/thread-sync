@@ -4,7 +4,7 @@
 param(
     [string] $ClickHouseUrl = "http://localhost:8123",
     [string] $ClickHouseUser = "siem",
-    [string] $ClickHousePassword = "ClickHousePass123!",
+    [string] $ClickHousePassword = "changeme",
     [string] $PrometheusUrl = "http://localhost:9090"
 )
 

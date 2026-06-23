@@ -65,7 +65,7 @@ docker exec siem-redpanda rpk topic consume siem.events \
 
 # 4. Проверить что ClickHouse принимает данные
 docker exec siem-clickhouse clickhouse-client \
-  --user=siem --password=ClickHousePass123! \
+  --user=siem --password="$CLICKHOUSE_PASSWORD" \
   --query="SELECT count() FROM siem.events WHERE timestamp > now() - INTERVAL 5 MINUTE"
 
 # 5. Проверить метрики siem-parser
@@ -104,7 +104,7 @@ curl -s http://localhost:9093/api/v2/alerts | jq '.[] | select(.labels.rule_id =
 
 # Проверить события в ClickHouse
 docker exec siem-clickhouse clickhouse-client \
-  --user=siem --password=ClickHousePass123! \
+  --user=siem --password="$CLICKHOUSE_PASSWORD" \
   --query="
     SELECT source_ip, count() as cnt, groupArray(status_code) as codes
     FROM siem.events
@@ -250,8 +250,8 @@ echo "All checks passed"
 ```bash
 # ── ClickHouse backup (инкрементальный через BACKUP TABLE) ──
 docker exec siem-clickhouse clickhouse-client --query="
-  BACKUP TABLE siem.events TO S3('http://minio:9000/siem-backups/clickhouse/$(date +%Y%m%d)', 'siemadmin', 'MinIOSecret456!')
-  SETTINGS base_backup = S3('http://minio:9000/siem-backups/clickhouse/base', 'siemadmin', 'MinIOSecret456!')
+  BACKUP TABLE siem.events TO S3('http://minio:9000/siem-backups/clickhouse/$(date +%Y%m%d)', 'siemadmin', '$MINIO_SECRET_KEY')
+  SETTINGS base_backup = S3('http://minio:9000/siem-backups/clickhouse/base', 'siemadmin', '$MINIO_SECRET_KEY')
 "
 
 # ── Prometheus TSDB backup ──
@@ -273,7 +273,7 @@ docker stop siem-vector-aggregator siem-parser
 
 # Восстановить из S3 backup
 docker exec siem-clickhouse clickhouse-client --query="
-  RESTORE TABLE siem.events FROM S3('http://minio:9000/siem-backups/clickhouse/20240115', 'siemadmin', 'MinIOSecret456!')
+  RESTORE TABLE siem.events FROM S3('http://minio:9000/siem-backups/clickhouse/20240115', 'siemadmin', '$MINIO_SECRET_KEY')
 "
 
 # Возобновить ingestion

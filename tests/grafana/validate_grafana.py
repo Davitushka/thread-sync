@@ -6,7 +6,7 @@ SIEM-Lite Grafana Validation Suite
 дашборды, SQL/PromQL запросы и HTTP endpoints всех сервисов.
 
 Usage:
-    python validate_grafana.py --url http://localhost:3000 --user admin --password ClickHousePass123!
+    python validate_grafana.py --url http://localhost:3000 --user admin --password changeme
     python validate_grafana.py --output report.json
     python validate_grafana.py --verbose --skip-panel-queries
 """

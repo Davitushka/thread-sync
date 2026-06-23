@@ -53,7 +53,7 @@ echo  Usage:
 echo    scripts\grafana-validator\dist\grafana-validator.exe ^
 echo      --url http://localhost:3000 ^
 echo      --user admin ^
-echo      --password ClickHousePass123!
+echo      --password changeme
 echo.
 echo  Help:
 echo    scripts\grafana-validator\dist\grafana-validator.exe --help

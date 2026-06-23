@@ -38,7 +38,7 @@ CLICKHOUSE_URL = os.getenv(
     "CLICKHOUSE_URL", "http://localhost:8123"
 )
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "siem")
-CLICKHOUSE_PASS = os.getenv("CLICKHOUSE_PASSWORD", "ClickHousePass123!")
+CLICKHOUSE_PASS = os.getenv("CLICKHOUSE_PASSWORD", "changeme")
 
 ATTACKER_IPS = [
     "203.0.113.99",

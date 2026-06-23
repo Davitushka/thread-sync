@@ -72,9 +72,9 @@ siem-lite/
 
 ```bash
 cd deploy/docker/secrets
-echo -n "ClickHousePass123!"   > clickhouse_password.txt
-echo -n "MinIOSecret456!"     > minio_secret_key.txt
-echo -n "GrafanaAdmin123!"    > grafana_admin_password.txt
+echo -n "changeme"   > clickhouse_password.txt
+echo -n "changeme"     > minio_secret_key.txt
+echo -n "changeme"    > grafana_admin_password.txt
 echo -n "placeholder-smtp"   > smtp_password.txt
 echo -n "https://hooks.slack.com/services/placeholder" > slack_webhook_url.txt
 echo -n "placeholder-pd"     > pagerduty_key.txt
@@ -82,7 +82,7 @@ echo -n "placeholder-pd"     > pagerduty_key.txt
 
 На Windows из корня репозитория: `powershell -ExecutionPolicy Bypass -File scripts/init-secrets.ps1`
 
-**Согласованность:** если задаёте свои пароли через [`deploy/docker/.env`](deploy/docker/.env.example), значение `CLICKHOUSE_PASSWORD` должно **байт-в-байт** совпадать с `clickhouse_password.txt`. Скрипт `init-secrets.ps1` создаёт все 6 файлов без BOM (PowerShell 5.x добавляет BOM через `Set-Content` — скрипт использует `[System.IO.File]::WriteAllText`).
+**Согласованность:** если задаёте свои пароли через [`deploy/docker/.env`](deploy/docker/.env.example), значение `CLICKHOUSE_PASSWORD` должно **байт-в-байт** совпадать с `clickhouse_password.txt`. По умолчанию в репозитории только плейсхолдер **`changeme`** — замените его перед любым не-локальным деплоем.
 
 ### 2. Опционально: переменные окружения
 

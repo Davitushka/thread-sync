@@ -7,7 +7,8 @@
       <networks>
         <ip>::/0</ip>
       </networks>
-      <password>TestPass123</password>
+      <!-- Local/k8s placeholder — override via secrets or CLICKHOUSE_PASSWORD in production -->
+      <password>changeme</password>
       <quota>default</quota>
       <access_management>1</access_management>
     </siem>

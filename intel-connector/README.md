@@ -9,7 +9,7 @@ Python-сервис: **MISP** и/или **HTTP JSON** и/или **локальн
 ```bash
 pip install -r requirements.txt
 set CLICKHOUSE_HOST=127.0.0.1
-set CLICKHOUSE_PASSWORD=ClickHousePass123!
+set CLICKHOUSE_PASSWORD=changeme
 set INTEL_LOCAL_FEED_PATH=intel-connector/examples/feed-sample.json
 set INTEL_RUN_ONCE=1
 python -m intel_connector

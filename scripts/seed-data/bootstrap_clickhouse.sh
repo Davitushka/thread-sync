@@ -12,7 +12,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SEED_SQL="${ROOT}/scripts/seed-data/seed_test_events.sql"
 CONTAINER="${CLICKHOUSE_CONTAINER:-siem-clickhouse}"
 USER="${CLICKHOUSE_USER:-siem}"
-PASSWORD="${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
+PASSWORD="${CLICKHOUSE_PASSWORD:-changeme}"
 
 if [[ ! -f "$SEED_SQL" ]]; then
   echo "error: seed SQL not found: $SEED_SQL" >&2

@@ -5,7 +5,7 @@ param(
     [string] $AdminUrl = "http://localhost:8089",
     [string] $ClickHouseUrl = "http://localhost:8123",
     [string] $ClickHouseUser = "siem",
-    [string] $ClickHousePassword = "ClickHousePass123!",
+    [string] $ClickHousePassword = "changeme",
     [string] $GrafanaUrl = "http://localhost:3000",
     [switch] $ReloadGrafana
 )

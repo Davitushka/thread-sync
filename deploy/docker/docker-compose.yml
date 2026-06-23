@@ -158,7 +158,7 @@ services:
     environment:
       <<: *common-env
       CLICKHOUSE_USER: siem
-      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-changeme}"
       CLICKHOUSE_DB: siem
     healthcheck:
       <<: *healthcheck-defaults
@@ -205,7 +205,7 @@ services:
         condition: service_healthy
     environment:
       <<: *common-env
-      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-changeme}"
     volumes:
       - ../../scripts/seed-data/seed_test_events.sql:/seed.sql:ro
     entrypoint: ["/bin/sh", "-c"]
@@ -236,7 +236,7 @@ services:
     environment:
       <<: *common-env
       POSTGRES_USER: siem_soc
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-PostgresCases123!}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: soc_cases
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -267,7 +267,7 @@ services:
     environment:
       <<: *common-env
       RUST_LOG: case_management_rs=info
-      CASEMGMT_DATABASE_URL: postgres://siem_soc:${POSTGRES_PASSWORD:-PostgresCases123!}@postgres:5432/soc_cases?sslmode=disable
+      CASEMGMT_DATABASE_URL: postgres://siem_soc:${POSTGRES_PASSWORD:-changeme}@postgres:5432/soc_cases?sslmode=disable
       CASEMGMT_HTTP_ADDR: "0.0.0.0:8088"
       CASEMGMT_GRAFANA_EXTERNAL_URL: "http://localhost:3000"
       CASEMGMT_AUTO_CASE_FROM_ALERTS: "true"
@@ -316,7 +316,7 @@ services:
       SIEM_PORTAL_CLICKHOUSE_URL: "http://clickhouse:8123"
       SIEM_PORTAL_CLICKHOUSE_USER: "siem"
       SIEM_PORTAL_CLICKHOUSE_DATABASE: "siem"
-      SIEM_PORTAL_CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
+      SIEM_PORTAL_CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-changeme}"
       SIEM_PORTAL_PUBLIC_GRAFANA: "http://localhost:3000"
       SIEM_PORTAL_PUBLIC_PROMETHEUS: "http://localhost:9090"
       SIEM_PORTAL_PUBLIC_ALERTMANAGER: "http://localhost:9093"
@@ -794,7 +794,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_LOG_LEVEL: warn
       # ClickHouse datasource (provisioning: ${CLICKHOUSE_DATASOURCE_PASSWORD})
-      CLICKHOUSE_DATASOURCE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
+      CLICKHOUSE_DATASOURCE_PASSWORD: "${CLICKHOUSE_PASSWORD:-changeme}"
       # ClickHouse datasource
       GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
     secrets:
@@ -985,7 +985,7 @@ services:
       # Тот же пароль, что у сервиса clickhouse (иначе Fill All Data и /api/data-status получат 401)
       CLICKHOUSE_URL: "http://clickhouse:8123"
       CLICKHOUSE_USER: "siem"
-      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-ClickHousePass123!}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-changeme}"
       # Для /api/prometheus-status (чеклист метрик Grafana)
       PROMETHEUS_URL: "http://siem-prometheus:9090"
     deploy:

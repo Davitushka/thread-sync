@@ -1,6 +1,7 @@
 # Создаёт файлы секретов для deploy/docker (Windows / PowerShell).
 # Из корня репозитория:  pwsh -File scripts/init-secrets.ps1
-# Значения совпадают с дефолтами README; для своих паролей отредактируйте переменные ниже.
+# Значения совпадают с deploy/docker/.env.example (локальные плейсхолдеры changeme).
+# Для своих паролей задайте CLICKHOUSE_PASSWORD / MINIO_SECRET_KEY / GRAFANA_ADMIN_PASSWORD в окружении.
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -8,9 +9,10 @@ $secretsDir = Join-Path $repoRoot "deploy\docker\secrets"
 
 New-Item -ItemType Directory -Force -Path $secretsDir | Out-Null
 
-$clickhouse = "ClickHousePass123!"
-$minio = "MinIOSecret456!"
-$grafana = "GrafanaAdmin123!"
+# Local dev placeholders — override via env or edit before non-local use.
+$clickhouse = if ($env:CLICKHOUSE_PASSWORD) { $env:CLICKHOUSE_PASSWORD } else { "changeme" }
+$minio = if ($env:MINIO_SECRET_KEY) { $env:MINIO_SECRET_KEY } else { "changeme" }
+$grafana = if ($env:GRAFANA_ADMIN_PASSWORD) { $env:GRAFANA_ADMIN_PASSWORD } else { "changeme" }
 
 # UTF8Encoding($false) — без BOM; PowerShell 5.x Set-Content добавляет BOM,
 # который ломает Docker Secrets (MinIO, ClickHouse и др. читают лишние байты).

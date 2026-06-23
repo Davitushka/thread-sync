@@ -377,8 +377,9 @@ jobs:
           echo -n "placeholder" > deploy/docker/secrets/smtp_password.txt
           echo -n "https://hooks.slack.com/placeholder" > deploy/docker/secrets/slack_webhook_url.txt
           echo -n "placeholder" > deploy/docker/secrets/pagerduty_key.txt
-          echo -n "ClickHousePass123!" > deploy/docker/secrets/clickhouse_password.txt
-          echo -n "MinIOSecret456!" > deploy/docker/secrets/minio_secret_key.txt
+          echo -n "changeme" > deploy/docker/secrets/clickhouse_password.txt
+          echo -n "changeme" > deploy/docker/secrets/minio_secret_key.txt
+          echo -n "changeme" > deploy/docker/secrets/grafana_admin_password.txt
 
       - name: Validate docker-compose config
         run: docker compose -f deploy/docker/docker-compose.yml config --quiet
@@ -387,8 +388,8 @@ jobs:
         run: |
           docker compose -f deploy/docker/docker-compose.yml up -d clickhouse
           echo "Waiting for ClickHouse to become healthy..."
-          timeout 60 bash -c 'until docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! --query "SELECT 1" 2>/dev/null; do sleep 2; done'
-          docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! --query "SELECT version()"
+          timeout 60 bash -c 'until docker exec siem-clickhouse clickhouse-client --user siem --password changeme --query "SELECT 1" 2>/dev/null; do sleep 2; done'
+          docker exec siem-clickhouse clickhouse-client --user siem --password changeme --query "SELECT version()"
           docker compose -f deploy/docker/docker-compose.yml down
 
   # ── Контракты пайплайна: Grafana SQL, сиды, Vector validate ──────────────
@@ -431,20 +432,21 @@ jobs:
           echo -n "placeholder" > deploy/docker/secrets/smtp_password.txt
           echo -n "https://hooks.slack.com/placeholder" > deploy/docker/secrets/slack_webhook_url.txt
           echo -n "placeholder" > deploy/docker/secrets/pagerduty_key.txt
-          echo -n "ClickHousePass123!" > deploy/docker/secrets/clickhouse_password.txt
-          echo -n "MinIOSecret456!" > deploy/docker/secrets/minio_secret_key.txt
+          echo -n "changeme" > deploy/docker/secrets/clickhouse_password.txt
+          echo -n "changeme" > deploy/docker/secrets/minio_secret_key.txt
+          echo -n "changeme" > deploy/docker/secrets/grafana_admin_password.txt
 
       - name: Start SIEM stack
         run: docker compose -f deploy/docker/docker-compose.yml up -d
 
       - name: Wait for ClickHouse
         run: |
-          timeout 120 bash -c 'until docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! --query "SELECT 1" 2>/dev/null; do sleep 2; done'
+          timeout 120 bash -c 'until docker exec siem-clickhouse clickhouse-client --user siem --password changeme --query "SELECT 1" 2>/dev/null; do sleep 2; done'
 
       - name: Bootstrap ClickHouse (SOC seed: events, alerts, threat_intel)
         run: bash scripts/seed-data/bootstrap_clickhouse.sh
         env:
-          CLICKHOUSE_PASSWORD: ClickHousePass123!
+          CLICKHOUSE_PASSWORD: changeme
 
       - name: Short detection stress (Prometheus siem_events_total + атаки)
         run: |
@@ -456,13 +458,13 @@ jobs:
 
       - name: Assert dashboard data (ClickHouse)
         run: |
-          E=$(docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! -q \
+          E=$(docker exec siem-clickhouse clickhouse-client --user siem --password changeme -q \
             "SELECT count() FROM siem.events WHERE timestamp >= now() - INTERVAL 25 HOUR")
           test "${E:-0}" -ge 1000
-          T=$(docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! -q \
+          T=$(docker exec siem-clickhouse clickhouse-client --user siem --password changeme -q \
             "SELECT count() FROM siem.threat_intel WHERE feed = 'seed'")
           test "${T:-0}" -ge 5
-          A=$(docker exec siem-clickhouse clickhouse-client --user siem --password ClickHousePass123! -q \
+          A=$(docker exec siem-clickhouse clickhouse-client --user siem --password changeme -q \
             "SELECT count() FROM siem.alerts WHERE triggered_at >= now() - INTERVAL 2 HOUR")
           test "${A:-0}" -ge 1
 
@@ -486,7 +488,7 @@ jobs:
           python validate_grafana.py \
             --url http://localhost:3000 \
             --user admin \
-            --password ClickHousePass123! \
+            --password changeme \
             --output report.json \
             --verbose
 
